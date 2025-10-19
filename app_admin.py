@@ -307,6 +307,18 @@ with tabs[0]:
             file_name="providers_admin_export.csv",
             mime="text/csv",
         )
+def _compute_keywords(category: str, service: str, business_name: str) -> str:
+    """
+    Simple seed for computed_keywords:
+    - Lowercase, dedup, and join category/service/business_name tokens.
+    - You can replace this with your richer CKW logic later.
+    """
+    toks = []
+    for s in (category or "", service or "", business_name or ""):
+        for t in (s or "").lower().split():
+            if t and t not in toks:
+                toks.append(t)
+    return " ".join(toks)
 
 # -------------------------
 # Add
