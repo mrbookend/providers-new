@@ -326,8 +326,35 @@ with tab_browse:
         if col not in df.columns:
             df[col] = ""
     vdf = df.reindex(columns=BROWSE_DISPLAY_COLUMNS)
+# ==== BEGIN: Browse render (safe, policy-aligned) ====
+MAX_RENDER_ROWS = 1000
+_src = vdf if "vdf" in locals() else df
 
-    # Render grid (hide row numbers, no `id`)
+if _src is None or _src.empty:
+    st.info("No matching providers. Tip: try fewer words.")
+else:
+    _render = _src.copy()
+
+    # Never show these if present
+    for col in ("id", "city", "state", "zip"):
+        if col in _render.columns:
+            _render.drop(columns=[col], inplace=True)
+
+    # Ensure all policy columns exist (prevents KeyError on reindex)
+    for col in BROWSE_DISPLAY_COLUMNS:
+        if col not in _render.columns:
+            _render[col] = ""
+
+    # Reorder & restrict to the approved set
+    _render = _render.reindex(columns=BROWSE_DISPLAY_COLUMNS)
+
+    # Cap and remove row-number index
+    _render = _render.head(MAX_RENDER_ROWS).reset_index(drop=True)
+
+    st.dataframe(_render, use_container_width=True, hide_index=True)
+# ==== END: Browse render (safe, policy-aligned) ====
+
+# Render grid (hide row numbers, no `id`)
     if vdf.empty:
         st.info("No matching providers. Tip: try fewer words.")
     else:
