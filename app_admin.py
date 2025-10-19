@@ -117,7 +117,7 @@ def _tokenize_for_ckw(*parts: str) -> List[str]:
     return out
 
 # ---- CSV bootstrap helper (runs only if table is empty and ALLOW_SEED_IMPORT=1) ----
-def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str = SEED_CSV) -> str:
+def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str | None = None) -> str:
     """
     If vendors is empty, load seed CSV and insert rows.
     Returns a short status message (or empty string if no-op).
