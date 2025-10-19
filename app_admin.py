@@ -21,6 +21,19 @@ def build_engine() -> Engine:
     return sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
 
 ENG = build_engine()
+# ==== BEGIN: DB diagnostics (temporary) ====
+try:
+    with (eng if 'eng' in locals() else engine).connect() as cx:
+        try:
+            path = cx.exec_driver_sql("PRAGMA database_list").fetchall()
+            db_target = path[0][2] if path and len(path[0]) >= 3 else "n/a"
+        except Exception:
+            db_target = "n/a"
+        vendors_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+        st.caption(f"DB target: {db_target} | vendors: {vendors_cnt}")
+except Exception as e:
+    st.error(f"DB diagnostics failed: {e}")
+# ==== END: DB diagnostics (temporary) ====
 
 DDL = """
 CREATE TABLE IF NOT EXISTS vendors (
