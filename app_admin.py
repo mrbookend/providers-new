@@ -4,18 +4,6 @@ from __future__ import annotations
 
 """
 Providers — Admin (providers-new)
-
-This build applies the requested changes:
-- Hide row numbers in Browse; do not show `id`.
-- Browse column order: category → service → business_name, then others; show computed_keywords.
-- Permanently remove city/state/zip from UI and inserts (kept out of schema for this app).
-- Add computed_keywords on insert; normalize phone to digits.
-- Ensure helpers are defined BEFORE bootstrap; robust bootstrap from CSV when table empty.
-
-Scope: Standalone, minimal-yet-complete Admin suitable for providers-new repo
-(target DB: ./providers.db, seed CSV: ./data/providers_seed.csv)
-
-NOTE: If you later reintroduce Turso/libsql, replace build_engine() accordingly.
 """
 
 # ---- Streamlit page config MUST be the first Streamlit command ----
