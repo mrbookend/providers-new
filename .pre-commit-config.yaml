@@ -31,3 +31,8 @@ repos:
               && { echo "Found forbidden files in push range: $range"; exit 1; } || exit 0
         pass_filenames: false
         stages: [pre-push]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
