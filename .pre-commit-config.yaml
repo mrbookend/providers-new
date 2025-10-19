@@ -3,5 +3,19 @@ repos:
     rev: v0.6.9
     hooks:
       - id: ruff
-        args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: forbid-conflict-backups
+        name: Forbid conflict backup files
+        language: system
+        entry: bash
+        pass_filenames: false
+        args:
+          - -lc
+          - >
+            git diff --cached --name-only |
+            grep -E '\.CONFLICT\.BAK$' &&
+            echo 'ERROR: conflict backups must not be committed.' &&
+            exit 1 || exit 0
