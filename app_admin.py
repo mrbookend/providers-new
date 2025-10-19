@@ -96,7 +96,55 @@ try:
         st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
 except Exception as e:
     st.error(f"DB diagnostics failed: {e}")
+# =============================
+# Helpers / CRUD
+# =============================
 
+def _digits_only(p: Optional[str]) -> Optional[str]:
+    if p is None:
+        return None
+    d = "".join(ch for ch in str(p) if ch.isdigit())
+    return d[:10] if d else None
+
+@st.cache_data(show_spinner=False)
+def load_all() -> pd.DataFrame:
+    with _ENGINE.connect() as cx:
+        df = pd.read_sql_query(
+            T("""
+              SELECT id,business_name,category,service,contact_name,phone,email,website,
+                     address,city,state,zip,notes,created_at,updated_at
+              FROM vendors
+              ORDER BY business_name COLLATE NOCASE ASC
+            """),
+            cx,
+        )
+    return df
+
+def insert_row(row: dict[str, Any]) -> int:
+    row = dict(row)
+    if "phone" in row:
+        row["phone"] = _digits_only(row.get("phone"))
+    cols = ",".join(row.keys())
+    vals = ",".join([f":{k}" for k in row.keys()])
+    sql = T(f"INSERT INTO vendors ({cols}) VALUES ({vals})")
+    with _ENGINE.begin() as cx:
+        cx.execute(sql, row)
+        new_id = cx.execute(T("SELECT last_insert_rowid()")).scalar_one()
+        return int(new_id)
+
+def update_row(row_id: int, row: dict[str, Any]) -> None:
+    row = dict(row)
+    if "phone" in row:
+        row["phone"] = _digits_only(row.get("phone"))
+    sets = ",".join([f"{k}=:{k}" for k in row.keys()])
+    row["id"] = row_id
+    sql = T(f"UPDATE vendors SET {sets} WHERE id=:id")
+    with _ENGINE.begin() as cx:
+        cx.execute(sql, row)
+
+def delete_row(row_id: int) -> None:
+    with _ENGINE.begin() as cx:
+        cx.execute(T("DELETE FROM vendors WHERE id=:id"), {"id": row_id})
 # =============================
 # One-time CSV bootstrap (guarded)
 # =============================
@@ -158,55 +206,7 @@ changed, msg = _bootstrap_from_csv_if_empty(_ENGINE, SEED_CSV_REL)
 if msg:
     st.caption(msg)
 
-# =============================
-# Helpers / CRUD
-# =============================
 
-def _digits_only(p: Optional[str]) -> Optional[str]:
-    if p is None:
-        return None
-    d = "".join(ch for ch in str(p) if ch.isdigit())
-    return d[:10] if d else None
-
-@st.cache_data(show_spinner=False)
-def load_all() -> pd.DataFrame:
-    with _ENGINE.connect() as cx:
-        df = pd.read_sql_query(
-            T("""
-              SELECT id,business_name,category,service,contact_name,phone,email,website,
-                     address,city,state,zip,notes,created_at,updated_at
-              FROM vendors
-              ORDER BY business_name COLLATE NOCASE ASC
-            """),
-            cx,
-        )
-    return df
-
-def insert_row(row: dict[str, Any]) -> int:
-    row = dict(row)
-    if "phone" in row:
-        row["phone"] = _digits_only(row.get("phone"))
-    cols = ",".join(row.keys())
-    vals = ",".join([f":{k}" for k in row.keys()])
-    sql = T(f"INSERT INTO vendors ({cols}) VALUES ({vals})")
-    with _ENGINE.begin() as cx:
-        cx.execute(sql, row)
-        new_id = cx.execute(T("SELECT last_insert_rowid()")).scalar_one()
-        return int(new_id)
-
-def update_row(row_id: int, row: dict[str, Any]) -> None:
-    row = dict(row)
-    if "phone" in row:
-        row["phone"] = _digits_only(row.get("phone"))
-    sets = ",".join([f"{k}=:{k}" for k in row.keys()])
-    row["id"] = row_id
-    sql = T(f"UPDATE vendors SET {sets} WHERE id=:id")
-    with _ENGINE.begin() as cx:
-        cx.execute(sql, row)
-
-def delete_row(row_id: int) -> None:
-    with _ENGINE.begin() as cx:
-        cx.execute(T("DELETE FROM vendors WHERE id=:id"), {"id": row_id})
 
 # =============================
 # UI
