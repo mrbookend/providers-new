@@ -424,12 +424,10 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 #   Main App
 # =============================
 
-def main() -> None:
     eng = build_engine()
     ensure_schema(eng)
 
-    st.title("Providers — Admin")
-    st.caption(f"Version: {APP_VER}")
+    # (Header removed per request)
 
     tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs([
         "Browse",
@@ -437,7 +435,7 @@ def main() -> None:
         "Category / Service",
         "Maintenance",
     ])
-
+    
     # ---------------------
     # Browse (Admin)
     # ---------------------
@@ -455,6 +453,17 @@ def main() -> None:
         # Search CKW-first, fallback if needed; cap results; no Prev/Next
         ids = search_ids_ckw_first(eng, q, limit=MAX_RENDER_ROWS_ADMIN)
         n = len(ids)
+
+        # If nothing matched, show DB target + total count so you know if DB is empty or query is too narrow
+        if n == 0:
+            try:
+                with eng.begin() as cx:
+                    target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+                st.info(f"No matches. DB: {target} | vendors: {total_cnt}. Tip: click **Clear** to reset search, or set DB_PATH in secrets.")
+            except Exception as e:
+                st.info(f"No matches. (Diagnostics failed: {e})")
+
         if n == MAX_RENDER_ROWS_ADMIN:
             st.info(f"Showing first {MAX_RENDER_ROWS_ADMIN} matches (cap). Refine your search to narrow further.")
         df = fetch_rows_by_ids(eng, ids)
