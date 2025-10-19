@@ -214,61 +214,57 @@ def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str = SEED_CSV) -> s
 
 
 # =============================
-#   Data access helpers
+#   Data access (UNCACHED core)
 # =============================
-@st.cache_data(show_spinner=False)
-def fetch_page(engine: Engine, q: str, offset: int = 0, limit: int = PAGE_SIZE) -> pd.DataFrame:
-    """Fetch vendors page with trivial LIKE filter on a composed blob of key fields."""
+def _fetch_page_uncached(eng: Engine, q: str, offset: int = 0, limit: int = PAGE_SIZE) -> pd.DataFrame:
+    """Fetch vendors page with a simple LIKE filter over key fields (uncached core)."""
     where = ""
-    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    params: dict[str, Any] = {"limit": int(limit), "offset": int(offset)}
     if q:
-        where = "WHERE (business_name || ' ' || category || ' ' || service || ' ' || IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
+        where = (
+            "WHERE (business_name || ' ' || category || ' ' || service || ' ' || "
+            "IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
+        )
         params["q"] = f"%{q}%"
+
     sql = f"""
         SELECT business_name, category, service, contact_name, phone, email, website,
                address, notes, computed_keywords, created_at, updated_at
         FROM vendors
         {where}
-        ORDER BY category COLLATE NOCASE ASC, service COLLATE NOCASE ASC, business_name COLLATE NOCASE ASC
+        ORDER BY category COLLATE NOCASE ASC,
+                 service  COLLATE NOCASE ASC,
+                 business_name COLLATE NOCASE ASC
         LIMIT :limit OFFSET :offset
     """
-    with engine.begin() as cx:
-        rows = cx.exec_driver_sql(sql, params).fetchall()
-        cols = [
-            "business_name",
-            "category",
-            "service",
-            "contact_name",
-            "phone",
-            "email",
-            "website",
-            "address",
-            "notes",
-            "computed_keywords",
-            "created_at",
-            "updated_at",
-        ]
-        df = pd.DataFrame(rows, columns=cols)
+    with eng.connect() as cx:
+        df = pd.read_sql_query(sql_text(sql), cx, params=params)
     return df
 
 
-@st.cache_data(show_spinner=False)
-def count_rows(engine: Engine, q: str) -> int:
+def _count_rows_uncached(eng: Engine, q: str) -> int:
+    """Return total count matching the simple LIKE filter (uncached core)."""
     where = ""
     params: dict[str, Any] = {}
     if q:
-        where = "WHERE (business_name || ' ' || category || ' ' || service || ' ' || IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
+        where = (
+            "WHERE (business_name || ' ' || category || ' ' || service || ' ' || "
+            "IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
+        )
         params["q"] = f"%{q}%"
-    sql = f"SELECT COUNT(*) FROM vendors {where}"
-    with engine.begin() as cx:
-        return int(cx.exec_driver_sql(sql, params).scalar() or 0)
+
+    sql = f"SELECT COUNT(*) AS n FROM vendors {where}"
+    with eng.connect() as cx:
+        return int(cx.execute(sql_text(sql), params).scalar() or 0)
 
 
-def insert_row(engine: Engine, row: dict[str, Any]) -> int:
+def insert_row(eng: Engine, row: dict[str, Any]) -> int:
+    """Insert a vendor row (writes are never cached)."""
     now = _now_iso()
-    row = dict(row)
-    row.setdefault("created_at", now)
-    row.setdefault("updated_at", now)
+    data = dict(row)
+    data.setdefault("created_at", now)
+    data.setdefault("updated_at", now)
+
     insert_sql = """
         INSERT INTO vendors (
             business_name, category, service, contact_name,
@@ -280,8 +276,8 @@ def insert_row(engine: Engine, row: dict[str, Any]) -> int:
             :computed_keywords, :created_at, :updated_at
         )
     """
-    with engine.begin() as cx:
-        cx.execute(sql_text(insert_sql), row)
+    with eng.begin() as cx:
+        cx.execute(sql_text(insert_sql), data)
         new_id = int(cx.exec_driver_sql("SELECT last_insert_rowid()").scalar())
     return new_id
 
@@ -289,6 +285,7 @@ def insert_row(engine: Engine, row: dict[str, Any]) -> int:
 # =============================
 #   UI — Tabs
 # =============================
+
 engine = build_engine()
 ensure_schema(engine)
 
