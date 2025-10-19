@@ -242,7 +242,7 @@ def main() -> None:
     else:
         st.caption(status_msg)
 
-        # ---- Tabs
+    # ---- Tabs
     tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
     # ---- Browse tab
@@ -286,68 +286,12 @@ def main() -> None:
 
         offset = (page - 1) * limit
         try:
-            vdf = list_rows(eng, q, limit, offset, DATA_VER)
+            vdf = fetch_page(eng, q, limit, offset, DATA_VER)
         except Exception as e:
             st.error(f"Browse failed (list): {e}")
             st.stop()
 
         c_meta.caption(f"{total} providers • page {page}/{pages}")
-        st.dataframe(
-            vdf.head(MAX_RENDER_ROWS),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    # ---- Add tab
-    with tab_add:
-        st.subheader("Add Provider")
-        # TODO: add form here
-
-
-# ---- Entrypoint
-if __name__ == "__main__":
-    main()
-
-
-            # ---- Browse pager + table ----
-        try:
-            total = count_rows(eng, q, DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (count): {e}")
-            st.stop()
-
-        limit = PAGE_SIZE
-        pages = max(1, (total + limit - 1) // limit)
-
-        # current page in session (1-based)
-        page = int(st.session_state.get("page", 1))
-        if page < 1:
-            page = 1
-        if page > pages:
-            page = pages
-
-        c_prev, c_next, c_meta = st.columns([0.15, 0.15, 0.7])
-        if c_prev.button("Prev", disabled=(page <= 1)):
-            page = max(1, page - 1)
-        if c_next.button("Next", disabled=(page >= pages)):
-            page = min(pages, page + 1)
-        st.session_state["page"] = page
-
-        offset = (page - 1) * limit
-        try:
-            vdf = list_rows(eng, q, limit, offset, DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (list): {e}")
-            st.stop()
-
-        c_meta.caption(f"{total} providers • page {page}/{pages}")
-        st.dataframe(
-            vdf.head(MAX_RENDER_ROWS),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
 
         if vdf.empty:
             st.info("No providers found.")
@@ -358,7 +302,11 @@ if __name__ == "__main__":
                 for m in missing:
                     vdf[m] = ""
             vdf = vdf[BROWSE_DISPLAY_COLUMNS].head(MAX_RENDER_ROWS)
-            st.dataframe(vdf, use_container_width=True)
+            st.dataframe(
+                vdf,
+                use_container_width=True,
+                hide_index=True,
+            )
 
             # CSV download of current page
             csv_bytes = vdf.to_csv(index=False).encode("utf-8")
@@ -430,5 +378,6 @@ if __name__ == "__main__":
                 except Exception as e:
                     st.error(f"Add failed: {e}")
 
+# ---- Entrypoint
 if __name__ == "__main__":
     main()
