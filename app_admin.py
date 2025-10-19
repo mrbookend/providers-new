@@ -21,6 +21,9 @@ def build_engine() -> Engine:
     return sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
 
 ENG = build_engine()
+# Canonical engine alias so other blocks don't guess the variable name
+_ENGINE = eng
+
 # ==== BEGIN: DB diagnostics (temporary) ====
 try:
     with (eng if 'eng' in locals() else engine).connect() as cx:
