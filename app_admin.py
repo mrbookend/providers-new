@@ -83,8 +83,6 @@ ensure_schema(_ENGINE)
 # =============================
 # Diagnostics (temporary / safe)
 # =============================
-
-# Shows DB target and vendor count; OK to leave, remove later if desired
 try:
     with _ENGINE.connect() as _cx:
         try:
@@ -93,9 +91,12 @@ try:
         except Exception:
             db_target = "n/a"
         vendors_cnt = _cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-        st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
+        if os.getenv("SHOW_STATUS") == "1":
+            st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
 except Exception as e:
-    st.error(f"DB diagnostics failed: {e}")
+    if os.getenv("SHOW_STATUS") == "1":
+        st.error(f"DB diagnostics failed: {e}")
+
 # =============================
 # Helpers / CRUD
 # =============================
