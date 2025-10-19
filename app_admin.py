@@ -86,14 +86,12 @@ def _now_iso() -> str:
 
 
 # =============================
-#   Engine & schema
+#   Engine builder (UNCACHED core)
 # =============================
-@st.cache_resource(show_spinner=False)
-def build_engine() -> Engine:
-    # SQLite file in repo root (providers-new)
-    url = f"sqlite+pysqlite:///{DB_PATH}"
-    eng = sa.create_engine(url, future=True)
+def _build_engine_uncached() -> Engine:
+    eng = sa.create_engine(f"sqlite:///{DB_PATH}")
     return eng
+
 
 
 def ensure_schema(engine: Engine) -> None:
