@@ -4,12 +4,22 @@ from __future__ import annotations
 
 """
 Providers — Admin (providers-new)
+
+Design notes (concise):
+- Guarded st.set_page_config() is the first Streamlit command to survive Cloud pre-enqueue.
+- No @st.cache_data at module level. We define UNCACHED core functions only.
+- Caching is (re)applied inside main() after page_config:
+    - Engine via @st.cache_resource
+    - Data via st.cache_data with only hashable args (q/limit/offset/DATA_VER)
+- DATA_VER in session_state bumps after writes to invalidate data caches.
 """
 
 # ---- Streamlit page config MUST be the first Streamlit command ----
 import streamlit as st
 
-def _safe_page_config():
+
+def _safe_page_config() -> None:
+    """Guarded page config so Cloud pre-enqueue or double-runs don't crash."""
     try:
         st.set_page_config(
             page_title="Providers — Admin",
@@ -18,11 +28,11 @@ def _safe_page_config():
             initial_sidebar_state="expanded",
         )
     except Exception:
-        # Cloud sometimes re-runs or enqueues before config; ignore duplicate/ordering error
+        # Cloud sometimes re-runs or enqueues before config; ignore duplicate/ordering errors.
         pass
 
-_safe_page_config()
 
+_safe_page_config()
 
 # ---- Stdlib ----
 import os
@@ -38,13 +48,12 @@ from sqlalchemy.engine import Engine
 # =============================
 #   Global constants / policy
 # =============================
-APP_VER = "admin-2025-10-19"
+APP_VER = "admin-2025-10-19.4"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 PAGE_SIZE = 200
 MAX_RENDER_ROWS = 1000
 
-# Only these columns appear in Browse (order matters) and in CSV export
 BROWSE_DISPLAY_COLUMNS = [
     "category",
     "service",
@@ -60,186 +69,46 @@ BROWSE_DISPLAY_COLUMNS = [
     "updated_at",
 ]
 
-
 # =============================
-#   Helpers (must be BEFORE bootstrap)
+#   Small helpers (pure)
 # =============================
-def _digits_only(s: str | None) -> str:
-    """Return only digits from a string; safe on None."""
-    return "".join(ch for ch in (s or "") if ch.isdigit())
-
-
-def _compute_keywords(category: str, service: str, business_name: str) -> str:
-    """Basic computed_keywords seed from category/service/business_name.
-    Lowercase tokenize; dedup in order.
-    """
-    toks: list[str] = []
-    for s in (category or "", service or "", business_name or ""):
-        for t in (s or "").lower().split():
-            if t and t not in toks:
-                toks.append(t)
-    return " ".join(toks)
 
 
 def _now_iso() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _digits_only(s: str | None) -> str:
+    if not s:
+        return ""
+    return "".join(ch for ch in str(s) if ch.isdigit())
+
+
+def _format_phone(s: str | None) -> str:
+    d = _digits_only(s)
+    if len(d) == 10:
+        return f"({d[0:3]}) {d[3:6]}-{d[6:10]}"
+    return s or ""
+
+
 # =============================
 #   Engine builder (UNCACHED core)
 # =============================
+
+
 def _build_engine_uncached() -> Engine:
-    eng = sa.create_engine(f"sqlite:///{DB_PATH}")
+    # sqlite path; check_same_thread=False to be Streamlit-friendly
+    eng = sa.create_engine(
+        f"sqlite:///{DB_PATH}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
     return eng
-
-
-
-def ensure_schema(engine: Engine) -> None:
-    """Create minimal schema if missing. No city/state/zip by design here."""
-    with engine.begin() as cx:
-        cx.exec_driver_sql(
-            """
-            CREATE TABLE IF NOT EXISTS vendors (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                business_name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                service TEXT NOT NULL,
-                contact_name TEXT,
-                phone TEXT,
-                email TEXT,
-                website TEXT,
-                address TEXT,
-                notes TEXT,
-                computed_keywords TEXT,
-                ckw_locked INTEGER DEFAULT 0,
-                ckw_version TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-            """
-        )
-        # Basic helpful indexes
-        cx.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)"
-        )
-        cx.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS idx_vendors_category_service ON vendors(category, service)"
-        )
-        cx.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
-        )
-
-
-# =============================
-#   Bootstrap (idempotent)
-# =============================
-def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str = SEED_CSV) -> str:
-    """
-    If vendors is empty, load seed CSV and insert rows.
-    Expected CSV headers (extras ignored):
-      business_name,category,service,contact_name,phone,email,website,address,notes
-    """
-    try:
-        with engine.begin() as cx:
-            cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            if int(cnt) > 0:
-                return f"Bootstrap skipped (vendors already has {cnt} rows)."
-
-            if not os.path.exists(csv_path):
-                raise RuntimeError(f"Seed CSV not found: {csv_path}")
-
-            df = pd.read_csv(csv_path)
-            want = {
-                "business_name",
-                "category",
-                "service",
-                "contact_name",
-                "phone",
-                "email",
-                "website",
-                "address",
-                "notes",
-            }
-            missing = sorted(want - set(df.columns))
-            if missing:
-                raise RuntimeError("Seed CSV missing columns: " + ", ".join(missing))
-
-            df = df.copy()
-            df["phone"] = df["phone"].map(_digits_only)
-            df["computed_keywords"] = [
-                _compute_keywords(
-                    r.get("category", ""), r.get("service", ""), r.get("business_name", "")
-                )
-                for r in df.to_dict(orient="records")
-            ]
-            now = _now_iso()
-            df["created_at"], df["updated_at"] = now, now
-
-            rows = df[
-                [
-                    "business_name",
-                    "category",
-                    "service",
-                    "contact_name",
-                    "phone",
-                    "email",
-                    "website",
-                    "address",
-                    "notes",
-                    "computed_keywords",
-                    "created_at",
-                    "updated_at",
-                ]
-            ].to_dict(orient="records")
-
-            insert_sql = """
-            INSERT INTO vendors (
-                business_name, category, service, contact_name,
-                phone, email, website, address, notes,
-                computed_keywords, created_at, updated_at
-            ) VALUES (
-                :business_name, :category, :service, :contact_name,
-                :phone, :email, :website, :address, :notes,
-                :computed_keywords, :created_at, :updated_at
-            )
-            """
-            for r in rows:
-                cx.execute(sql_text(insert_sql), r)
-
-            cnt2 = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            return f"Bootstrap inserted {len(rows)} rows (total now {cnt2})."
-
-    except Exception as e:
-        raise RuntimeError(f"Bootstrap error: {e}")
 
 
 # =============================
 #   Data access (UNCACHED core)
 # =============================
-def _fetch_page_uncached(eng: Engine, q: str, offset: int = 0, limit: int = PAGE_SIZE) -> pd.DataFrame:
-    """Fetch vendors page with a simple LIKE filter over key fields (uncached core)."""
-    where = ""
-    params: dict[str, Any] = {"limit": int(limit), "offset": int(offset)}
-    if q:
-        where = (
-            "WHERE (business_name || ' ' || category || ' ' || service || ' ' || "
-            "IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
-        )
-        params["q"] = f"%{q}%"
-
-    sql = f"""
-        SELECT business_name, category, service, contact_name, phone, email, website,
-               address, notes, computed_keywords, created_at, updated_at
-        FROM vendors
-        {where}
-        ORDER BY category COLLATE NOCASE ASC,
-                 service  COLLATE NOCASE ASC,
-                 business_name COLLATE NOCASE ASC
-        LIMIT :limit OFFSET :offset
-    """
-    with eng.connect() as cx:
-        df = pd.read_sql_query(sql_text(sql), cx, params=params)
-    return df
 
 
 def _count_rows_uncached(eng: Engine, q: str) -> int:
@@ -255,7 +124,37 @@ def _count_rows_uncached(eng: Engine, q: str) -> int:
 
     sql = f"SELECT COUNT(*) AS n FROM vendors {where}"
     with eng.connect() as cx:
-        return int(cx.execute(sql_text(sql), params).scalar() or 0)
+        val = cx.execute(sql_text(sql), params).scalar()
+        return int(val or 0)
+
+
+def _fetch_page_uncached(
+    eng: Engine, q: str, offset: int = 0, limit: int = PAGE_SIZE
+) -> pd.DataFrame:
+    """Fetch vendors page with a simple LIKE filter over key fields (uncached core)."""
+    where = ""
+    params: dict[str, Any] = {"limit": int(limit), "offset": int(offset)}
+    if q:
+        where = (
+            "WHERE (business_name || ' ' || category || ' ' || service || ' ' || "
+            "IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
+        )
+        params["q"] = f"%{q}%"
+
+    sql = f"""
+        SELECT
+          business_name, category, service, contact_name, phone, email, website,
+          address, notes, computed_keywords, created_at, updated_at
+        FROM vendors
+        {where}
+        ORDER BY category COLLATE NOCASE ASC,
+                 service  COLLATE NOCASE ASC,
+                 business_name COLLATE NOCASE ASC
+        LIMIT :limit OFFSET :offset
+    """
+    with eng.connect() as cx:
+        df = pd.read_sql_query(sql_text(sql), cx, params=params)
+    return df
 
 
 def insert_row(eng: Engine, row: dict[str, Any]) -> int:
@@ -283,150 +182,212 @@ def insert_row(eng: Engine, row: dict[str, Any]) -> int:
 
 
 # =============================
-#   UI — Tabs
+#   MAIN APP
 # =============================
 
-engine = build_engine()
-ensure_schema(engine)
 
-# Status banner
-try:
-    with engine.begin() as cx:
-        target = os.path.abspath(DB_PATH)
-        cnt = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
-    st.caption(f"DB target: {target} | vendors: {cnt} | {APP_VER}")
-except Exception as e:
-    st.error(f"DB diagnostics failed: {e}")
+def main() -> None:
+    # page_config already set by _safe_page_config()
 
-# ---- Tabs ----
-tab_browse, tab_add = st.tabs(["Browse", "Add"])
+    st.write(f"### Providers — Admin (providers-new)")
 
-# ---- Browse ----
-with tab_browse:
-    st.subheader("Browse Providers")
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        q = st.text_input(
-            "Search",
-            value=st.session_state.get("q", ""),
-            placeholder="name, category, service, notes…",
-        )
-    with c2:
-        if st.button("Clear"):
-            q = ""
-    st.session_state["q"] = q
+    # A tiny status banner (DB path + quick count), non-fatal if missing table.
+    try:
+        # Re-wrap the core engine with resource caching (post-config only)
+        build_engine = st.cache_resource(show_spinner=False)(_build_engine_uncached)
 
-    total = count_rows(engine, q)
-    st.caption(f"{total} matching provider(s)")
+        # Simple cache-buster that increments after writes
+        if "DATA_VER" not in st.session_state:
+            st.session_state["DATA_VER"] = 0
+        DATA_VER = st.session_state["DATA_VER"]
 
-    df = fetch_page(engine, q, 0, PAGE_SIZE)
+        # Cached, hashable-args wrappers (engine captured in closure)
+        def count_rows(q: str, data_ver: int = 0) -> int:
+            eng = build_engine()
+            return st.cache_data(show_spinner=False)(
+                lambda _q, _v: _count_rows_uncached(eng, _q)
+            )(q, data_ver)
 
-    # Ensure columns exist, then reindex to policy order
-    for col in BROWSE_DISPLAY_COLUMNS:
-        if col not in df.columns:
-            df[col] = ""
-    vdf = df.reindex(columns=BROWSE_DISPLAY_COLUMNS)
-# ==== BEGIN: Browse render (safe, policy-aligned) ====
-MAX_RENDER_ROWS = 1000
-_src = vdf if "vdf" in locals() else df
+        def fetch_page(
+            q: str, offset: int = 0, limit: int = PAGE_SIZE, data_ver: int = 0
+        ) -> pd.DataFrame:
+            eng = build_engine()
+            return st.cache_data(show_spinner=False)(
+                lambda _q, _o, _l, _v: _fetch_page_uncached(eng, _q, _o, _l)
+            )(q, offset, limit, data_ver)
 
-if _src is None or _src.empty:
-    st.info("No matching providers. Tip: try fewer words.")
-else:
-    _render = _src.copy()
+        # Diagnostics caption
+        try:
+            eng = build_engine()
+            with eng.connect() as cx:
+                target = DB_PATH
+                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+            st.caption(f"DB target: {target} | vendors: {int(cnt or 0)} | {APP_VER}")
+        except Exception as e_diag:
+            st.error(f"DB diagnostics failed: {e_diag}")
 
-    # Never show these if present
-    for col in ("id", "city", "state", "zip"):
-        if col in _render.columns:
-            _render.drop(columns=[col], inplace=True)
+        tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
-    # Ensure all policy columns exist (prevents KeyError on reindex)
-    for col in BROWSE_DISPLAY_COLUMNS:
-        if col not in _render.columns:
-            _render[col] = ""
+        # -----------------------------
+        # Browse tab
+        # -----------------------------
+        with tab_browse:
+            st.subheader("Browse Providers")
 
-    # Reorder & restrict to the approved set
-    _render = _render.reindex(columns=BROWSE_DISPLAY_COLUMNS)
+            # Search row
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                q = st.text_input(
+                    "Search",
+                    placeholder="name, category, service, notes…",
+                    value=st.session_state.get("q", ""),
+                )
+            with c2:
+                if st.button("Clear"):
+                    q = ""
+            st.session_state["q"] = q
 
-    # Cap and remove row-number index
-    _render = _render.head(MAX_RENDER_ROWS).reset_index(drop=True)
+            # Totals
+            total = count_rows(q, DATA_VER)
+            st.caption(f"{total} matching provider(s)")
 
-    st.dataframe(_render, use_container_width=True, hide_index=True)
-    # ==== END: Browse render (safe, policy-aligned) ====
+            # Pagination (simple)
+            if "page_offset" not in st.session_state:
+                st.session_state["page_offset"] = 0
+            page_offset = st.session_state["page_offset"]
 
-    # Render grid (hide row numbers, no `id`)
-    if vdf.empty:
-        st.info("No matching providers. Tip: try fewer words.")
-    else:
-        show_df = vdf.head(MAX_RENDER_ROWS).copy()
-        st.dataframe(show_df, use_container_width=True, hide_index=True)
+            # Reset offset if query changed
+            if st.session_state.get("_last_q") != q:
+                page_offset = 0
+                st.session_state["page_offset"] = 0
+            st.session_state["_last_q"] = q
 
-    # CSV export aligned to the same policy
-    if total > 0:
-        export_df = vdf.copy()
-        csv_bytes = export_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download CSV (Browse view)",
-            data=csv_bytes,
-            file_name="providers_browse.csv",
-            mime="text/csv",
-        )
+            # Page controls
+            cprev, cinfo, cnext = st.columns([1, 2, 1])
+            with cprev:
+                if st.button("◀ Prev", disabled=(page_offset <= 0)):
+                    page_offset = max(0, page_offset - PAGE_SIZE)
+                    st.session_state["page_offset"] = page_offset
+            with cnext:
+                if st.button(
+                    "Next ▶", disabled=(page_offset + PAGE_SIZE >= max(0, total))
+                ):
+                    pass
+                else:
+                    if page_offset + PAGE_SIZE < total:
+                        page_offset += PAGE_SIZE
+                        st.session_state["page_offset"] = page_offset
+            with cinfo:
+                start = 0 if total == 0 else page_offset + 1
+                end = min(total, page_offset + PAGE_SIZE)
+                st.write(f"Showing {start}–{end} of {total}")
+
+            # Fetch and render
+            if total == 0:
+                st.info("No matching providers. Tip: try fewer words.")
+            else:
+                df = fetch_page(q, offset=page_offset, limit=PAGE_SIZE, data_ver=DATA_VER)
+                if df.empty:
+                    st.info("No results on this page. Use Prev.")
+                else:
+                    # Render (cap rows if needed)
+                    show_df = df.head(MAX_RENDER_ROWS).copy()
+                    # Phone formatting for display
+                    if "phone" in show_df.columns:
+                        show_df["phone"] = show_df["phone"].map(_format_phone)
+                    st.dataframe(
+                        show_df[BROWSE_DISPLAY_COLUMNS],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    # CSV download of the (filtered) page shown
+                    csv_bytes = show_df[BROWSE_DISPLAY_COLUMNS].to_csv(
+                        index=False
+                    ).encode("utf-8")
+                    st.download_button(
+                        "Download this page (CSV)",
+                        data=csv_bytes,
+                        file_name="providers_page.csv",
+                        mime="text/csv",
+                    )
+
+        # -----------------------------
+        # Add tab
+        # -----------------------------
+        with tab_add:
+            st.subheader("Add Provider")
+            with st.form("add_form", clear_on_submit=True):
+                c1, c2, c3 = st.columns([2, 2, 2])
+
+                with c1:
+                    business_name = st.text_input("Business Name *")
+                    category = st.text_input("Category *")
+                    service = st.text_input("Service *")
+                with c2:
+                    contact_name = st.text_input("Contact Name")
+                    phone = st.text_input("Phone")
+                    email = st.text_input("Email")
+                with c3:
+                    website = st.text_input("Website")
+                    address = st.text_input("Address")
+                    notes = st.text_area("Notes", height=80)
+
+                submitted = st.form_submit_button("Add")
+
+            if submitted:
+                missing = []
+                if not business_name.strip():
+                    missing.append("Business Name")
+                if not category.strip():
+                    missing.append("Category")
+                if not service.strip():
+                    missing.append("Service")
+
+                if missing:
+                    st.error(", ".join(missing) + " are required.")
+                else:
+                    try:
+                        # Normalize phone to digits for storage
+                        phone_digits = _digits_only(phone)
+
+                        # Build row (computed_keywords left blank; add later if desired)
+                        row = {
+                            "business_name": business_name.strip(),
+                            "category": category.strip(),
+                            "service": service.strip(),
+                            "contact_name": contact_name.strip(),
+                            "phone": phone_digits,
+                            "email": (email or "").strip(),
+                            "website": (website or "").strip(),
+                            "address": (address or "").strip(),
+                            "notes": (notes or "").strip(),
+                            "computed_keywords": "",
+                            "created_at": _now_iso(),
+                            "updated_at": _now_iso(),
+                        }
+
+                        eng = build_engine()
+                        new_id = insert_row(eng, row)
+
+                        # Bump data version to bust caches
+                        st.session_state["DATA_VER"] = st.session_state.get(
+                            "DATA_VER", 0
+                        ) + 1
+                        st.cache_data.clear()
+
+                        st.success(f"Added provider ID {new_id}")
+                        st.rerun()
+                    except Exception as e_ins:
+                        st.error(f"Insert failed: {e_ins}")
+
+        # Footer
+        st.caption("© Providers Admin • " + APP_VER)
+
+    except Exception as e:
+        # Top-level safety net for unexpected issues
+        st.error(f"App crashed: {e}")
 
 
-# ---- Add ----
-with tab_add:
-    st.subheader("Add Provider")
-    with st.form("add_form", clear_on_submit=True):
-        c1, c2, c3 = st.columns([2, 2, 2])
-        with c1:
-            business_name = st.text_input("Business Name *")
-            category = st.text_input("Category *")
-            service = st.text_input("Service *")
-        with c2:
-            contact_name = st.text_input("Contact Name")
-            phone = st.text_input("Phone")
-            email = st.text_input("Email")
-        with c3:
-            website = st.text_input("Website")
-            address = st.text_input("Address")
-            notes = st.text_area("Notes", height=80)
-
-        submitted = st.form_submit_button("Add")
-
-    if submitted:
-        # Validate
-        missing = [
-            n
-            for n, v in [
-                ("business_name", business_name),
-                ("category", category),
-                ("service", service),
-            ]
-            if not v or not str(v).strip()
-        ]
-        if missing:
-            st.error(", ".join(missing) + " are required.")
-        else:
-            ckws = _compute_keywords(category.strip(), service.strip(), business_name.strip())
-            row = dict(
-                business_name=business_name.strip(),
-                category=category.strip(),
-                service=service.strip(),
-                contact_name=(contact_name or "").strip() or None,
-                phone=_digits_only(phone) if phone else None,
-                email=(email or "").strip() or None,
-                website=(website or "").strip() or None,
-                address=(address or "").strip() or None,
-                notes=(notes or "").strip() or None,
-                computed_keywords=ckws,
-            )
-            try:
-                new_id = insert_row(engine, row)
-                st.success(f"Added provider ID {new_id}")
-                st.cache_data.clear()
-            except Exception as e:
-                st.error(f"Insert failed: {e}")
-
-
-# Footer
-st.caption("© Providers Admin • " + APP_VER)
+if __name__ == "__main__":
+    main()
