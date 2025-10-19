@@ -15,18 +15,17 @@ st.set_page_config(
 import os
 import csv
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any
 
 # ---- Third-party ----
 import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy import text as sql_text
 from sqlalchemy.engine import Engine
 
 # =============================
 #   Global constants / policy
 # =============================
-APP_VER = "admin-2025-10-19.4"
+APP_VER = "admin-2025-10-19.5"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 PAGE_SIZE = 200
@@ -173,15 +172,24 @@ def _ensure_schema_uncached(engine: Engine, allow_seed: bool = True) -> str:
     return "No schema changes"
 
 # =============================
-#   Data access (read-only browse)
+#   Cached data helpers (ignore engine in hasher)
 # =============================
-def _fetch_count(engine: Engine, q: str = "") -> int:
-    # Simple count; extend with WHERE if you wire search later
-    with engine.connect() as cx:
+@st.cache_data(show_spinner=False)
+def count_rows(_engine: Engine, q: str = "", _data_ver: int = 0) -> int:
+    """
+    Count rows (optionally later: apply WHERE for q). Cached by (q, DATA_VER).
+    `_engine` starts with underscore so Streamlit ignores it for hashing.
+    """
+    with _engine.connect() as cx:
         n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
     return int(n or 0)
 
-def _fetch_page(engine: Engine, limit: int, offset: int) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def fetch_page(_engine: Engine, q: str, limit: int, offset: int, _data_ver: int = 0) -> pd.DataFrame:
+    """
+    Page query (optionally later: WHERE for q). Cached by (q, limit, offset, DATA_VER).
+    `_engine` starts with underscore so Streamlit ignores it for hashing.
+    """
     sql = """
         SELECT
             business_name, category, service, contact_name, phone, email,
@@ -190,9 +198,8 @@ def _fetch_page(engine: Engine, limit: int, offset: int) -> pd.DataFrame:
         ORDER BY business_name COLLATE NOCASE ASC
         LIMIT :limit OFFSET :offset
     """
-    with engine.connect() as cx:
+    with _engine.connect() as cx:
         df = pd.read_sql(sa.text(sql), cx, params={"limit": limit, "offset": offset})
-    # Post-format phone for display
     if "phone" in df.columns:
         df["phone"] = df["phone"].map(_format_phone)
     return df
@@ -203,10 +210,11 @@ def _fetch_page(engine: Engine, limit: int, offset: int) -> pd.DataFrame:
 def main() -> None:
     st.title("Providers — Admin")
     st.caption(f"Version: {APP_VER}")
-# ---- Session defaults (cache invalidation for data) ----
-if "DATA_VER" not in st.session_state:
-    st.session_state["DATA_VER"] = 0
-DATA_VER = st.session_state["DATA_VER"]
+
+    # ---- Session defaults (cache invalidation for data) ----
+    if "DATA_VER" not in st.session_state:
+        st.session_state["DATA_VER"] = 0
+    DATA_VER = st.session_state["DATA_VER"]
 
     # ---- Build engine (cache inside main after page_config)
     @st.cache_resource
@@ -215,7 +223,7 @@ DATA_VER = st.session_state["DATA_VER"]
 
     eng = build_engine()
 
-    # ---- Patch B: ensure schema (and optional seed) immediately after engine build
+    # ---- Ensure schema (and optional seed) immediately after engine build
     status_msg = _ensure_schema_uncached(eng, allow_seed=True)
 
     # Small status line (toggle with env SHOW_STATUS="1")
@@ -233,15 +241,6 @@ DATA_VER = st.session_state["DATA_VER"]
             st.error(f"DB diagnostics failed: {e}")
     else:
         st.caption(status_msg)
-@st.cache_data(show_spinner=False)
-def count_rows(_engine: Engine, q: str = "", _data_ver: int = 0) -> int:
-    """
-    Count rows (optionally later: apply WHERE for q). Cached by (q, DATA_VER).
-    `_engine` name starts with underscore so Streamlit ignores it for hashing.
-    """
-    with _engine.connect() as cx:
-        n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-    return int(n or 0)
 
     # ---- Tabs
     tab_browse, tab_add = st.tabs(["Browse", "Add"])
@@ -249,10 +248,11 @@ def count_rows(_engine: Engine, q: str = "", _data_ver: int = 0) -> int:
     # ---- Browse tab
     with tab_browse:
         st.subheader("Browse Providers")
+        # Placeholder for future search UI
+        q = ""  # e.g., wire up: q = st.text_input("Search", "")
         # Simple pager (no per-column filters in this minimal admin)
-        total = 0
         try:
-            total = _fetch_count(eng)
+            total = count_rows(eng, q, DATA_VER)
         except Exception as e:
             st.error(f"Browse failed (count): {e}")
             return
@@ -263,7 +263,7 @@ def count_rows(_engine: Engine, q: str = "", _data_ver: int = 0) -> int:
         offset = (int(page_num) - 1) * limit
 
         try:
-            vdf = _fetch_page(eng, limit=limit, offset=offset)
+            vdf = fetch_page(eng, q, limit=limit, offset=offset, _data_ver=DATA_VER)
         except Exception as e:
             st.error(f"Browse failed (page): {e}")
             return
@@ -343,6 +343,8 @@ def count_rows(_engine: Engine, q: str = "", _data_ver: int = 0) -> int:
                             "ckw_version": 1,
                         }
                         cx.execute(sa.text(sql), params)
+                    # Invalidate data caches after write
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                     st.success("Provider added.")
                 except Exception as e:
                     st.error(f"Add failed: {e}")
