@@ -6,6 +6,24 @@ from __future__ import annotations
 import streamlit as st
 
 st.set_page_config(page_title="Providers — Admin", page_icon="🛠️", layout="wide")
+# ==== BEGIN: Column display policy (Admin Browse) ====
+# Only columns in this list are shown in the Browse table (and CSV export).
+# Order here = order in UI. We intentionally exclude 'id', 'city', 'state', 'zip'.
+BROWSE_DISPLAY_COLUMNS = [
+    "category",
+    "service",
+    "business_name",
+    "contact_name",
+    "phone",
+    "email",
+    "website",
+    "address",
+    "notes",
+    "computed_keywords",   # newly visible
+    "created_at",
+    "updated_at",
+]
+# ==== END: Column display policy (Admin Browse) ====
 
 # ---- Stdlib / typing ----
 import os
