@@ -32,6 +32,7 @@ import sqlalchemy as sa
 from sqlalchemy import text as sql_text
 from sqlalchemy.engine import Engine
 
+
 # =============================
 #   Global constants / policy
 # =============================
