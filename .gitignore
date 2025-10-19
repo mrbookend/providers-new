@@ -10,3 +10,6 @@ app_admin.py.CONFLICT.BAK
 
 # pre-commit backups
 .pre-commit-config.yaml.BAK*
+
+# local patches
+*.patch

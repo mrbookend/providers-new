@@ -8,6 +8,7 @@ Providers — Admin (providers-new)
 
 # ---- Streamlit page config MUST be the first Streamlit command ----
 import streamlit as st
+
 st.set_page_config(
     page_title="Providers — Admin",
     page_icon="🛠️",
@@ -17,9 +18,8 @@ st.set_page_config(
 
 # ---- Stdlib ----
 import os
-import csv
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 
 # ---- Third-party ----
 import pandas as pd
@@ -51,6 +51,7 @@ BROWSE_DISPLAY_COLUMNS = [
     "created_at",
     "updated_at",
 ]
+
 
 # =============================
 #   Helpers (must be BEFORE bootstrap)
@@ -155,33 +156,35 @@ def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str = SEED_CSV) -> s
             }
             missing = sorted(want - set(df.columns))
             if missing:
-                raise RuntimeError(
-                    "Seed CSV missing columns: " + ", ".join(missing)
-                )
+                raise RuntimeError("Seed CSV missing columns: " + ", ".join(missing))
 
             df = df.copy()
             df["phone"] = df["phone"].map(_digits_only)
             df["computed_keywords"] = [
-                _compute_keywords(r.get("category", ""), r.get("service", ""), r.get("business_name", ""))
+                _compute_keywords(
+                    r.get("category", ""), r.get("service", ""), r.get("business_name", "")
+                )
                 for r in df.to_dict(orient="records")
             ]
             now = _now_iso()
             df["created_at"], df["updated_at"] = now, now
 
-            rows = df[[
-                "business_name",
-                "category",
-                "service",
-                "contact_name",
-                "phone",
-                "email",
-                "website",
-                "address",
-                "notes",
-                "computed_keywords",
-                "created_at",
-                "updated_at",
-            ]].to_dict(orient="records")
+            rows = df[
+                [
+                    "business_name",
+                    "category",
+                    "service",
+                    "contact_name",
+                    "phone",
+                    "email",
+                    "website",
+                    "address",
+                    "notes",
+                    "computed_keywords",
+                    "created_at",
+                    "updated_at",
+                ]
+            ].to_dict(orient="records")
 
             insert_sql = """
             INSERT INTO vendors (
@@ -226,8 +229,18 @@ def fetch_page(engine: Engine, q: str, offset: int = 0, limit: int = PAGE_SIZE) 
     with engine.begin() as cx:
         rows = cx.exec_driver_sql(sql, params).fetchall()
         cols = [
-            "business_name","category","service","contact_name","phone","email","website",
-            "address","notes","computed_keywords","created_at","updated_at"
+            "business_name",
+            "category",
+            "service",
+            "contact_name",
+            "phone",
+            "email",
+            "website",
+            "address",
+            "notes",
+            "computed_keywords",
+            "created_at",
+            "updated_at",
         ]
         df = pd.DataFrame(rows, columns=cols)
     return df
@@ -282,15 +295,7 @@ try:
 except Exception as e:
     st.error(f"DB diagnostics failed: {e}")
 
-# One-time bootstrap if needed
-try:
-    msg = _bootstrap_from_csv_if_needed(engine, SEED_CSV)
-    if msg:
-        st.caption(msg)
-except Exception as e:
-    st.error(str(e))
-
-
+# ---- Tabs ----
 tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
 # ---- Browse ----
@@ -298,7 +303,11 @@ with tab_browse:
     st.subheader("Browse Providers")
     c1, c2 = st.columns([3, 1])
     with c1:
-        q = st.text_input("Search", value=st.session_state.get("q", ""), placeholder="name, category, service, notes…")
+        q = st.text_input(
+            "Search",
+            value=st.session_state.get("q", ""),
+            placeholder="name, category, service, notes…",
+        )
     with c2:
         if st.button("Clear"):
             q = ""
@@ -340,9 +349,9 @@ else:
     _render = _render.head(MAX_RENDER_ROWS).reset_index(drop=True)
 
     st.dataframe(_render, use_container_width=True, hide_index=True)
-# ==== END: Browse render (safe, policy-aligned) ====
+    # ==== END: Browse render (safe, policy-aligned) ====
 
-# Render grid (hide row numbers, no `id`)
+    # Render grid (hide row numbers, no `id`)
     if vdf.empty:
         st.info("No matching providers. Tip: try fewer words.")
     else:
@@ -384,11 +393,13 @@ with tab_add:
     if submitted:
         # Validate
         missing = [
-            n for n, v in [
+            n
+            for n, v in [
                 ("business_name", business_name),
                 ("category", category),
                 ("service", service),
-            ] if not v or not str(v).strip()
+            ]
+            if not v or not str(v).strip()
         ]
         if missing:
             st.error(", ".join(missing) + " are required.")
