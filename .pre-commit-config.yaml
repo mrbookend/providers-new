@@ -4,19 +4,30 @@ repos:
     hooks:
       - id: ruff
       - id: ruff-format
-
   - repo: local
     hooks:
       - id: forbid-conflict-backups
         name: Forbid conflict backup files
         language: system
         entry: bash
-        pass_filenames: false
-        stages: [pre-commit, pre-push]
         args:
-          - -lc
-          - >
-            git diff --cached --name-only |
-            grep -E '\.CONFLICT\.BAK$' &&
-            echo 'ERROR: conflict backups must not be committed.' &&
-            exit 1 || exit 0
+          - -c
+          - |
+            git diff --name-only --cached | grep -E '(\.orig|\.BACKUP|\.BASE|\.LOCAL|\.REMOTE)$|\.pre-commit-config\.yaml\.BAK' \
+              && { echo 'Remove conflict/backup files from commit'; exit 1; } || exit 0
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: check-commit-range
+        name: "Pre-push: check commit range for conflicts/backups"
+        language: system
+        entry: bash
+        args:
+          - -c
+          - |
+            range="$(git rev-parse --abbrev-ref HEAD)@{upstream}..HEAD" || exit 0
+            [ "$range" = "..HEAD" ] && exit 0
+            git diff --name-only "$range" | grep -E '(\.orig|\.BACKUP|\.BASE|\.LOCAL|\.REMOTE)$|\.pre-commit-config\.yaml\.BAK' \
+              && { echo "Found forbidden files in push range: $range"; exit 1; } || exit 0
+        pass_filenames: false
+        stages: [pre-push]

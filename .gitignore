@@ -7,3 +7,6 @@ __pycache__/
 app_admin.py.CONFLICT.BAK
 *.CONFLICT.BAK
 .pre-commit-config.yaml.BAK
+
+# pre-commit backups
+.pre-commit-config.yaml.BAK*
