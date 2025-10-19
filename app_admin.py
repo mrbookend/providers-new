@@ -233,6 +233,15 @@ DATA_VER = st.session_state["DATA_VER"]
             st.error(f"DB diagnostics failed: {e}")
     else:
         st.caption(status_msg)
+@st.cache_data(show_spinner=False)
+def count_rows(_engine: Engine, q: str = "", _data_ver: int = 0) -> int:
+    """
+    Count rows (optionally later: apply WHERE for q). Cached by (q, DATA_VER).
+    `_engine` name starts with underscore so Streamlit ignores it for hashing.
+    """
+    with _engine.connect() as cx:
+        n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+    return int(n or 0)
 
     # ---- Tabs
     tab_browse, tab_add = st.tabs(["Browse", "Add"])
