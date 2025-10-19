@@ -1,24 +1,22 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-"""
-Providers — Admin (providers-new)
-Full replacement file
-- Admin Browse: no wrapping, no Prev/Next, column widths via secrets, cap rows
-- CKW (computed_keywords): stored column+index; CKW-first search with fallback
-- Add/Edit/Delete tab: City/State/Zip removed; Delete guarded
-- Category/Service tab: Add, Delete (guarded), Reassign; auto CKW recompute
-- Maintenance: recompute (single / by cat-serv / all)
-"""
-
 # ---- Streamlit page config MUST be the first Streamlit command ----
 import streamlit as st
-st.set_page_config(
-    page_title="Providers — Admin",
-    page_icon="🛠️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+
+def _safe_page_config() -> None:
+    try:
+        st.set_page_config(
+            page_title="Providers — Admin",
+            page_icon="🛠️",
+            layout="wide",
+            initial_sidebar_state="expanded",
+        )
+    except Exception:
+        # Streamlit Cloud can enqueue before this runs; ignore duplicate/ordering error.
+        pass
+
+_safe_page_config()
 
 # ---- Stdlib ----
 import os
@@ -31,6 +29,10 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy import text as sql_text
 from sqlalchemy.engine import Engine
+
+
+# (If you had a big triple-quoted docstring or bullet text at the top, move it BELOW this block or delete it.)
+
 
 
 # =============================
