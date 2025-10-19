@@ -12,7 +12,7 @@ repos:
         language: system
         entry: bash
         pass_filenames: false
-        stages: [commit, push]
+        stages: [pre-commit, pre-push]
         args:
           - -lc
           - >
