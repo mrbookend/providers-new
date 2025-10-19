@@ -4,3 +4,5 @@ __pycache__/
 *.sqlite
 *.db
 .streamlit/
+app_admin.py.CONFLICT.BAK
+*.CONFLICT.BAK
