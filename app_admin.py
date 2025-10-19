@@ -203,6 +203,10 @@ def _fetch_page(engine: Engine, limit: int, offset: int) -> pd.DataFrame:
 def main() -> None:
     st.title("Providers — Admin")
     st.caption(f"Version: {APP_VER}")
+# ---- Session defaults (cache invalidation for data) ----
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
+DATA_VER = st.session_state["DATA_VER"]
 
     # ---- Build engine (cache inside main after page_config)
     @st.cache_resource
