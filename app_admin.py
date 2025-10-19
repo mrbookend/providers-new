@@ -342,12 +342,28 @@ with tabs[1]:
             state = st.text_input("State", value="TX")
             zipc = st.text_input("ZIP")
             notes = st.text_area("Notes", height=80)
-
-        submitted = st.form_submit_button("Add")
+submitted = st.form_submit_button("Add")
         if submitted:
-            if not business_name or not category or not service:
-                st.error("business_name, category, and service are required.")
+            # Validate requireds
+            missing = [
+                n for n, v in [
+                    ("business_name", business_name),
+                    ("category", category),
+                    ("service", service),
+                ]
+                if not v or not str(v).strip()
+            ]
+            if missing:
+                st.error(f"{', '.join(missing)} are required.")
             else:
+                # Build computed_keywords from category/service/business_name
+                ckws = _compute_keywords(
+                    category.strip(),
+                    service.strip(),
+                    business_name.strip(),
+                )
+
+                # NOTE: city/state/zip permanently removed from the insert payload
                 row = dict(
                     business_name=business_name.strip(),
                     category=category.strip(),
@@ -357,11 +373,10 @@ with tabs[1]:
                     email=email.strip() if email else None,
                     website=website.strip() if website else None,
                     address=address.strip() if address else None,
-                    city=city.strip() if city else None,
-                    state=state.strip() if state else None,
-                    zip=zipc.strip() if zipc else None,
                     notes=notes.strip() if notes else None,
+                    computed_keywords=ckws,  # requires column to exist
                 )
+
                 new_id = insert_row(row)
                 st.success(f"Added provider ID {new_id}")
                 st.cache_data.clear()
