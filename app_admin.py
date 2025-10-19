@@ -2,42 +2,20 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-"""
-Providers — Admin (providers-new)
-
-Design notes (concise):
-- Guarded st.set_page_config() is the first Streamlit command to survive Cloud pre-enqueue.
-- No @st.cache_data at module level. We define UNCACHED core functions only.
-- Caching is (re)applied inside main() after page_config:
-    - Engine via @st.cache_resource
-    - Data via st.cache_data with only hashable args (q/limit/offset/DATA_VER)
-- DATA_VER in session_state bumps after writes to invalidate data caches.
-"""
-
 # ---- Streamlit page config MUST be the first Streamlit command ----
 import streamlit as st
-
-
-def _safe_page_config() -> None:
-    """Guarded page config so Cloud pre-enqueue or double-runs don't crash."""
-    try:
-        st.set_page_config(
-            page_title="Providers — Admin",
-            page_icon="🛠️",
-            layout="wide",
-            initial_sidebar_state="expanded",
-        )
-    except Exception:
-        # Cloud sometimes re-runs or enqueues before config; ignore duplicate/ordering errors.
-        pass
-
-
-_safe_page_config()
+st.set_page_config(
+    page_title="Providers — Admin",
+    page_icon="🛠️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # ---- Stdlib ----
 import os
-from datetime import datetime
-from typing import Any
+import csv
+from datetime import datetime, timezone
+from typing import Any, Iterable
 
 # ---- Third-party ----
 import pandas as pd
@@ -54,35 +32,31 @@ SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 PAGE_SIZE = 200
 MAX_RENDER_ROWS = 1000
 
+# Controls whether first-run empty DB will attempt a seed import.
+# Flip to 0 to skip CSV seeding entirely.
+ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
+
 BROWSE_DISPLAY_COLUMNS = [
+    "business_name",
     "category",
     "service",
-    "business_name",
     "contact_name",
     "phone",
     "email",
     "website",
-    "address",
+    "city",
+    "state",
     "notes",
-    "computed_keywords",
-    "created_at",
     "updated_at",
 ]
 
 # =============================
-#   Small helpers (pure)
+#   Helpers
 # =============================
-
-
-def _now_iso() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _digits_only(s: str | None) -> str:
     if not s:
         return ""
     return "".join(ch for ch in str(s) if ch.isdigit())
-
 
 def _format_phone(s: str | None) -> str:
     d = _digits_only(s)
@@ -90,304 +64,275 @@ def _format_phone(s: str | None) -> str:
         return f"({d[0:3]}) {d[3:6]}-{d[6:10]}"
     return s or ""
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 # =============================
-#   Engine builder (UNCACHED core)
+#   Engine (uncached core)
 # =============================
-
-
-def _build_engine_uncached() -> Engine:
-    # sqlite path; check_same_thread=False to be Streamlit-friendly
-    eng = sa.create_engine(
-        f"sqlite:///{DB_PATH}",
-        connect_args={"check_same_thread": False},
-        future=True,
-    )
+def _build_engine_uncached(db_path: str) -> Engine:
+    # SQLite file database; creates the file on first connection if not exists
+    url = sa.URL.create("sqlite", database=db_path)
+    eng = sa.create_engine(url, future=True)
     return eng
 
+# =============================
+#   Patch A: Schema bootstrap + optional seed import (UNCACHED)
+# =============================
+def _ensure_schema_uncached(engine: Engine, allow_seed: bool = True) -> str:
+    """
+    Ensure vendors schema exists. If vendors is empty and allow_seed is True,
+    attempt a one-time CSV import from SEED_CSV.
+
+    Returns a short status message for UI display.
+    """
+    ddl = """
+    CREATE TABLE IF NOT EXISTS vendors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        business_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        service TEXT NOT NULL,
+        contact_name TEXT,
+        phone TEXT,
+        email TEXT,
+        website TEXT,
+        address TEXT,
+        city TEXT,
+        state TEXT,
+        zip TEXT,
+        notes TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        computed_keywords TEXT,
+        ckw_locked INTEGER DEFAULT 0,
+        ckw_version INTEGER DEFAULT 1
+    );
+    """
+    created = False
+    seeded = False
+
+    with engine.begin() as cx:
+        cx.exec_driver_sql(ddl)
+        created = True  # table exists (created or already there)
+
+        # Count existing rows
+        n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+
+        # Optional seed import if empty
+        if allow_seed and ALLOW_SEED_IMPORT and n == 0 and os.path.exists(SEED_CSV):
+            # Read CSV with pandas for safety and normalization
+            df = pd.read_csv(SEED_CSV)
+            # Normalize expected columns
+            expected = [
+                "business_name","category","service","contact_name","phone","email",
+                "website","address","city","state","zip","notes"
+            ]
+            for col in expected:
+                if col not in df.columns:
+                    df[col] = ""
+
+            # Clean & format rows
+            rows: list[dict[str, Any]] = []
+            for _, r in df.iterrows():
+                phone_raw = str(r.get("phone", "") or "")
+                rows.append({
+                    "business_name": str(r.get("business_name", "") or "").strip(),
+                    "category": str(r.get("category", "") or "").strip(),
+                    "service": str(r.get("service", "") or "").strip(),
+                    "contact_name": str(r.get("contact_name", "") or "").strip(),
+                    "phone": _format_phone(phone_raw),
+                    "email": str(r.get("email", "") or "").strip(),
+                    "website": str(r.get("website", "") or "").strip(),
+                    "address": str(r.get("address", "") or "").strip(),
+                    "city": str(r.get("city", "") or "").strip(),
+                    "state": (str(r.get("state", "") or "").strip() or "TX"),
+                    "zip": str(r.get("zip", "") or "").strip(),
+                    "notes": str(r.get("notes", "") or "").strip(),
+                    "created_at": _now_iso(),
+                    "updated_at": _now_iso(),
+                    "computed_keywords": "",
+                    "ckw_locked": 0,
+                    "ckw_version": 1,
+                })
+
+            if rows:
+                cols = [
+                    "business_name","category","service","contact_name","phone","email",
+                    "website","address","city","state","zip","notes",
+                    "created_at","updated_at","computed_keywords","ckw_locked","ckw_version"
+                ]
+                placeholders = ",".join([f":{c}" for c in cols])
+                sql = f"INSERT INTO vendors ({','.join(cols)}) VALUES ({placeholders})"
+                cx.execute(sa.text(sql), rows)
+                seeded = True
+
+    if seeded:
+        return f"Schema OK; seed imported from {SEED_CSV}"
+    if created:
+        return "Schema OK"
+    return "No schema changes"
 
 # =============================
-#   Data access (UNCACHED core)
+#   Data access (read-only browse)
 # =============================
+def _fetch_count(engine: Engine, q: str = "") -> int:
+    # Simple count; extend with WHERE if you wire search later
+    with engine.connect() as cx:
+        n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+    return int(n or 0)
 
-
-def _count_rows_uncached(eng: Engine, q: str) -> int:
-    """Return total count matching the simple LIKE filter (uncached core)."""
-    where = ""
-    params: dict[str, Any] = {}
-    if q:
-        where = (
-            "WHERE (business_name || ' ' || category || ' ' || service || ' ' || "
-            "IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
-        )
-        params["q"] = f"%{q}%"
-
-    sql = f"SELECT COUNT(*) AS n FROM vendors {where}"
-    with eng.connect() as cx:
-        val = cx.execute(sql_text(sql), params).scalar()
-        return int(val or 0)
-
-
-def _fetch_page_uncached(
-    eng: Engine, q: str, offset: int = 0, limit: int = PAGE_SIZE
-) -> pd.DataFrame:
-    """Fetch vendors page with a simple LIKE filter over key fields (uncached core)."""
-    where = ""
-    params: dict[str, Any] = {"limit": int(limit), "offset": int(offset)}
-    if q:
-        where = (
-            "WHERE (business_name || ' ' || category || ' ' || service || ' ' || "
-            "IFNULL(contact_name,'') || ' ' || IFNULL(notes,'')) LIKE :q"
-        )
-        params["q"] = f"%{q}%"
-
-    sql = f"""
+def _fetch_page(engine: Engine, limit: int, offset: int) -> pd.DataFrame:
+    sql = """
         SELECT
-          business_name, category, service, contact_name, phone, email, website,
-          address, notes, computed_keywords, created_at, updated_at
+            business_name, category, service, contact_name, phone, email,
+            website, city, state, notes, updated_at
         FROM vendors
-        {where}
-        ORDER BY category COLLATE NOCASE ASC,
-                 service  COLLATE NOCASE ASC,
-                 business_name COLLATE NOCASE ASC
+        ORDER BY business_name COLLATE NOCASE ASC
         LIMIT :limit OFFSET :offset
     """
-    with eng.connect() as cx:
-        df = pd.read_sql_query(sql_text(sql), cx, params=params)
+    with engine.connect() as cx:
+        df = pd.read_sql(sa.text(sql), cx, params={"limit": limit, "offset": offset})
+    # Post-format phone for display
+    if "phone" in df.columns:
+        df["phone"] = df["phone"].map(_format_phone)
     return df
 
-
-def insert_row(eng: Engine, row: dict[str, Any]) -> int:
-    """Insert a vendor row (writes are never cached)."""
-    now = _now_iso()
-    data = dict(row)
-    data.setdefault("created_at", now)
-    data.setdefault("updated_at", now)
-
-    insert_sql = """
-        INSERT INTO vendors (
-            business_name, category, service, contact_name,
-            phone, email, website, address, notes,
-            computed_keywords, created_at, updated_at
-        ) VALUES (
-            :business_name, :category, :service, :contact_name,
-            :phone, :email, :website, :address, :notes,
-            :computed_keywords, :created_at, :updated_at
-        )
-    """
-    with eng.begin() as cx:
-        cx.execute(sql_text(insert_sql), data)
-        new_id = int(cx.exec_driver_sql("SELECT last_insert_rowid()").scalar())
-    return new_id
-
-
 # =============================
-#   MAIN APP
+#   UI
 # =============================
-
-
 def main() -> None:
-    # page_config already set by _safe_page_config()
+    st.title("Providers — Admin")
+    st.caption(f"Version: {APP_VER}")
 
-    st.write(f"### Providers — Admin (providers-new)")
+    # ---- Build engine (cache inside main after page_config)
+    @st.cache_resource
+    def build_engine() -> Engine:
+        return _build_engine_uncached(DB_PATH)
 
-    # A tiny status banner (DB path + quick count), non-fatal if missing table.
-    try:
-        # Re-wrap the core engine with resource caching (post-config only)
-        build_engine = st.cache_resource(show_spinner=False)(_build_engine_uncached)
+    eng = build_engine()
 
-        # Simple cache-buster that increments after writes
-        if "DATA_VER" not in st.session_state:
-            st.session_state["DATA_VER"] = 0
-        DATA_VER = st.session_state["DATA_VER"]
+    # ---- Patch B: ensure schema (and optional seed) immediately after engine build
+    status_msg = _ensure_schema_uncached(eng, allow_seed=True)
 
-        # Cached, hashable-args wrappers (engine captured in closure)
-        def count_rows(q: str, data_ver: int = 0) -> int:
-            eng = build_engine()
-            return st.cache_data(show_spinner=False)(
-                lambda _q, _v: _count_rows_uncached(eng, _q)
-            )(q, data_ver)
-
-        def fetch_page(
-            q: str, offset: int = 0, limit: int = PAGE_SIZE, data_ver: int = 0
-        ) -> pd.DataFrame:
-            eng = build_engine()
-            return st.cache_data(show_spinner=False)(
-                lambda _q, _o, _l, _v: _fetch_page_uncached(eng, _q, _o, _l)
-            )(q, offset, limit, data_ver)
-
-        # Diagnostics caption
+    # Small status line (toggle with env SHOW_STATUS="1")
+    if os.getenv("SHOW_STATUS", "0") in ("1", "true", "TRUE"):
         try:
-            eng = build_engine()
-            with eng.connect() as cx:
-                target = DB_PATH
-                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-            st.caption(f"DB target: {target} | vendors: {int(cnt or 0)} | {APP_VER}")
-        except Exception as e_diag:
-            st.error(f"DB diagnostics failed: {e_diag}")
+            with eng.connect() as _cx:
+                try:
+                    rows = _cx.exec_driver_sql("PRAGMA database_list").fetchall()
+                    db_target = rows[0][2] if rows and len(rows[0]) >= 3 else DB_PATH
+                except Exception:
+                    db_target = DB_PATH
+                vendors_cnt = _cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+            st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)} | {status_msg}")
+        except Exception as e:
+            st.error(f"DB diagnostics failed: {e}")
+    else:
+        st.caption(status_msg)
 
-        tab_browse, tab_add = st.tabs(["Browse", "Add"])
+    # ---- Tabs
+    tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
-        # -----------------------------
-        # Browse tab
-        # -----------------------------
-        with tab_browse:
-            st.subheader("Browse Providers")
+    # ---- Browse tab
+    with tab_browse:
+        st.subheader("Browse Providers")
+        # Simple pager (no per-column filters in this minimal admin)
+        total = 0
+        try:
+            total = _fetch_count(eng)
+        except Exception as e:
+            st.error(f"Browse failed (count): {e}")
+            return
 
-            # Search row
-            c1, c2 = st.columns([3, 1])
-            with c1:
-                q = st.text_input(
-                    "Search",
-                    placeholder="name, category, service, notes…",
-                    value=st.session_state.get("q", ""),
-                )
-            with c2:
-                if st.button("Clear"):
-                    q = ""
-            st.session_state["q"] = q
+        limit = PAGE_SIZE
+        pages = max(1, (total + limit - 1) // limit)
+        page_num = st.number_input("Page", min_value=1, max_value=pages, value=1, step=1)
+        offset = (int(page_num) - 1) * limit
 
-            # Totals
-            total = count_rows(q, DATA_VER)
-            st.caption(f"{total} matching provider(s)")
+        try:
+            vdf = _fetch_page(eng, limit=limit, offset=offset)
+        except Exception as e:
+            st.error(f"Browse failed (page): {e}")
+            return
 
-            # Pagination (simple)
-            if "page_offset" not in st.session_state:
-                st.session_state["page_offset"] = 0
-            page_offset = st.session_state["page_offset"]
+        if vdf.empty:
+            st.info("No providers found.")
+        else:
+            # Clamp visible columns
+            missing = [c for c in BROWSE_DISPLAY_COLUMNS if c not in vdf.columns]
+            if missing:
+                for m in missing:
+                    vdf[m] = ""
+            vdf = vdf[BROWSE_DISPLAY_COLUMNS].head(MAX_RENDER_ROWS)
+            st.dataframe(vdf, use_container_width=True)
 
-            # Reset offset if query changed
-            if st.session_state.get("_last_q") != q:
-                page_offset = 0
-                st.session_state["page_offset"] = 0
-            st.session_state["_last_q"] = q
+            # CSV download of current page
+            csv_bytes = vdf.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download current page (CSV)",
+                data=csv_bytes,
+                file_name="providers_page.csv",
+                mime="text/csv",
+            )
 
-            # Page controls
-            cprev, cinfo, cnext = st.columns([1, 2, 1])
-            with cprev:
-                if st.button("◀ Prev", disabled=(page_offset <= 0)):
-                    page_offset = max(0, page_offset - PAGE_SIZE)
-                    st.session_state["page_offset"] = page_offset
-            with cnext:
-                if st.button(
-                    "Next ▶", disabled=(page_offset + PAGE_SIZE >= max(0, total))
-                ):
-                    pass
-                else:
-                    if page_offset + PAGE_SIZE < total:
-                        page_offset += PAGE_SIZE
-                        st.session_state["page_offset"] = page_offset
-            with cinfo:
-                start = 0 if total == 0 else page_offset + 1
-                end = min(total, page_offset + PAGE_SIZE)
-                st.write(f"Showing {start}–{end} of {total}")
+    # ---- Add tab (minimal placeholder to keep file lean)
+    with tab_add:
+        st.subheader("Add Provider")
+        with st.form("add_form"):
+            business_name = st.text_input("Business Name *")
+            category = st.text_input("Category *")
+            service = st.text_input("Service *")
+            contact_name = st.text_input("Contact Name")
+            phone = st.text_input("Phone")
+            email = st.text_input("Email")
+            website = st.text_input("Website")
+            address = st.text_input("Address")
+            city = st.text_input("City")
+            state = st.text_input("State", value="TX")
+            zip_code = st.text_input("ZIP")
+            notes = st.text_area("Notes", height=80)
+            submitted = st.form_submit_button("Add Provider")
 
-            # Fetch and render
-            if total == 0:
-                st.info("No matching providers. Tip: try fewer words.")
+        if submitted:
+            if not business_name.strip() or not category.strip() or not service.strip():
+                st.error("Business Name, Category, and Service are required.")
             else:
-                df = fetch_page(q, offset=page_offset, limit=PAGE_SIZE, data_ver=DATA_VER)
-                if df.empty:
-                    st.info("No results on this page. Use Prev.")
-                else:
-                    # Render (cap rows if needed)
-                    show_df = df.head(MAX_RENDER_ROWS).copy()
-                    # Phone formatting for display
-                    if "phone" in show_df.columns:
-                        show_df["phone"] = show_df["phone"].map(_format_phone)
-                    st.dataframe(
-                        show_df[BROWSE_DISPLAY_COLUMNS],
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                    # CSV download of the (filtered) page shown
-                    csv_bytes = show_df[BROWSE_DISPLAY_COLUMNS].to_csv(
-                        index=False
-                    ).encode("utf-8")
-                    st.download_button(
-                        "Download this page (CSV)",
-                        data=csv_bytes,
-                        file_name="providers_page.csv",
-                        mime="text/csv",
-                    )
-
-        # -----------------------------
-        # Add tab
-        # -----------------------------
-        with tab_add:
-            st.subheader("Add Provider")
-            with st.form("add_form", clear_on_submit=True):
-                c1, c2, c3 = st.columns([2, 2, 2])
-
-                with c1:
-                    business_name = st.text_input("Business Name *")
-                    category = st.text_input("Category *")
-                    service = st.text_input("Service *")
-                with c2:
-                    contact_name = st.text_input("Contact Name")
-                    phone = st.text_input("Phone")
-                    email = st.text_input("Email")
-                with c3:
-                    website = st.text_input("Website")
-                    address = st.text_input("Address")
-                    notes = st.text_area("Notes", height=80)
-
-                submitted = st.form_submit_button("Add")
-
-            if submitted:
-                missing = []
-                if not business_name.strip():
-                    missing.append("Business Name")
-                if not category.strip():
-                    missing.append("Category")
-                if not service.strip():
-                    missing.append("Service")
-
-                if missing:
-                    st.error(", ".join(missing) + " are required.")
-                else:
-                    try:
-                        # Normalize phone to digits for storage
-                        phone_digits = _digits_only(phone)
-
-                        # Build row (computed_keywords left blank; add later if desired)
-                        row = {
+                try:
+                    with eng.begin() as cx:
+                        sql = """
+                        INSERT INTO vendors (
+                            business_name, category, service, contact_name, phone, email,
+                            website, address, city, state, zip, notes,
+                            created_at, updated_at, computed_keywords, ckw_locked, ckw_version
+                        ) VALUES (
+                            :business_name, :category, :service, :contact_name, :phone, :email,
+                            :website, :address, :city, :state, :zip, :notes,
+                            :created_at, :updated_at, :computed_keywords, :ckw_locked, :ckw_version
+                        )
+                        """
+                        params = {
                             "business_name": business_name.strip(),
                             "category": category.strip(),
                             "service": service.strip(),
                             "contact_name": contact_name.strip(),
-                            "phone": phone_digits,
-                            "email": (email or "").strip(),
-                            "website": (website or "").strip(),
-                            "address": (address or "").strip(),
-                            "notes": (notes or "").strip(),
-                            "computed_keywords": "",
+                            "phone": _format_phone(phone),
+                            "email": email.strip(),
+                            "website": website.strip(),
+                            "address": address.strip(),
+                            "city": city.strip(),
+                            "state": state.strip() or "TX",
+                            "zip": zip_code.strip(),
+                            "notes": notes.strip(),
                             "created_at": _now_iso(),
                             "updated_at": _now_iso(),
+                            "computed_keywords": "",
+                            "ckw_locked": 0,
+                            "ckw_version": 1,
                         }
-
-                        eng = build_engine()
-                        new_id = insert_row(eng, row)
-
-                        # Bump data version to bust caches
-                        st.session_state["DATA_VER"] = st.session_state.get(
-                            "DATA_VER", 0
-                        ) + 1
-                        st.cache_data.clear()
-
-                        st.success(f"Added provider ID {new_id}")
-                        st.rerun()
-                    except Exception as e_ins:
-                        st.error(f"Insert failed: {e_ins}")
-
-        # Footer
-        st.caption("© Providers Admin • " + APP_VER)
-
-    except Exception as e:
-        # Top-level safety net for unexpected issues
-        st.error(f"App crashed: {e}")
-
+                        cx.execute(sa.text(sql), params)
+                    st.success("Provider added.")
+                except Exception as e:
+                    st.error(f"Add failed: {e}")
 
 if __name__ == "__main__":
     main()
