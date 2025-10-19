@@ -9,12 +9,20 @@ Providers — Admin (providers-new)
 # ---- Streamlit page config MUST be the first Streamlit command ----
 import streamlit as st
 
-st.set_page_config(
-    page_title="Providers — Admin",
-    page_icon="🛠️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def _safe_page_config():
+    try:
+        st.set_page_config(
+            page_title="Providers — Admin",
+            page_icon="🛠️",
+            layout="wide",
+            initial_sidebar_state="expanded",
+        )
+    except Exception:
+        # Cloud sometimes re-runs or enqueues before config; ignore duplicate/ordering error
+        pass
+
+_safe_page_config()
+
 
 # ---- Stdlib ----
 import os
