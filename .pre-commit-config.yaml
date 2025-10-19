@@ -35,7 +35,10 @@ repos:
     rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
+      - id: trailing-whitespace
       - id: check-yaml
       - id: check-toml
       - id: check-ast
-      - id: trailing-whitespace
+      - id: check-added-large-files   # optional
+      - id: detect-private-key        # optional
+      - id: mixed-line-ending         # optional
