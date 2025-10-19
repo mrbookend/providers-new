@@ -26,14 +26,14 @@ _ENGINE = eng
 
 # ==== BEGIN: DB diagnostics (temporary) ====
 try:
-    with (eng if 'eng' in locals() else engine).connect() as cx:
+    with _ENGINE.connect() as cx:
         try:
-            path = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-            db_target = path[0][2] if path and len(path[0]) >= 3 else "n/a"
+            db_list = cx.exec_driver_sql("PRAGMA database_list").fetchall()
+            db_target = db_list[0][2] if db_list and len(db_list[0]) >= 3 else "n/a"
         except Exception:
             db_target = "n/a"
         vendors_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-        st.caption(f"DB target: {db_target} | vendors: {vendors_cnt}")
+        st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
 except Exception as e:
     st.error(f"DB diagnostics failed: {e}")
 # ==== END: DB diagnostics (temporary) ====
