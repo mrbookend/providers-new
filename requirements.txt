@@ -1,0 +1,5 @@
+streamlit==1.41.1
+sqlalchemy==2.0.44
+sqlalchemy-libsql==0.2.0
+libsql-experimental>=0.0.55
+pandas>=2.2
