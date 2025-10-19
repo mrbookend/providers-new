@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # ---- Streamlit page config MUST be the first Streamlit command ----
 import streamlit as st
+
 st.set_page_config(page_title="Providers — Admin", page_icon="🛠️", layout="wide")
 
 # ---- Stdlib / typing ----
@@ -59,20 +60,24 @@ CREATE INDEX IF NOT EXISTS idx_vendors_cat      ON vendors(category);
 CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service);
 """
 
+
 def ensure_schema(engine: Engine) -> None:
     with engine.begin() as cx:
         for stmt in [s.strip() for s in DDL.split(";") if s.strip()]:
             cx.execute(T(stmt))
 
+
 # =============================
 # Engine factory (cached)
 # =============================
+
 
 @st.cache_resource(show_spinner=False)
 def get_engine() -> Engine:
     # Single source of truth for the engine
     dsn = f"sqlite:///{DB_PATH}"
     return sa.create_engine(dsn, pool_pre_ping=True)
+
 
 # Canonical engine alias used everywhere below
 _ENGINE: Engine = get_engine()
@@ -83,6 +88,8 @@ ensure_schema(_ENGINE)
 # =============================
 # Diagnostics (temporary / safe)
 # =============================
+
+# Shows DB target and vendor count; OK to leave, remove later if desired
 try:
     with _ENGINE.connect() as _cx:
         try:
@@ -91,66 +98,18 @@ try:
         except Exception:
             db_target = "n/a"
         vendors_cnt = _cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-        if os.getenv("SHOW_STATUS") == "1":
-            st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
+        st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
 except Exception as e:
-    if os.getenv("SHOW_STATUS") == "1":
-        st.error(f"DB diagnostics failed: {e}")
+    st.error(f"DB diagnostics failed: {e}")
 
-# =============================
-# Helpers / CRUD
-# =============================
-
-def _digits_only(p: Optional[str]) -> Optional[str]:
-    if p is None:
-        return None
-    d = "".join(ch for ch in str(p) if ch.isdigit())
-    return d[:10] if d else None
-
-@st.cache_data(show_spinner=False)
-def load_all() -> pd.DataFrame:
-    with _ENGINE.connect() as cx:
-        df = pd.read_sql_query(
-            T("""
-              SELECT id,business_name,category,service,contact_name,phone,email,website,
-                     address,city,state,zip,notes,created_at,updated_at
-              FROM vendors
-              ORDER BY business_name COLLATE NOCASE ASC
-            """),
-            cx,
-        )
-    return df
-
-def insert_row(row: dict[str, Any]) -> int:
-    row = dict(row)
-    if "phone" in row:
-        row["phone"] = _digits_only(row.get("phone"))
-    cols = ",".join(row.keys())
-    vals = ",".join([f":{k}" for k in row.keys()])
-    sql = T(f"INSERT INTO vendors ({cols}) VALUES ({vals})")
-    with _ENGINE.begin() as cx:
-        cx.execute(sql, row)
-        new_id = cx.execute(T("SELECT last_insert_rowid()")).scalar_one()
-        return int(new_id)
-
-def update_row(row_id: int, row: dict[str, Any]) -> None:
-    row = dict(row)
-    if "phone" in row:
-        row["phone"] = _digits_only(row.get("phone"))
-    sets = ",".join([f"{k}=:{k}" for k in row.keys()])
-    row["id"] = row_id
-    sql = T(f"UPDATE vendors SET {sets} WHERE id=:id")
-    with _ENGINE.begin() as cx:
-        cx.execute(sql, row)
-
-def delete_row(row_id: int) -> None:
-    with _ENGINE.begin() as cx:
-        cx.execute(T("DELETE FROM vendors WHERE id=:id"), {"id": row_id})
 # =============================
 # One-time CSV bootstrap (guarded)
 # =============================
 
-def _bootstrap_from_csv_if_empty(engine: Engine, csv_rel_path: str = SEED_CSV_REL) -> tuple[bool, str]:
+
+def _bootstrap_from_csv_if_empty(
+    engine: Engine, csv_rel_path: str = SEED_CSV_REL
+) -> tuple[bool, str]:
     """
     Load providers from CSV only if 'vendors' table exists and is empty.
     Returns (changed, message).
@@ -180,8 +139,18 @@ def _bootstrap_from_csv_if_empty(engine: Engine, csv_rel_path: str = SEED_CSV_RE
 
             # Only insert the core columns that are guaranteed to exist
             expected = [
-                "business_name","category","service","contact_name","phone","email",
-                "website","address","city","state","zip","notes"
+                "business_name",
+                "category",
+                "service",
+                "contact_name",
+                "phone",
+                "email",
+                "website",
+                "address",
+                "city",
+                "state",
+                "zip",
+                "notes",
             ]
             missing = [c for c in expected if c not in (reader.fieldnames or [])]
             if missing:
@@ -199,14 +168,72 @@ def _bootstrap_from_csv_if_empty(engine: Engine, csv_rel_path: str = SEED_CSV_RE
                 cx.exec_driver_sql(ins_sql, r)
 
             new_cnt = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
-            return (True, f"Bootstrap inserted {new_cnt - cur} rows (total now {new_cnt})")
+            return (
+                True,
+                f"Bootstrap inserted {new_cnt - cur} rows (total now {new_cnt})",
+            )
     except Exception as e:
         return (False, f"Bootstrap error: {e}")
+
 
 changed, msg = _bootstrap_from_csv_if_empty(_ENGINE, SEED_CSV_REL)
 if msg:
     st.caption(msg)
 
+# =============================
+# Helpers / CRUD
+# =============================
+
+
+def _digits_only(p: Optional[str]) -> Optional[str]:
+    if p is None:
+        return None
+    d = "".join(ch for ch in str(p) if ch.isdigit())
+    return d[:10] if d else None
+
+
+@st.cache_data(show_spinner=False)
+def load_all() -> pd.DataFrame:
+    with _ENGINE.connect() as cx:
+        df = pd.read_sql_query(
+            T("""
+              SELECT id,business_name,category,service,contact_name,phone,email,website,
+                     address,city,state,zip,notes,created_at,updated_at
+              FROM vendors
+              ORDER BY business_name COLLATE NOCASE ASC
+            """),
+            cx,
+        )
+    return df
+
+
+def insert_row(row: dict[str, Any]) -> int:
+    row = dict(row)
+    if "phone" in row:
+        row["phone"] = _digits_only(row.get("phone"))
+    cols = ",".join(row.keys())
+    vals = ",".join([f":{k}" for k in row.keys()])
+    sql = T(f"INSERT INTO vendors ({cols}) VALUES ({vals})")
+    with _ENGINE.begin() as cx:
+        cx.execute(sql, row)
+        new_id = cx.execute(T("SELECT last_insert_rowid()")).scalar_one()
+        return int(new_id)
+
+
+def update_row(row_id: int, row: dict[str, Any]) -> None:
+    row = dict(row)
+    if "phone" in row:
+        row["phone"] = _digits_only(row.get("phone"))
+    sets = ",".join([f"{k}=:{k}" for k in row.keys()])
+    row["id"] = row_id
+    sql = T(f"UPDATE vendors SET {sets} WHERE id=:id")
+    with _ENGINE.begin() as cx:
+        cx.execute(sql, row)
+
+
+def delete_row(row_id: int) -> None:
+    with _ENGINE.begin() as cx:
+        cx.execute(T("DELETE FROM vendors WHERE id=:id"), {"id": row_id})
 
 
 # =============================
@@ -243,11 +270,11 @@ with tabs[0]:
     if q:
         qq = re.escape(q)
         mask = (
-            df["business_name"].str.contains(qq, case=False, na=False) |
-            df["category"].str.contains(qq, case=False, na=False) |
-            df["service"].str.contains(qq, case=False, na=False) |
-            df["city"].str.contains(qq, case=False, na=False) |
-            df["state"].str.contains(qq, case=False, na=False)
+            df["business_name"].str.contains(qq, case=False, na=False)
+            | df["category"].str.contains(qq, case=False, na=False)
+            | df["service"].str.contains(qq, case=False, na=False)
+            | df["city"].str.contains(qq, case=False, na=False)
+            | df["state"].str.contains(qq, case=False, na=False)
         )
         vdf = df[mask]
 
@@ -272,19 +299,19 @@ with tabs[1]:
         c1, c2, c3 = st.columns(3)
         with c1:
             business_name = st.text_input("Business Name *")
-            category      = st.text_input("Category *")
-            service       = st.text_input("Service *")
-            contact_name  = st.text_input("Contact Name")
+            category = st.text_input("Category *")
+            service = st.text_input("Service *")
+            contact_name = st.text_input("Contact Name")
         with c2:
-            phone   = st.text_input("Phone (digits only ok)")
-            email   = st.text_input("Email")
+            phone = st.text_input("Phone (digits only ok)")
+            email = st.text_input("Email")
             website = st.text_input("Website")
             address = st.text_input("Address")
         with c3:
-            city    = st.text_input("City")
-            state   = st.text_input("State", value="TX")
-            zipc    = st.text_input("ZIP")
-            notes   = st.text_area("Notes", height=80)
+            city = st.text_input("City")
+            state = st.text_input("State", value="TX")
+            zipc = st.text_input("ZIP")
+            notes = st.text_area("Notes", height=80)
 
         submitted = st.form_submit_button("Add")
         if submitted:
@@ -329,19 +356,19 @@ with tabs[2]:
             c1, c2, c3 = st.columns(3)
             with c1:
                 business_name = st.text_input("Business Name *", value=row.get("business_name", ""))
-                category      = st.text_input("Category *", value=row.get("category", ""))
-                service       = st.text_input("Service *", value=row.get("service", ""))
-                contact_name  = st.text_input("Contact Name", value=row.get("contact_name") or "")
+                category = st.text_input("Category *", value=row.get("category", ""))
+                service = st.text_input("Service *", value=row.get("service", ""))
+                contact_name = st.text_input("Contact Name", value=row.get("contact_name") or "")
             with c2:
-                phone   = st.text_input("Phone (digits only ok)", value=row.get("phone") or "")
-                email   = st.text_input("Email", value=row.get("email") or "")
+                phone = st.text_input("Phone (digits only ok)", value=row.get("phone") or "")
+                email = st.text_input("Email", value=row.get("email") or "")
                 website = st.text_input("Website", value=row.get("website") or "")
                 address = st.text_input("Address", value=row.get("address") or "")
             with c3:
-                city    = st.text_input("City", value=row.get("city") or "")
-                state   = st.text_input("State", value=row.get("state") or "TX")
-                zipc    = st.text_input("ZIP", value=row.get("zip") or "")
-                notes   = st.text_area("Notes", value=row.get("notes") or "", height=80)
+                city = st.text_input("City", value=row.get("city") or "")
+                state = st.text_input("State", value=row.get("state") or "TX")
+                zipc = st.text_input("ZIP", value=row.get("zip") or "")
+                notes = st.text_area("Notes", value=row.get("notes") or "", height=80)
 
             colA, colB = st.columns([1, 1])
             do_update = colA.form_submit_button("Save Changes")

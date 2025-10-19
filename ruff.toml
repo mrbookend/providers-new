@@ -1,0 +1,7 @@
+# Ruff config for this repo
+line-length = 100
+target-version = "py311"
+
+[lint]
+# Allow code (e.g., st.set_page_config) before some imports
+ignore = ["E402"]
