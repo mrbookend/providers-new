@@ -245,28 +245,50 @@ def main() -> None:
     # ---- Tabs
     tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
-    # ---- Browse tab
-    with tab_browse:
-        st.subheader("Browse Providers")
-        # Placeholder for future search UI
-        q = ""  # e.g., wire up: q = st.text_input("Search", "")
-        # Simple pager (no per-column filters in this minimal admin)
-        try:
-            total = count_rows(eng, q, DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (count): {e}")
-            return
+# ---- Browse tab
+with tab_browse:
+    st.subheader("Browse Providers")
 
-        limit = PAGE_SIZE
-        pages = max(1, (total + limit - 1) // limit)
-        page_num = st.number_input("Page", min_value=1, max_value=pages, value=1, step=1)
-        offset = (int(page_num) - 1) * limit
+    # ---- Search UI ----
+    c1, c2 = st.columns([1, 0.2])
+    q = c1.text_input(
+        "Search",
+        value=st.session_state.get("q", ""),
+        placeholder="name, category, service, notes…",
+    )
+    if c2.button("Clear"):
+        q = ""
+    st.session_state["q"] = q
 
-        try:
-            vdf = fetch_page(eng, q, limit=limit, offset=offset, _data_ver=DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (page): {e}")
-            return
+    # Simple pager (no per-column filters in this minimal admin)
+    try:
+        total = count_rows(eng, q, DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (count): {e}")
+        st.stop()
+
+    limit = PAGE_SIZE
+    pages = max(1, (total + limit - 1) // limit)
+    page_num = st.number_input("Page", min_value=1, max_value=pages, value=1, step=1)
+    offset = (int(page_num) - 1) * limit
+
+    try:
+        vdf = fetch_page(eng, q, limit=limit, offset=offset, _data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (page): {e}")
+        st.stop()
+
+    limit = PAGE_SIZE
+    pages = max(1, (total + limit - 1) // limit)
+    page_num = st.number_input("Page", min_value=1, max_value=pages, value=1, step=1)
+    offset = (int(page_num) - 1) * limit
+
+    try:
+        vdf = fetch_page(eng, q, limit=limit, offset=offset, _data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (page): {e}")
+        st.stop()
+
 
         if vdf.empty:
             st.info("No providers found.")
