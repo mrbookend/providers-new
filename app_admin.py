@@ -502,6 +502,10 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 
     eng = build_engine()
     ensure_schema(eng)
+    # ---- One-time CSV bootstrap (safe no-op if vendors already populated) ----
+    boot_msg = _bootstrap_from_csv_if_needed(eng, SEED_CSV)
+    if os.getenv("SHOW_STATUS") == "1" and boot_msg:
+        st.caption(boot_msg)
 
     # (Header removed per request)
 
