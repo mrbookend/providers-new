@@ -245,20 +245,35 @@ def main() -> None:
     # ---- Tabs
     tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
-# ---- Browse tab
-with tab_browse:
-    st.subheader("Browse Providers")
+    # ---- Browse tab
+    with tab_browse:
+        st.subheader("Browse Providers")
 
-    # ---- Search UI ----
-    c1, c2 = st.columns([1, 0.2])
-    q = c1.text_input(
-        "Search",
-        value=st.session_state.get("q", ""),
-        placeholder="name, category, service, notes…",
-    )
-    if c2.button("Clear"):
-        q = ""
-    st.session_state["q"] = q
+        # ---- Search UI ----
+        c1, c2 = st.columns([1, 0.2])
+        q = c1.text_input(
+            "Search",
+            value=st.session_state.get("q", ""),
+            placeholder="name, category, service, notes…",
+        )
+        if c2.button("Clear"):
+            q = ""
+        st.session_state["q"] = q
+
+        # TODO: continue Browse logic here (counts, pager, dataframe render)
+        # total = count_rows(eng, q, DATA_VER)
+        # ...
+
+    # ---- Add tab
+    with tab_add:
+        st.subheader("Add Provider")
+        # TODO: add form here
+
+
+# ---- Entrypoint
+if __name__ == "__main__":
+    main()
+
 
     # Simple pager (no per-column filters in this minimal admin)
     try:
