@@ -122,34 +122,36 @@ def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str | None = None) -
     If vendors is empty, load seed CSV and insert rows.
     Returns a short status message (or empty string if no-op).
     """
+    # Resolve path lazily to avoid NameError at import time
+    if not csv_path:
+        csv_path = os.getenv("SEED_CSV", "data/providers_seed.csv")
+
     try:
         allow = int(os.getenv("ALLOW_SEED_IMPORT", str(ALLOW_SEED_IMPORT)))
     except Exception:
         allow = 1
-
     if not allow:
         return ""
 
     if not os.path.exists(csv_path):
         return ""
 
-    # Discover table columns so we insert only supported fields
+    # Check table & row count first
     with engine.connect() as cx:
-        # If vendors table doesn't exist yet, bail silently (ensure_schema should run first)
         try:
             cols_meta = cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
         except Exception:
-            return ""
+            return ""  # ensure_schema() should run first
 
-        table_cols = [r[1] for r in cols_meta]  # second field is name
+        table_cols = [r[1] for r in cols_meta]
         if not table_cols:
             return ""
 
-        n_rows = cx.exec_driver_sql("SELECT COUNT(*) AS n FROM vendors").scalar()
+        n_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
         if n_rows and int(n_rows) > 0:
-            return ""
+            return ""  # already populated
 
-    # Read CSV and build rows
+    # Build rows to insert (intersect CSV headers with actual columns)
     rows_to_insert: list[dict[str, Any]] = []
     try:
         with open(csv_path, "r", newline="", encoding="utf-8") as f:
@@ -157,24 +159,42 @@ def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str | None = None) -
             if not reader.fieldnames:
                 return ""
 
-            # Intersect CSV headers with table columns
             allowed = [h for h in reader.fieldnames if h in table_cols]
-
             for raw in reader:
                 row = {k: (raw.get(k) or "").strip() for k in allowed}
 
-                # Optional lightweight normalization
+                # Normalize phone to digits-only (UI will format)
                 if "phone" in row and row["phone"]:
-                    # normalize digits-only; keep formatting to UI layer
-                    row["phone"] = _digits_only(row["phone"]) if "_digits_only" in globals() else "".join(ch for ch in row["phone"] if ch.isdigit())[:10]
+                    if "_digits_only" in globals():
+                        row["phone"] = _digits_only(row["phone"])  # type: ignore[name-defined]
+                    else:
+                        row["phone"] = "".join(ch for ch in row["phone"] if ch.isdigit())[:10]
 
-                # Keep state uppercase if present
+                # Uppercase state if present
                 if "state" in row and row["state"]:
-                    row["state"] = row["state"].strip().upper()
+                    row["state"] = row["state"].upper()
 
                 rows_to_insert.append(row)
     except Exception as e:
         return f"Bootstrap skipped (read error): {e}"
+
+    if not rows_to_insert:
+        return ""
+
+    # Bulk insert in one transaction
+    columns_sql = ", ".join(rows_to_insert[0].keys())
+    placeholders = ", ".join([f":{c}" for c in rows_to_insert[0].keys()])
+    sql = f"INSERT INTO vendors ({columns_sql}) VALUES ({placeholders})"
+
+    try:
+        with engine.begin() as cx:
+            cx.exec_driver_sql("PRAGMA foreign_keys = ON")
+            cx.execute(sa.text(sql), rows_to_insert)
+    except Exception as e:
+        return f"Bootstrap failed: {e}"
+
+    return f"Bootstrap inserted {len(rows_to_insert)} rows"
+
 
     if not rows_to_insert:
         return ""
