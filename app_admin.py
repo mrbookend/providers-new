@@ -2,41 +2,36 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+# ---- Streamlit page config MUST be the first Streamlit command ----
+import streamlit as st
+st.set_page_config(page_title="Providers — Admin", page_icon="🛠️", layout="wide")
+
+# ---- Stdlib / typing ----
 import os
 import re
+import csv
+from pathlib import Path
 from typing import Any, Optional
 
+# ---- Third-party ----
 import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy import text as T
 from sqlalchemy.engine import Engine
-import streamlit as st
 
-# ---- Streamlit page config MUST be first ----
-st.set_page_config(page_title="Providers — Admin", page_icon="🛠️", layout="wide")
+# =============================
+# Configuration
+# =============================
 
+# Local SQLite file path (can override via env)
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
 
-def build_engine() -> Engine:
-    return sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+# Seed CSV (relative to repo root/file location)
+SEED_CSV_REL = "data/providers_seed.csv"
 
-ENG = build_engine()
-# Canonical engine alias so other blocks don't guess the variable name
-_ENGINE = eng
-
-# ==== BEGIN: DB diagnostics (temporary) ====
-try:
-    with _ENGINE.connect() as cx:
-        try:
-            db_list = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-            db_target = db_list[0][2] if db_list and len(db_list[0]) >= 3 else "n/a"
-        except Exception:
-            db_target = "n/a"
-        vendors_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-        st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
-except Exception as e:
-    st.error(f"DB diagnostics failed: {e}")
-# ==== END: DB diagnostics (temporary) ====
+# =============================
+# Schema (idempotent DDL)
+# =============================
 
 DDL = """
 CREATE TABLE IF NOT EXISTS vendors (
@@ -64,10 +59,108 @@ CREATE INDEX IF NOT EXISTS idx_vendors_cat      ON vendors(category);
 CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service);
 """
 
-def ensure_schema():
-    with ENG.begin() as cx:
+def ensure_schema(engine: Engine) -> None:
+    with engine.begin() as cx:
         for stmt in [s.strip() for s in DDL.split(";") if s.strip()]:
             cx.execute(T(stmt))
+
+# =============================
+# Engine factory (cached)
+# =============================
+
+@st.cache_resource(show_spinner=False)
+def get_engine() -> Engine:
+    # Single source of truth for the engine
+    dsn = f"sqlite:///{DB_PATH}"
+    return sa.create_engine(dsn, pool_pre_ping=True)
+
+# Canonical engine alias used everywhere below
+_ENGINE: Engine = get_engine()
+
+# Ensure schema exists before any diagnostics/bootstrap
+ensure_schema(_ENGINE)
+
+# =============================
+# Diagnostics (temporary / safe)
+# =============================
+
+# Shows DB target and vendor count; OK to leave, remove later if desired
+try:
+    with _ENGINE.connect() as _cx:
+        try:
+            db_list = _cx.exec_driver_sql("PRAGMA database_list").fetchall()
+            db_target = db_list[0][2] if db_list and len(db_list[0]) >= 3 else "n/a"
+        except Exception:
+            db_target = "n/a"
+        vendors_cnt = _cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+        st.caption(f"DB target: {db_target} | vendors: {int(vendors_cnt or 0)}")
+except Exception as e:
+    st.error(f"DB diagnostics failed: {e}")
+
+# =============================
+# One-time CSV bootstrap (guarded)
+# =============================
+
+def _bootstrap_from_csv_if_empty(engine: Engine, csv_rel_path: str = SEED_CSV_REL) -> tuple[bool, str]:
+    """
+    Load providers from CSV only if 'vendors' table exists and is empty.
+    Returns (changed, message).
+    """
+    try:
+        with engine.begin() as cx:
+            # Verify table presence
+            try:
+                cx.exec_driver_sql("SELECT 1 FROM vendors LIMIT 1")
+            except Exception as e:
+                return (False, f"Bootstrap skipped: vendors table not found ({e})")
+
+            cur = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
+            if cur > 0:
+                return (False, f"Bootstrap skipped: vendors already has {cur} rows")
+
+            csv_path = Path(__file__).parent / csv_rel_path
+            if not csv_path.exists():
+                return (False, f"Bootstrap failed: CSV not found at {csv_path}")
+
+            with csv_path.open(newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+
+            if not rows:
+                return (False, "Bootstrap skipped: CSV has 0 data rows")
+
+            # Only insert the core columns that are guaranteed to exist
+            expected = [
+                "business_name","category","service","contact_name","phone","email",
+                "website","address","city","state","zip","notes"
+            ]
+            missing = [c for c in expected if c not in (reader.fieldnames or [])]
+            if missing:
+                return (False, f"Bootstrap failed: CSV missing columns: {missing}")
+
+            ins_sql = """
+                INSERT INTO vendors
+                (business_name,category,service,contact_name,phone,email,website,address,city,state,zip,notes)
+                VALUES (:business_name,:category,:service,:contact_name,:phone,:email,:website,:address,:city,:state,:zip,:notes)
+            """
+            for r in rows:
+                # Normalize phone to digits only on insert
+                r = dict(r)
+                r["phone"] = _digits_only(r.get("phone"))
+                cx.exec_driver_sql(ins_sql, r)
+
+            new_cnt = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
+            return (True, f"Bootstrap inserted {new_cnt - cur} rows (total now {new_cnt})")
+    except Exception as e:
+        return (False, f"Bootstrap error: {e}")
+
+changed, msg = _bootstrap_from_csv_if_empty(_ENGINE, SEED_CSV_REL)
+if msg:
+    st.caption(msg)
+
+# =============================
+# Helpers / CRUD
+# =============================
 
 def _digits_only(p: Optional[str]) -> Optional[str]:
     if p is None:
@@ -77,8 +170,7 @@ def _digits_only(p: Optional[str]) -> Optional[str]:
 
 @st.cache_data(show_spinner=False)
 def load_all() -> pd.DataFrame:
-    ensure_schema()
-    with ENG.connect() as cx:
+    with _ENGINE.connect() as cx:
         df = pd.read_sql_query(
             T("""
               SELECT id,business_name,category,service,contact_name,phone,email,website,
@@ -97,7 +189,7 @@ def insert_row(row: dict[str, Any]) -> int:
     cols = ",".join(row.keys())
     vals = ",".join([f":{k}" for k in row.keys()])
     sql = T(f"INSERT INTO vendors ({cols}) VALUES ({vals})")
-    with ENG.begin() as cx:
+    with _ENGINE.begin() as cx:
         cx.execute(sql, row)
         new_id = cx.execute(T("SELECT last_insert_rowid()")).scalar_one()
         return int(new_id)
@@ -109,12 +201,20 @@ def update_row(row_id: int, row: dict[str, Any]) -> None:
     sets = ",".join([f"{k}=:{k}" for k in row.keys()])
     row["id"] = row_id
     sql = T(f"UPDATE vendors SET {sets} WHERE id=:id")
-    with ENG.begin() as cx:
+    with _ENGINE.begin() as cx:
         cx.execute(sql, row)
 
 def delete_row(row_id: int) -> None:
-    with ENG.begin() as cx:
+    with _ENGINE.begin() as cx:
         cx.execute(T("DELETE FROM vendors WHERE id=:id"), {"id": row_id})
+
+# =============================
+# UI
+# =============================
+
+# Search guard: default to blank so we don't filter out everything on first load
+if "q" not in st.session_state or st.session_state.get("q") is None:
+    st.session_state["q"] = ""
 
 st.title("Providers — Admin (Minimal)")
 
@@ -127,10 +227,17 @@ with tabs[0]:
     df = load_all()
     left, right = st.columns([3, 1])
     with left:
-        q = st.text_input("Search", value="", placeholder="name, category, service, city, keyword…").strip()
+        q = st.text_input(
+            "Search",
+            value=st.session_state.get("q", ""),
+            placeholder="name, category, service, city, keyword…",
+        ).strip()
+        st.session_state["q"] = q
     with right:
         if st.button("Clear"):
+            st.session_state["q"] = ""
             q = ""
+
     vdf = df
     if q:
         qq = re.escape(q)
@@ -142,8 +249,9 @@ with tabs[0]:
             df["state"].str.contains(qq, case=False, na=False)
         )
         vdf = df[mask]
+
     if vdf.empty:
-        st.info("No matching providers.")
+        st.info("No matching providers. Tip: try fewer words.")
     else:
         st.caption(f"Rows: {len(vdf)}")
         st.dataframe(vdf, use_container_width=True)
@@ -167,15 +275,15 @@ with tabs[1]:
             service       = st.text_input("Service *")
             contact_name  = st.text_input("Contact Name")
         with c2:
-            phone  = st.text_input("Phone (digits only ok)")
-            email  = st.text_input("Email")
-            website= st.text_input("Website")
-            address= st.text_input("Address")
+            phone   = st.text_input("Phone (digits only ok)")
+            email   = st.text_input("Email")
+            website = st.text_input("Website")
+            address = st.text_input("Address")
         with c3:
-            city   = st.text_input("City")
-            state  = st.text_input("State", value="TX")
-            zipc   = st.text_input("ZIP")
-            notes  = st.text_area("Notes", height=80)
+            city    = st.text_input("City")
+            state   = st.text_input("State", value="TX")
+            zipc    = st.text_input("ZIP")
+            notes   = st.text_area("Notes", height=80)
 
         submitted = st.form_submit_button("Add")
         if submitted:
@@ -210,6 +318,7 @@ with tabs[2]:
         st.info("No providers found.")
     else:
         # Simple selector by business name (shows ID)
+        df = df.copy()
         df["label"] = df.apply(lambda r: f"[{r['id']}] {r['business_name']}", axis=1)
         selected = st.selectbox("Select a provider:", df["label"].tolist())
         row_id = int(selected.split("]")[0][1:]) if selected else None
@@ -223,15 +332,15 @@ with tabs[2]:
                 service       = st.text_input("Service *", value=row.get("service", ""))
                 contact_name  = st.text_input("Contact Name", value=row.get("contact_name") or "")
             with c2:
-                phone  = st.text_input("Phone (digits only ok)", value=row.get("phone") or "")
-                email  = st.text_input("Email", value=row.get("email") or "")
-                website= st.text_input("Website", value=row.get("website") or "")
-                address= st.text_input("Address", value=row.get("address") or "")
+                phone   = st.text_input("Phone (digits only ok)", value=row.get("phone") or "")
+                email   = st.text_input("Email", value=row.get("email") or "")
+                website = st.text_input("Website", value=row.get("website") or "")
+                address = st.text_input("Address", value=row.get("address") or "")
             with c3:
-                city   = st.text_input("City", value=row.get("city") or "")
-                state  = st.text_input("State", value=row.get("state") or "TX")
-                zipc   = st.text_input("ZIP", value=row.get("zip") or "")
-                notes  = st.text_area("Notes", value=row.get("notes") or "", height=80)
+                city    = st.text_input("City", value=row.get("city") or "")
+                state   = st.text_input("State", value=row.get("state") or "TX")
+                zipc    = st.text_input("ZIP", value=row.get("zip") or "")
+                notes   = st.text_area("Notes", value=row.get("notes") or "", height=80)
 
             colA, colB = st.columns([1, 1])
             do_update = colA.form_submit_button("Save Changes")
@@ -259,7 +368,7 @@ with tabs[2]:
                 st.success(f"Updated provider ID {row_id}")
                 st.cache_data.clear()
 
-        if do_delete:
+        if do_delete and row_id is not None:
             delete_row(row_id)
             st.warning(f"Deleted provider ID {row_id}")
             st.cache_data.clear()
