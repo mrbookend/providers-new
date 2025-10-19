@@ -1,0 +1,249 @@
+# app_admin.py
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+
+import os
+import re
+from typing import Any, Optional
+
+import pandas as pd
+import sqlalchemy as sa
+from sqlalchemy import text as T
+from sqlalchemy.engine import Engine
+import streamlit as st
+
+# ---- Streamlit page config MUST be first ----
+st.set_page_config(page_title="Providers — Admin", page_icon="🛠️", layout="wide")
+
+DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
+
+def build_engine() -> Engine:
+    return sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+
+ENG = build_engine()
+
+DDL = """
+CREATE TABLE IF NOT EXISTS vendors (
+  id INTEGER PRIMARY KEY,
+  business_name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  service TEXT NOT NULL,
+  contact_name TEXT,
+  phone TEXT,
+  email TEXT,
+  website TEXT,
+  address TEXT,
+  city TEXT,
+  state TEXT DEFAULT 'TX',
+  zip TEXT,
+  notes TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  computed_keywords TEXT,
+  ckw_locked INTEGER DEFAULT 0,
+  ckw_version TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vendors_name     ON vendors(business_name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_vendors_cat      ON vendors(category);
+CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service);
+"""
+
+def ensure_schema():
+    with ENG.begin() as cx:
+        for stmt in [s.strip() for s in DDL.split(";") if s.strip()]:
+            cx.execute(T(stmt))
+
+def _digits_only(p: Optional[str]) -> Optional[str]:
+    if p is None:
+        return None
+    d = "".join(ch for ch in str(p) if ch.isdigit())
+    return d[:10] if d else None
+
+@st.cache_data(show_spinner=False)
+def load_all() -> pd.DataFrame:
+    ensure_schema()
+    with ENG.connect() as cx:
+        df = pd.read_sql_query(
+            T("""
+              SELECT id,business_name,category,service,contact_name,phone,email,website,
+                     address,city,state,zip,notes,created_at,updated_at
+              FROM vendors
+              ORDER BY business_name COLLATE NOCASE ASC
+            """),
+            cx,
+        )
+    return df
+
+def insert_row(row: dict[str, Any]) -> int:
+    row = dict(row)
+    if "phone" in row:
+        row["phone"] = _digits_only(row.get("phone"))
+    cols = ",".join(row.keys())
+    vals = ",".join([f":{k}" for k in row.keys()])
+    sql = T(f"INSERT INTO vendors ({cols}) VALUES ({vals})")
+    with ENG.begin() as cx:
+        cx.execute(sql, row)
+        new_id = cx.execute(T("SELECT last_insert_rowid()")).scalar_one()
+        return int(new_id)
+
+def update_row(row_id: int, row: dict[str, Any]) -> None:
+    row = dict(row)
+    if "phone" in row:
+        row["phone"] = _digits_only(row.get("phone"))
+    sets = ",".join([f"{k}=:{k}" for k in row.keys()])
+    row["id"] = row_id
+    sql = T(f"UPDATE vendors SET {sets} WHERE id=:id")
+    with ENG.begin() as cx:
+        cx.execute(sql, row)
+
+def delete_row(row_id: int) -> None:
+    with ENG.begin() as cx:
+        cx.execute(T("DELETE FROM vendors WHERE id=:id"), {"id": row_id})
+
+st.title("Providers — Admin (Minimal)")
+
+tabs = st.tabs(["Browse", "Add", "Edit / Delete"])
+
+# -------------------------
+# Browse
+# -------------------------
+with tabs[0]:
+    df = load_all()
+    left, right = st.columns([3, 1])
+    with left:
+        q = st.text_input("Search", value="", placeholder="name, category, service, city, keyword…").strip()
+    with right:
+        if st.button("Clear"):
+            q = ""
+    vdf = df
+    if q:
+        qq = re.escape(q)
+        mask = (
+            df["business_name"].str.contains(qq, case=False, na=False) |
+            df["category"].str.contains(qq, case=False, na=False) |
+            df["service"].str.contains(qq, case=False, na=False) |
+            df["city"].str.contains(qq, case=False, na=False) |
+            df["state"].str.contains(qq, case=False, na=False)
+        )
+        vdf = df[mask]
+    if vdf.empty:
+        st.info("No matching providers.")
+    else:
+        st.caption(f"Rows: {len(vdf)}")
+        st.dataframe(vdf, use_container_width=True)
+        st.download_button(
+            "Download CSV",
+            vdf.to_csv(index=False).encode("utf-8"),
+            file_name="providers_admin_export.csv",
+            mime="text/csv",
+        )
+
+# -------------------------
+# Add
+# -------------------------
+with tabs[1]:
+    st.subheader("Add Provider")
+    with st.form("add_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            business_name = st.text_input("Business Name *")
+            category      = st.text_input("Category *")
+            service       = st.text_input("Service *")
+            contact_name  = st.text_input("Contact Name")
+        with c2:
+            phone  = st.text_input("Phone (digits only ok)")
+            email  = st.text_input("Email")
+            website= st.text_input("Website")
+            address= st.text_input("Address")
+        with c3:
+            city   = st.text_input("City")
+            state  = st.text_input("State", value="TX")
+            zipc   = st.text_input("ZIP")
+            notes  = st.text_area("Notes", height=80)
+
+        submitted = st.form_submit_button("Add")
+        if submitted:
+            if not business_name or not category or not service:
+                st.error("business_name, category, and service are required.")
+            else:
+                row = dict(
+                    business_name=business_name.strip(),
+                    category=category.strip(),
+                    service=service.strip(),
+                    contact_name=contact_name.strip() if contact_name else None,
+                    phone=phone.strip() if phone else None,
+                    email=email.strip() if email else None,
+                    website=website.strip() if website else None,
+                    address=address.strip() if address else None,
+                    city=city.strip() if city else None,
+                    state=state.strip() if state else None,
+                    zip=zipc.strip() if zipc else None,
+                    notes=notes.strip() if notes else None,
+                )
+                new_id = insert_row(row)
+                st.success(f"Added provider ID {new_id}")
+                st.cache_data.clear()
+
+# -------------------------
+# Edit / Delete
+# -------------------------
+with tabs[2]:
+    st.subheader("Edit or Delete")
+    df = load_all()
+    if df.empty:
+        st.info("No providers found.")
+    else:
+        # Simple selector by business name (shows ID)
+        df["label"] = df.apply(lambda r: f"[{r['id']}] {r['business_name']}", axis=1)
+        selected = st.selectbox("Select a provider:", df["label"].tolist())
+        row_id = int(selected.split("]")[0][1:]) if selected else None
+        row = df[df["id"] == row_id].iloc[0].to_dict() if row_id else {}
+
+        with st.form("edit_form"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                business_name = st.text_input("Business Name *", value=row.get("business_name", ""))
+                category      = st.text_input("Category *", value=row.get("category", ""))
+                service       = st.text_input("Service *", value=row.get("service", ""))
+                contact_name  = st.text_input("Contact Name", value=row.get("contact_name") or "")
+            with c2:
+                phone  = st.text_input("Phone (digits only ok)", value=row.get("phone") or "")
+                email  = st.text_input("Email", value=row.get("email") or "")
+                website= st.text_input("Website", value=row.get("website") or "")
+                address= st.text_input("Address", value=row.get("address") or "")
+            with c3:
+                city   = st.text_input("City", value=row.get("city") or "")
+                state  = st.text_input("State", value=row.get("state") or "TX")
+                zipc   = st.text_input("ZIP", value=row.get("zip") or "")
+                notes  = st.text_area("Notes", value=row.get("notes") or "", height=80)
+
+            colA, colB = st.columns([1, 1])
+            do_update = colA.form_submit_button("Save Changes")
+            do_delete = colB.form_submit_button("Delete", type="secondary")
+
+        if do_update:
+            if not business_name or not category or not service:
+                st.error("business_name, category, and service are required.")
+            else:
+                upd = dict(
+                    business_name=business_name.strip(),
+                    category=category.strip(),
+                    service=service.strip(),
+                    contact_name=(contact_name or "").strip() or None,
+                    phone=(phone or "").strip() or None,
+                    email=(email or "").strip() or None,
+                    website=(website or "").strip() or None,
+                    address=(address or "").strip() or None,
+                    city=(city or "").strip() or None,
+                    state=(state or "").strip() or None,
+                    zip=(zipc or "").strip() or None,
+                    notes=(notes or "").strip() or None,
+                )
+                update_row(row_id, upd)
+                st.success(f"Updated provider ID {row_id}")
+                st.cache_data.clear()
+
+        if do_delete:
+            delete_row(row_id)
+            st.warning(f"Deleted provider ID {row_id}")
+            st.cache_data.clear()
