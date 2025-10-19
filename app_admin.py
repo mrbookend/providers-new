@@ -242,10 +242,10 @@ def main() -> None:
     else:
         st.caption(status_msg)
 
-    # ---- Tabs
+        # ---- Tabs
     tab_browse, tab_add = st.tabs(["Browse", "Add"])
 
-        # ---- Browse tab
+    # ---- Browse tab
     with tab_browse:
         st.subheader("Browse Providers")
 
