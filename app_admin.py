@@ -619,68 +619,69 @@ def main() -> None:
         st.caption(msg_seed)
 
     # Tabs
-    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+    ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+)
+
+# ──────────────────────────────────────────────────────────────────────
+# Browse (Admin)
+# ──────────────────────────────────────────────────────────────────────
+with tab_browse:
+    c1, c2 = st.columns([1, 0.3])
+    q = c1.text_input(
+        "Search",
+        value=st.session_state.get("q", ""),
+        placeholder="name, category, service, notes, phone, website…",
+        key="browse_search",
+    )
+    if c2.button("Clear", key="browse_clear"):
+        q = ""
+    st.session_state["q"] = q
+
+    # CKW-first search (no pager; cap)
+    limit = MAX_RENDER_ROWS_ADMIN
+    offset = 0
+    try:
+        ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Search failed: {e}")
+        ids = []
+
+    if not ids:
+        try:
+            with eng.connect() as cx:
+                target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            st.info(
+                f"No matches. DB: {target} | vendors: {total_cnt}. "
+                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+            )
+        except Exception as e:
+            st.info(f"No matches. (Diagnostics failed: {e})")
+
+    if len(ids) == limit:
+        st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+
+    df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+
+    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+    try:
+        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    except Exception:
+        pass
+    colcfg = _column_config_from_widths(widths)
+
+    st.dataframe(
+        df[BROWSE_COLUMNS] if not df.empty else df,
+        hide_index=True,
+        use_container_width=True,
+        column_config=colcfg,
     )
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Browse (Admin)
-    # ──────────────────────────────────────────────────────────────────────
-    with tab_browse:
-        c1, c2 = st.columns([1, 0.3])
-        q = c1.text_input(
-            "Search",
-            value=st.session_state.get("q", ""),
-            placeholder="name, category, service, notes, phone, website…",
-        )
-        if c2.button("Clear"):
-            q = ""
-        st.session_state["q"] = q
-
-        # CKW-first search (no pager; cap)
-        limit = MAX_RENDER_ROWS_ADMIN
-        offset = 0
-        try:
-            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
-        except Exception as e:
-            st.error(f"Search failed: {e}")
-            ids = []
-
-        if not ids:
-            try:
-                with eng.connect() as cx:
-                    target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-                st.info(
-                    f"No matches. DB: {target} | vendors: {total_cnt}. "
-                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-                )
-            except Exception as e:
-                st.info(f"No matches. (Diagnostics failed: {e})")
-
-        if len(ids) == limit:
-            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
-
-        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-
-        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-        try:
-            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-        except Exception:
-            pass
-        colcfg = _column_config_from_widths(widths)
-
-        st.dataframe(
-            df[BROWSE_COLUMNS] if not df.empty else df,
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
-
-    # ──────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────
 # Add / Edit / Delete
 # ──────────────────────────────────────────────────────────────────────
-with tab_add:
+with tab_manage:
     lc, rc = st.columns([1, 1], gap="large")
 
     # ---------- Add (left) ----------
@@ -832,6 +833,7 @@ with tab_add:
                     ensure_lookup_value(eng, "services", data["service"])
                     st.session_state["DATA_VER"] += 1
                     st.success(f"Saved changes to provider #{sel_id}.")
+
 
     # ──────────────────────────────────────────────────────────────────────
     # Category / Service management
