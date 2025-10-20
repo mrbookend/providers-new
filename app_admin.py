@@ -940,7 +940,7 @@ def main() -> None:
             st.error(f"Fetch failed: {e}")
             df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-                # ---- Column widths / render ------------------------------------------
+        # ---- Column widths / render ------------------------------------------
         widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
         try:
             widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
@@ -961,157 +961,157 @@ def main() -> None:
             use_container_width=True,
             column_config=colcfg,
         )
-# ──────────────────────────────────────────────────────────────────────
-# Add / Edit / Delete
-# ──────────────────────────────────────────────────────────────────────
-with tab_manage:
-    eng = get_engine()  # ensure local scope
-    lc, rc = st.columns([1, 1], gap="large")
 
-    # ---------- Add (left) ----------
-    with lc:
-        st.subheader("Add Provider")
-        cats = list_categories(eng)
-        srvs = list_services(eng)
+    # ──────────────────────────────────────────────────────────────────────
+    # Add / Edit / Delete
+    # ──────────────────────────────────────────────────────────────────────
+    with tab_manage:
+        eng = get_engine()  # ensure local scope
+        lc, rc = st.columns([1, 1], gap="large")
 
-        bn = st.text_input("Business Name *", key="bn_add")
+        # ---------- Add (left) ----------
+        with lc:
+            st.subheader("Add Provider")
+            cats = list_categories(eng)
+            srvs = list_services(eng)
 
-        # Category select or new
-        ccol1, ccol2 = st.columns([1, 1])
-        cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-        cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
-        category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
+            bn = st.text_input("Business Name *", key="bn_add")
 
-        # Service select or new
-        scol1, scol2 = st.columns([1, 1])
-        srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
-        srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
-        service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
+            # Category select or new
+            ccol1, ccol2 = st.columns([1, 1])
+            cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+            cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
+            category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
 
-        contact_name = st.text_input("Contact Name", key="contact_add")
-        phone = st.text_input("Phone", key="phone_add")
-        email = st.text_input("Email", key="email_add")
-        website = st.text_input("Website", key="website_add")
-        address = st.text_input("Address", key="address_add")
-        notes = st.text_area("Notes", height=100, key="notes_add")
+            # Service select or new
+            scol1, scol2 = st.columns([1, 1])
+            srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+            srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
+            service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
 
-        keywords_manual = st.text_area(
-            "Keywords",
-            value="",
-            help=(
-                "Optional, comma/pipe/semicolon-separated phrases to always include. "
-                "Example: garage door, torsion spring, opener repair"
-            ),
-            height=80,
-            key="kw_add",
-        )
+            contact_name = st.text_input("Contact Name", key="contact_add")
+            phone = st.text_input("Phone", key="phone_add")
+            email = st.text_input("Email", key="email_add")
+            website = st.text_input("Website", key="website_add")
+            address = st.text_input("Address", key="address_add")
+            notes = st.text_area("Notes", height=100, key="notes_add")
 
-        disabled = not (bn.strip() and category and service)
-        if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
-            data = {
-                "business_name": bn.strip(),
-                "category": category.strip(),
-                "service": service.strip(),
-                "contact_name": contact_name.strip(),
-                "phone": phone.strip(),
-                "email": email.strip(),
-                "website": website.strip(),
-                "address": address.strip(),
-                "notes": notes.strip(),
-                "ckw_manual_extra": (keywords_manual or "").strip(),
-            }
-            vid = insert_vendor(eng, data)
-            ensure_lookup_value(eng, "categories", data["category"])
-            ensure_lookup_value(eng, "services", data["service"])
-            st.session_state["DATA_VER"] += 1
-            st.success(
-                f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords."
+            keywords_manual = st.text_area(
+                "Keywords",
+                value="",
+                help=(
+                    "Optional, comma/pipe/semicolon-separated phrases to always include. "
+                    "Example: garage door, torsion spring, opener repair"
+                ),
+                height=80,
+                key="kw_add",
             )
 
-    # ---------- Edit (right) ----------
-    with rc:
-        st.subheader("Edit Provider")
-        with eng.begin() as cx:
-            rows = cx.exec_driver_sql(
-                "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-            ).all()
+            disabled = not (bn.strip() and category and service)
+            if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
+                data = {
+                    "business_name": bn.strip(),
+                    "category": category.strip(),
+                    "service": service.strip(),
+                    "contact_name": contact_name.strip(),
+                    "phone": phone.strip(),
+                    "email": email.strip(),
+                    "website": website.strip(),
+                    "address": address.strip(),
+                    "notes": notes.strip(),
+                    "ckw_manual_extra": (keywords_manual or "").strip(),
+                }
+                vid = insert_vendor(eng, data)
+                ensure_lookup_value(eng, "categories", data["category"])
+                ensure_lookup_value(eng, "services", data["service"])
+                st.session_state["DATA_VER"] += 1
+                st.success(
+                    f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords."
+                )
 
-        if not rows:
-            st.info("No providers yet.")
-        else:
-            labels = [f"#{i} — {n}" for (i, n) in rows]
-            sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
-            sel_id = int(rows[labels.index(sel)][0])
-
+        # ---------- Edit (right) ----------
+        with rc:
+            st.subheader("Edit Provider")
             with eng.begin() as cx:
-                r = cx.exec_driver_sql(
-                    "SELECT business_name,category,service,contact_name,phone,email,website,"
-                    "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
-                    {"id": sel_id},
-                ).mappings().first()
+                rows = cx.exec_driver_sql(
+                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                ).all()
 
-            if r:
-                bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
+            if not rows:
+                st.info("No providers yet.")
+            else:
+                labels = [f"#{i} — {n}" for (i, n) in rows]
+                sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+                sel_id = int(rows[labels.index(sel)][0])
 
-                cats = list_categories(eng)
-                srvs = list_services(eng)
+                with eng.begin() as cx:
+                    r = cx.exec_driver_sql(
+                        "SELECT business_name,category,service,contact_name,phone,email,website,"
+                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
+                        {"id": sel_id},
+                    ).mappings().first()
 
-                e_c1, e_c2 = st.columns([1, 1])
-                cat_choice_e = e_c1.selectbox(
-                    "Category *", options=["— Select —"] + cats,
-                    index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
-                    key="cat_edit_sel",
-                )
-                cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
-                category_e = (cat_new_e or "").strip() or (
-                    cat_choice_e if cat_choice_e != "— Select —" else r["category"]
-                )
+                if r:
+                    bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
 
-                e_s1, e_s2 = st.columns([1, 1])
-                srv_choice_e = e_s1.selectbox(
-                    "Service *", options=["— Select —"] + srvs,
-                    index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
-                    key="srv_edit_sel",
-                )
-                srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
-                service_e = (srv_new_e or "").strip() or (
-                    srv_choice_e if srv_choice_e != "— Select —" else r["service"]
-                )
+                    cats = list_categories(eng)
+                    srvs = list_services(eng)
 
-                contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
-                email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
-                website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
-                address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
-                notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+                    e_c1, e_c2 = st.columns([1, 1])
+                    cat_choice_e = e_c1.selectbox(
+                        "Category *", options=["— Select —"] + cats,
+                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                        key="cat_edit_sel",
+                    )
+                    cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
+                    category_e = (cat_new_e or "").strip() or (
+                        cat_choice_e if cat_choice_e != "— Select —" else r["category"]
+                    )
 
-                keywords_manual_e = st.text_area(
-                    "Keywords",
-                    value=(r.get("ckw_manual_extra") or ""),
-                    help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
-                    height=80,
-                    key="kw_edit",
-                )
+                    e_s1, e_s2 = st.columns([1, 1])
+                    srv_choice_e = e_s1.selectbox(
+                        "Service *", options=["— Select —"] + srvs,
+                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                        key="srv_edit_sel",
+                    )
+                    srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
+                    service_e = (srv_new_e or "").strip() or (
+                        srv_choice_e if srv_choice_e != "— Select —" else r["service"]
+                    )
 
-                if st.button("Save Changes", type="primary", key="save_changes_btn"):
-                    data = {
-                        "business_name": bn_e.strip(),
-                        "category": category_e.strip(),
-                        "service": service_e.strip(),
-                        "contact_name": contact_name_e.strip(),
-                        "phone": phone_e.strip(),
-                        "email": email_e.strip(),
-                        "website": website_e.strip(),
-                        "address": address_e.strip(),
-                        "notes": notes_e.strip(),
-                        "ckw_manual_extra": (keywords_manual_e or "").strip(),
-                    }
-                    update_vendor(eng, sel_id, data)
-                    ensure_lookup_value(eng, "categories", data["category"])
-                    ensure_lookup_value(eng, "services", data["service"])
-                    st.session_state["DATA_VER"] += 1
-                    st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
+                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+                    phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
+                    email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
+                    website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
+                    address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
+                    notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
 
+                    keywords_manual_e = st.text_area(
+                        "Keywords",
+                        value=(r.get("ckw_manual_extra") or ""),
+                        help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
+                        height=80,
+                        key="kw_edit",
+                    )
+
+                    if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                        data = {
+                            "business_name": bn_e.strip(),
+                            "category": category_e.strip(),
+                            "service": service_e.strip(),
+                            "contact_name": contact_name_e.strip(),
+                            "phone": phone_e.strip(),
+                            "email": email_e.strip(),
+                            "website": website_e.strip(),
+                            "address": address_e.strip(),
+                            "notes": notes_e.strip(),
+                            "ckw_manual_extra": (keywords_manual_e or "").strip(),
+                        }
+                        update_vendor(eng, sel_id, data)
+                        ensure_lookup_value(eng, "categories", data["category"])
+                        ensure_lookup_value(eng, "services", data["service"])
+                        st.session_state["DATA_VER"] += 1
+                        st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
 
     # ──────────────────────────────────────────────────────────────────────
     # Category / Service management
@@ -1286,8 +1286,6 @@ with tab_manage:
             except Exception as e:
                 st.error(f"Recompute ALL failed: {e}")
                 st.exception(e)  # ensures the tab is not blank; shows traceback
-
-
 
 
 if __name__ == "__main__":
