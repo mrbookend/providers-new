@@ -600,239 +600,248 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 # Main App
 # ──────────────────────────────────────────────────────────────────────────
 def main() -> None:
-    # Cache-buster for @st.cache_data after writes
+    # ---- DATA_VER init (cache-buster for @st.cache_data) ----
     if "DATA_VER" not in st.session_state:
         st.session_state["DATA_VER"] = 0
     DATA_VER = st.session_state["DATA_VER"]
 
-    # Build engine early (resource-cached)
+    # ---- Build engine early and ensure schema BEFORE any queries ----
     eng = get_engine()
+    try:
+        msg_schema = ensure_schema_uncached()
+        if os.getenv("SHOW_STATUS") == "1":
+            st.caption(msg_schema)
+    except Exception as e:
+        st.warning(f"Schema check failed: {e}")
 
-    # ── CRITICAL: ensure schema BEFORE any browse/search code ─────────────
-    msg_schema = ensure_schema_uncached()
-    if os.getenv("SHOW_STATUS") == "1":
-        st.caption(msg_schema)
-
-    # Optional: seed once if empty
-    msg_seed = bootstrap_from_csv_if_needed()
-    if msg_seed and os.getenv("SHOW_STATUS") == "1":
-        st.caption(msg_seed)
+    # Optional seed if empty (safe no-op otherwise)
+    try:
+        msg_seed = bootstrap_from_csv_if_needed()
+        if msg_seed and os.getenv("SHOW_STATUS") == "1":
+            st.caption(msg_seed)
+    except Exception as e:
+        st.warning(f"Bootstrap skipped: {e}")
 
     # Tabs
-tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-    ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
-)
-
-# ──────────────────────────────────────────────────────────────────────
-# Browse (Admin)
-# ──────────────────────────────────────────────────────────────────────
-with tab_browse:
-    c1, c2 = st.columns([1, 0.3])
-    q = c1.text_input(
-        "Search",
-        value=st.session_state.get("q", ""),
-        placeholder="name, category, service, notes, phone, website…",
-        key="browse_search",
+    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
-    if c2.button("Clear", key="browse_clear"):
-        q = ""
-    st.session_state["q"] = q
 
-    # CKW-first search (no pager; cap)
-    limit = MAX_RENDER_ROWS_ADMIN
-    offset = 0
-    try:
-        ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
-    except Exception as e:
-        st.error(f"Search failed: {e}")
-        ids = []
+    # ──────────────────────────────────────────────────────────────────────
+    # Browse (Admin)
+    # ──────────────────────────────────────────────────────────────────────
+    with tab_browse:
+        c1, c2 = st.columns([1, 0.3])
+        q = c1.text_input(
+            "Search",
+            value=st.session_state.get("q", ""),
+            placeholder="name, category, service, notes, phone, website…",
+            key="browse_search",
+        )
+        if c2.button("Clear", key="browse_clear"):
+            q = ""
+        st.session_state["q"] = q
 
-    if not ids:
+        # CKW-first search (no pager; cap)
+        limit = MAX_RENDER_ROWS_ADMIN
+        offset = 0
         try:
-            with eng.connect() as cx:
-                target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            st.info(
-                f"No matches. DB: {target} | vendors: {total_cnt}. "
-                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-            )
+            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
         except Exception as e:
-            st.info(f"No matches. (Diagnostics failed: {e})")
+            st.error(f"Search failed: {e}")
+            ids = []
 
-    if len(ids) == limit:
-        st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+        if not ids:
+            try:
+                with eng.connect() as cx:
+                    target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+                st.info(
+                    f"No matches. DB: {target} | vendors: {total_cnt}. "
+                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+                )
+            except Exception as e:
+                st.info(f"No matches. (Diagnostics failed: {e})")
 
-    df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+        if len(ids) == limit:
+            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-    try:
-        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    except Exception:
-        pass
-    colcfg = _column_config_from_widths(widths)
+        try:
+            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+        except Exception as e:
+            st.error(f"Fetch failed: {e}")
+            df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-    st.dataframe(
-        df[BROWSE_COLUMNS] if not df.empty else df,
-        hide_index=True,
-        use_container_width=True,
-        column_config=colcfg,
-    )
+        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+        try:
+            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        except Exception:
+            pass
+        colcfg = _column_config_from_widths(widths)
 
-# ──────────────────────────────────────────────────────────────────────
-# Add / Edit / Delete
-# ──────────────────────────────────────────────────────────────────────
-with tab_manage:
-    lc, rc = st.columns([1, 1], gap="large")
+        st.dataframe(
+            df[BROWSE_COLUMNS] if not df.empty else df,
+            hide_index=True,
+            use_container_width=True,
+            column_config=colcfg,
+        )
 
-    # ---------- Add (left) ----------
-    with lc:
-        st.subheader("Add Provider")
-        cats = list_categories(eng)
-        srvs = list_services(eng)
+    # ──────────────────────────────────────────────────────────────────────
+    # Add / Edit / Delete
+    # ──────────────────────────────────────────────────────────────────────
+    with tab_manage:
+        lc, rc = st.columns([1, 1], gap="large")
 
-        bn = st.text_input("Business Name *", key="bn_add")
+        # ---------- Add (left) ----------
+        with lc:
+            st.subheader("Add Provider")
+            cats = list_categories(eng)
+            srvs = list_services(eng)
 
-        # Category select or new
-        ccol1, ccol2 = st.columns([1, 1])
-        cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-        cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
-        category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
+            bn = st.text_input("Business Name *", key="bn_add")
 
-        # Service select or new
-        scol1, scol2 = st.columns([1, 1])
-        srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
-        srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
-        service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
+            # Category select or new
+            ccol1, ccol2 = st.columns([1, 1])
+            cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+            cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
+            category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
 
-        contact_name = st.text_input("Contact Name", key="contact_add")
-        phone = st.text_input("Phone", key="phone_add")
-        email = st.text_input("Email", key="email_add")
-        website = st.text_input("Website", key="website_add")
-        address = st.text_input("Address", key="address_add")
-        ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
-        city = ac1.text_input("City", key="city_add")
-        state = ac2.text_input("State", key="state_add")
-        zip_ = ac3.text_input("Zip", key="zip_add")
-        notes = st.text_area("Notes", height=100, key="notes_add")
+            # Service select or new
+            scol1, scol2 = st.columns([1, 1])
+            srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+            srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
+            service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
 
-        disabled = not (bn.strip() and category and service)
-        if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
-            data = {
-                "business_name": bn.strip(),
-                "category": category.strip(),
-                "service": service.strip(),
-                "contact_name": contact_name.strip(),
-                "phone": phone.strip(),
-                "email": email.strip(),
-                "website": website.strip(),
-                "address": address.strip(),
-                "city": city.strip(),
-                "state": state.strip(),
-                "zip": zip_.strip(),
-                "notes": notes.strip(),
-            }
-            vid = insert_vendor(eng, data)
-            ensure_lookup_value(eng, "categories", data["category"])
-            ensure_lookup_value(eng, "services", data["service"])
-            st.session_state["DATA_VER"] += 1
-            st.success(f"Added provider #{vid}: {data['business_name']}")
+            contact_name = st.text_input("Contact Name", key="contact_add")
+            phone = st.text_input("Phone", key="phone_add")
+            email = st.text_input("Email", key="email_add")
+            website = st.text_input("Website", key="website_add")
+            address = st.text_input("Address", key="address_add")
+            ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
+            city = ac1.text_input("City", key="city_add")
+            state = ac2.text_input("State", key="state_add")
+            zip_ = ac3.text_input("Zip", key="zip_add")
+            notes = st.text_area("Notes", height=100, key="notes_add")
 
-        # ---------- Delete (left, under Add) ----------
-        st.divider()
-        st.subheader("Delete Provider")
-        with eng.begin() as cx:
-            opts = cx.exec_driver_sql(
-                "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-            ).all()
-        if opts:
-            labels = [f"#{i} — {n}" for (i, n) in opts]
-            pick = st.selectbox("Select provider to delete", options=["— Select —"] + labels, key="del_pick")
-            if pick != "— Select —":
-                idx = labels.index(pick)
-                del_id = int(opts[idx][0])
-                confirm = st.checkbox("I understand this will permanently delete the provider.", key="del_confirm")
-                ack = st.text_input("Type DELETE to confirm", key="del_ack")
-                if st.button("Delete", type="secondary", disabled=not (confirm and ack == "DELETE"), key="btn_delete"):
-                    delete_vendor(eng, del_id)
-                    st.session_state["DATA_VER"] += 1
-                    st.warning(f"Deleted provider #{del_id}.")
-        else:
-            st.info("No providers to delete.")
+            disabled = not (bn.strip() and category and service)
+            if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
+                data = {
+                    "business_name": bn.strip(),
+                    "category": category.strip(),
+                    "service": service.strip(),
+                    "contact_name": contact_name.strip(),
+                    "phone": phone.strip(),
+                    "email": email.strip(),
+                    "website": website.strip(),
+                    "address": address.strip(),
+                    "city": city.strip(),
+                    "state": state.strip(),
+                    "zip": zip_.strip(),
+                    "notes": notes.strip(),
+                }
+                vid = insert_vendor(eng, data)
+                ensure_lookup_value(eng, "categories", data["category"])
+                ensure_lookup_value(eng, "services", data["service"])
+                st.session_state["DATA_VER"] += 1
+                st.success(f"Added provider #{vid}: {data['business_name']}")
 
-    # ---------- Edit (right) ----------
-    with rc:
-        st.subheader("Edit Provider")
-        with eng.begin() as cx:
-            rows = cx.exec_driver_sql(
-                "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-            ).all()
-        if not rows:
-            st.info("No providers yet.")
-        else:
-            labels = [f"#{i} — {n}" for (i, n) in rows]
-            sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
-            sel_id = int(rows[labels.index(sel)][0])
+            # ---------- Delete (left, under Add) ----------
+            st.divider()
+            st.subheader("Delete Provider")
             with eng.begin() as cx:
-                r = cx.exec_driver_sql(
-                    "SELECT business_name,category,service,contact_name,phone,email,website,"
-                    "address,city,state,zip,notes FROM vendors WHERE id=:id",
-                    {"id": sel_id},
-                ).mappings().first()
-            if r:
-                bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
+                opts = cx.exec_driver_sql(
+                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                ).all()
+            if opts:
+                labels = [f"#{i} — {n}" for (i, n) in opts]
+                pick = st.selectbox("Select provider to delete", options=["— Select —"] + labels, key="del_pick")
+                if pick != "— Select —":
+                    idx = labels.index(pick)
+                    del_id = int(opts[idx][0])
+                    confirm = st.checkbox("I understand this will permanently delete the provider.", key="del_confirm")
+                    ack = st.text_input("Type DELETE to confirm", key="del_ack")
+                    if st.button("Delete", type="secondary", disabled=not (confirm and ack == "DELETE"), key="btn_delete"):
+                        delete_vendor(eng, del_id)
+                        st.session_state["DATA_VER"] += 1
+                        st.warning(f"Deleted provider #{del_id}.")
+            else:
+                st.info("No providers to delete.")
 
-                cats = list_categories(eng)
-                srvs = list_services(eng)
+        # ---------- Edit (right) ----------
+        with rc:
+            st.subheader("Edit Provider")
+            with eng.begin() as cx:
+                rows = cx.exec_driver_sql(
+                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                ).all()
+            if not rows:
+                st.info("No providers yet.")
+            else:
+                labels = [f"#{i} — {n}" for (i, n) in rows]
+                sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+                sel_id = int(rows[labels.index(sel)][0])
+                with eng.begin() as cx:
+                    r = cx.exec_driver_sql(
+                        "SELECT business_name,category,service,contact_name,phone,email,website,"
+                        "address,city,state,zip,notes FROM vendors WHERE id=:id",
+                        {"id": sel_id},
+                    ).mappings().first()
+                if r:
+                    bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
 
-                e_c1, e_c2 = st.columns([1, 1])
-                cat_choice_e = e_c1.selectbox(
-                    "Category *", options=["— Select —"] + cats,
-                    index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
-                    key="cat_edit_sel",
-                )
-                cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
-                category_e = (cat_new_e or "").strip() or (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
+                    cats = list_categories(eng)
+                    srvs = list_services(eng)
 
-                e_s1, e_s2 = st.columns([1, 1])
-                srv_choice_e = e_s1.selectbox(
-                    "Service *", options=["— Select —"] + srvs,
-                    index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
-                    key="srv_edit_sel",
-                )
-                srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
-                service_e = (srv_new_e or "").strip() or (srv_choice_e if srv_choice_e != "— Select —" else r["service"])
+                    e_c1, e_c2 = st.columns([1, 1])
+                    cat_choice_e = e_c1.selectbox(
+                        "Category *", options=["— Select —"] + cats,
+                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                        key="cat_edit_sel",
+                    )
+                    cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
+                    category_e = (cat_new_e or "").strip() or (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
 
-                contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
-                email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
-                website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
-                address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
-                ac1e, ac2e, ac3e = st.columns([1, 0.5, 0.5])
-                city_e = ac1e.text_input("City", value=r["city"] or "", key="city_edit")
-                state_e = ac2e.text_input("State", value=r["state"] or "", key="state_edit")
-                zip_e = ac3e.text_input("Zip", value=r["zip"] or "", key="zip_edit")
-                notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+                    e_s1, e_s2 = st.columns([1, 1])
+                    srv_choice_e = e_s1.selectbox(
+                        "Service *", options=["— Select —"] + srvs,
+                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                        key="srv_edit_sel",
+                    )
+                    srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
+                    service_e = (srv_new_e or "").strip() or (srv_choice_e if cat_choice_e != "— Select —" else r["service"])
 
-                if st.button("Save Changes", type="primary", key="save_changes_btn"):
-                    data = {
-                        "business_name": bn_e.strip(),
-                        "category": category_e.strip(),
-                        "service": service_e.strip(),
-                        "contact_name": contact_name_e.strip(),
-                        "phone": phone_e.strip(),
-                        "email": email_e.strip(),
-                        "website": website_e.strip(),
-                        "address": address_e.strip(),
-                        "city": city_e.strip(),
-                        "state": state_e.strip(),
-                        "zip": zip_e.strip(),
-                        "notes": notes_e.strip(),
-                    }
-                    update_vendor(eng, sel_id, data)
-                    ensure_lookup_value(eng, "categories", data["category"])
-                    ensure_lookup_value(eng, "services", data["service"])
-                    st.session_state["DATA_VER"] += 1
-                    st.success(f"Saved changes to provider #{sel_id}.")
+                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+                    phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
+                    email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
+                    website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
+                    address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
+                    ac1e, ac2e, ac3e = st.columns([1, 0.5, 0.5])
+                    city_e = ac1e.text_input("City", value=r["city"] or "", key="city_edit")
+                    state_e = ac2e.text_input("State", value=r["state"] or "", key="state_edit")
+                    zip_e = ac3e.text_input("Zip", value=r["zip"] or "", key="zip_edit")
+                    notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+
+                    if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                        data = {
+                            "business_name": bn_e.strip(),
+                            "category": category_e.strip(),
+                            "service": service_e.strip(),
+                            "contact_name": contact_name_e.strip(),
+                            "phone": phone_e.strip(),
+                            "email": email_e.strip(),
+                            "website": website_e.strip(),
+                            "address": address_e.strip(),
+                            "city": city_e.strip(),
+                            "state": state_e.strip(),
+                            "zip": zip_e.strip(),
+                            "notes": notes_e.strip(),
+                        }
+                        update_vendor(eng, sel_id, data)
+                        ensure_lookup_value(eng, "categories", data["category"])
+                        ensure_lookup_value(eng, "services", data["service"])
+                        st.session_state["DATA_VER"] += 1
+                        st.success(f"Saved changes to provider #{sel_id}.")
+
 
 
     # ──────────────────────────────────────────────────────────────────────
