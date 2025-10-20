@@ -848,7 +848,7 @@ def main() -> None:
     # Category / Service management
     # ──────────────────────────────────────────────────────────────────────
     with tab_catsvc:
-        st.subheader("Manage Categories & Services")
+        #st.subheader("Manage Categories & Services")
         cc, ss = st.columns([1, 1], gap="large")
 
         # Categories
