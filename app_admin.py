@@ -683,56 +683,59 @@ def main() -> None:
     with tab_manage:
         lc, rc = st.columns([1, 1], gap="large")
 
-        # Add
-        with lc:
-            st.subheader("Add Provider")
-            cats = list_categories(eng)
-            srvs = list_services(eng)
+        # ---------- Add (left) ----------
+with lc:
+    st.subheader("Add Provider")
+    cats = list_categories(eng)
+    srvs = list_services(eng)
 
-            bn = st.text_input("Business Name *")
+    bn = st.text_input("Business Name *", key="bn_add")
 
-            ccol1, ccol2 = st.columns([1, 1])
-            cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats)
-            cat_new = ccol2.text_input("New Category (optional)")
-            category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
+    # Category select or new
+    ccol1, ccol2 = st.columns([1, 1])
+    cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+    cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
+    category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
 
-            scol1, scol2 = st.columns([1, 1])
-            srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs)
-            srv_new = scol2.text_input("New Service (optional)")
-            service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
+    # Service select or new
+    scol1, scol2 = st.columns([1, 1])
+    srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+    srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
+    service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
 
-            contact_name = st.text_input("Contact Name")
-            phone = st.text_input("Phone")
-            email = st.text_input("Email")
-            website = st.text_input("Website")
-            address = st.text_input("Address")
-            ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
-            city = ac1.text_input("City")
-            state = ac2.text_input("State")
-            zip_ = ac3.text_input("Zip")
-            notes = st.text_area("Notes", height=100)
+    contact_name = st.text_input("Contact Name", key="contact_add")
+    phone = st.text_input("Phone", key="phone_add")
+    email = st.text_input("Email", key="email_add")
+    website = st.text_input("Website", key="website_add")
+    address = st.text_input("Address", key="address_add")
+    ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
+    city = ac1.text_input("City", key="city_add")
+    state = ac2.text_input("State", key="state_add")
+    zip_ = ac3.text_input("Zip", key="zip_add")
+    notes = st.text_area("Notes", height=100, key="notes_add")
 
-            disabled = not (bn.strip() and category and service)
-            if st.button("Add Provider", type="primary", disabled=disabled):
-                data = {
-                    "business_name": bn.strip(),
-                    "category": category.strip(),
-                    "service": service.strip(),
-                    "contact_name": contact_name.strip(),
-                    "phone": phone.strip(),
-                    "email": email.strip(),
-                    "website": website.strip(),
-                    "address": address.strip(),
-                    "city": city.strip(),
-                    "state": state.strip(),
-                    "zip": zip_.strip(),
-                    "notes": notes.strip(),
-                }
-                vid = insert_vendor(eng, data)
-                ensure_lookup_value(eng, "categories", data["category"])
-                ensure_lookup_value(eng, "services", data["service"])
-                st.session_state["DATA_VER"] += 1
-                st.success(f"Added provider #{vid}: {data['business_name']}")
+    disabled = not (bn.strip() and category and service)
+    if st.button("Add Provider", type="primary", disabled=disabled):
+        data = {
+            "business_name": bn.strip(),
+            "category": category.strip(),
+            "service": service.strip(),
+            "contact_name": contact_name.strip(),
+            "phone": phone.strip(),
+            "email": email.strip(),
+            "website": website.strip(),
+            "address": address.strip(),
+            "city": city.strip(),
+            "state": state.strip(),
+            "zip": zip_.strip(),
+            "notes": notes.strip(),
+        }
+        vid = insert_vendor(eng, data)
+        ensure_lookup_value(eng, "categories", data["category"])
+        ensure_lookup_value(eng, "services", data["service"])
+        st.session_state["DATA_VER"] += 1
+        st.success(f"Added provider #{vid}: {data['business_name']}")
+
 
             # Delete
             st.divider()
@@ -758,75 +761,79 @@ def main() -> None:
 
         # Edit
         with rc:
-            st.subheader("Edit Provider")
-            with eng.begin() as cx:
-                rows = cx.exec_driver_sql(
-                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-                ).all()
-            if not rows:
-                st.info("No providers yet.")
-            else:
-                labels = [f"#{i} — {n}" for (i, n) in rows]
-                sel = st.selectbox("Pick a provider", options=labels)
-                sel_id = int(rows[labels.index(sel)][0])
-                with eng.begin() as cx:
-                    r = cx.exec_driver_sql(
-                        "SELECT business_name,category,service,contact_name,phone,email,website,"
-                        "address,city,state,zip,notes FROM vendors WHERE id=:id",
-                        {"id": sel_id},
-                    ).mappings().first()
-                if r:
-                    bn_e = st.text_input("Business Name *", value=r["business_name"])
-                    cats = list_categories(eng)
-                    srvs = list_services(eng)
+    st.subheader("Edit Provider")
+    with eng.begin() as cx:
+        rows = cx.exec_driver_sql(
+            "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+        ).all()
+    if not rows:
+        st.info("No providers yet.")
+    else:
+        labels = [f"#{i} — {n}" for (i, n) in rows]
+        sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+        sel_id = int(rows[labels.index(sel)][0])
+        with eng.begin() as cx:
+            r = cx.exec_driver_sql(
+                "SELECT business_name,category,service,contact_name,phone,email,website,"
+                "address,city,state,zip,notes FROM vendors WHERE id=:id",
+                {"id": sel_id},
+            ).mappings().first()
+        if r:
+            bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
 
-                    e_c1, e_c2 = st.columns([1, 1])
-                    cat_choice_e = e_c1.selectbox(
-                        "Category *", options=["— Select —"] + cats,
-                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0
-                    )
-                    cat_new_e = e_c2.text_input("New Category (optional)")
-                    category_e = (cat_new_e or "").strip() or (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
+            cats = list_categories(eng)
+            srvs = list_services(eng)
 
-                    e_s1, e_s2 = st.columns([1, 1])
-                    srv_choice_e = e_s1.selectbox(
-                        "Service *", options=["— Select —"] + srvs,
-                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0
-                    )
-                    srv_new_e = e_s2.text_input("New Service (optional)")
-                    service_e = (srv_new_e or "").strip() or (srv_choice_e if srv_choice_e != "— Select —" else r["service"])
+            e_c1, e_c2 = st.columns([1, 1])
+            cat_choice_e = e_c1.selectbox(
+                "Category *", options=["— Select —"] + cats,
+                index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                key="cat_edit_sel",
+            )
+            cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
+            category_e = (cat_new_e or "").strip() or (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
 
-                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "")
-                    phone_e = st.text_input("Phone", value=r["phone"] or "")
-                    email_e = st.text_input("Email", value=r["email"] or "")
-                    website_e = st.text_input("Website", value=r["website"] or "")
-                    address_e = st.text_input("Address", value=r["address"] or "")
-                    ac1e, ac2e, ac3e = st.columns([1, 0.5, 0.5])
-                    city_e = ac1e.text_input("City", value=r["city"] or "")
-                    state_e = ac2e.text_input("State", value=r["state"] or "")
-                    zip_e = ac3e.text_input("Zip", value=r["zip"] or "")
-                    notes_e = st.text_area("Notes", value=r["notes"] or "", height=100)
+            e_s1, e_s2 = st.columns([1, 1])
+            srv_choice_e = e_s1.selectbox(
+                "Service *", options=["— Select —"] + srvs,
+                index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                key="srv_edit_sel",
+            )
+            srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
+            service_e = (srv_new_e or "").strip() or (srv_choice_e if srv_choice_e != "— Select —" else r["service"])
 
-                    if st.button("Save Changes", type="primary"):
-                        data = {
-                            "business_name": bn_e.strip(),
-                            "category": category_e.strip(),
-                            "service": service_e.strip(),
-                            "contact_name": contact_name_e.strip(),
-                            "phone": phone_e.strip(),
-                            "email": email_e.strip(),
-                            "website": website_e.strip(),
-                            "address": address_e.strip(),
-                            "city": city_e.strip(),
-                            "state": state_e.strip(),
-                            "zip": zip_e.strip(),
-                            "notes": notes_e.strip(),
-                        }
-                        update_vendor(eng, sel_id, data)
-                        ensure_lookup_value(eng, "categories", data["category"])
-                        ensure_lookup_value(eng, "services", data["service"])
-                        st.session_state["DATA_VER"] += 1
-                        st.success(f"Saved changes to provider #{sel_id}.")
+            contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+            phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
+            email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
+            website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
+            address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
+            ac1e, ac2e, ac3e = st.columns([1, 0.5, 0.5])
+            city_e = ac1e.text_input("City", value=r["city"] or "", key="city_edit")
+            state_e = ac2e.text_input("State", value=r["state"] or "", key="state_edit")
+            zip_e = ac3e.text_input("Zip", value=r["zip"] or "", key="zip_edit")
+            notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+
+            if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                data = {
+                    "business_name": bn_e.strip(),
+                    "category": category_e.strip(),
+                    "service": service_e.strip(),
+                    "contact_name": contact_name_e.strip(),
+                    "phone": phone_e.strip(),
+                    "email": email_e.strip(),
+                    "website": website_e.strip(),
+                    "address": address_e.strip(),
+                    "city": city_e.strip(),
+                    "state": state_e.strip(),
+                    "zip": zip_e.strip(),
+                    "notes": notes_e.strip(),
+                }
+                update_vendor(eng, sel_id, data)
+                ensure_lookup_value(eng, "categories", data["category"])
+                ensure_lookup_value(eng, "services", data["service"])
+                st.session_state["DATA_VER"] += 1
+                st.success(f"Saved changes to provider #{sel_id}.")
+
 
     # ──────────────────────────────────────────────────────────────────────
     # Category / Service management
