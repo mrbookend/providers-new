@@ -941,33 +941,26 @@ def main() -> None:
             df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
         # ---- Column widths / render ------------------------------------------
-        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-        try:
-            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-        except Exception:
-            pass
-        colcfg = _column_config_from_widths(widths)
-        # Ensure CKW-related columns exist and enforce display order
-        for _col in BROWSE_COLUMNS:
-            if _col not in df.columns:
-                df[_col] = ""
+widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+try:
+    widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+except Exception:
+    pass
+colcfg = _column_config_from_widths(widths)
 
-        # Tiny probe to make it obvious if CKW is present but empty
-        try:
-            non_empty_ckw = int((df["computed_keywords"].str.len() > 0).sum())
-            st.caption(f"Rows with non-empty computed_keywords: {non_empty_ckw}")
-        except Exception:
-            pass
+# Safety fill to guarantee columns exist and order is correct
+for _col in BROWSE_COLUMNS:
+    if _col not in df.columns:
+        df[_col] = ""
 
-        df = df[BROWSE_COLUMNS]
+df = df[BROWSE_COLUMNS]
 
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
-
+st.dataframe(
+    df,
+    hide_index=True,
+    use_container_width=True,
+    column_config=colcfg,
+)
 
 
     # ──────────────────────────────────────────────────────────────────────
