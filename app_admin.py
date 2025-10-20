@@ -940,27 +940,31 @@ def main() -> None:
             st.error(f"Fetch failed: {e}")
             df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-        # ---- Column widths / render ------------------------------------------
-widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-try:
-    widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-except Exception:
-    pass
-colcfg = _column_config_from_widths(widths)
+                # ---- Column widths / render ------------------------------------------
+        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+        try:
+            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        except Exception:
+            pass
+        colcfg = _column_config_from_widths(widths)
 
-# Safety fill to guarantee columns exist and order is correct
-for _col in BROWSE_COLUMNS:
-    if _col not in df.columns:
-        df[_col] = ""
+        # Safety fill to guarantee columns exist and order is correct
+        for _col in BROWSE_COLUMNS:
+            if _col not in df.columns:
+                df[_col] = ""
 
-df = df[BROWSE_COLUMNS]
+        df = df[BROWSE_COLUMNS]
 
-st.dataframe(
-    df,
-    hide_index=True,
-    use_container_width=True,
-    column_config=colcfg,
-)
+        st.dataframe(
+            df,
+            hide_index=True,
+            use_container_width=True,
+            column_config=colcfg,
+        )
+    # ──────────────────────────────────────────────────────────────────────
+    # Add / Edit / Delete
+    # ──────────────────────────────────────────────────────────────────────
+    with tab_manage:
 
 
     # ──────────────────────────────────────────────────────────────────────
