@@ -537,52 +537,61 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
     ])
     
     # ---------------------
-    # Browse (Admin)
-    # ---------------------
-    with tab_browse:
-        # (Per Randy) Remove the header lines at the *top of the Browse page*.
-        # We keep them above the tabs globally, so nothing here.
+# Browse (Admin)
+# ---------------------
+with tab_browse:
+    # (Per Randy) Remove the header lines at the *top of the Browse page*.
+    # We keep them above the tabs globally, so nothing here.
 
-        # Search box
-        c1, c2 = st.columns([1, 0.3])
-        q = c1.text_input("Search", value=st.session_state.get("q", ""), placeholder="name, category, service, notes, phone, website…")
-        if c2.button("Clear"):
-            q = ""
-        st.session_state["q"] = q
+    # Search box
+    c1, c2 = st.columns([1, 0.3])
+    q = c1.text_input(
+        "Search",
+        value=st.session_state.get("q", ""),
+        placeholder="name, category, service, notes, phone, website…",
+    )
+    if c2.button("Clear"):
+        q = ""
+    st.session_state["q"] = q
 
-        # Search CKW-first, fallback if needed; cap results; no Prev/Next
-        ids = search_ids_ckw_first(eng, q, limit=MAX_RENDER_ROWS_ADMIN)
-        n = len(ids)
+    # Search CKW-first, fallback if needed; cap results; no Prev/Next
+    ids = search_ids_ckw_first(q, limit=MAX_RENDER_ROWS_ADMIN, data_ver=DATA_VER)
+    n = len(ids)
 
-        # If nothing matched, show DB target + total count so you know if DB is empty or query is too narrow
-        if n == 0:
-            try:
-                with eng.begin() as cx:
-                    target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-                st.info(f"No matches. DB: {target} | vendors: {total_cnt}. Tip: click **Clear** to reset search, or set DB_PATH in secrets.")
-            except Exception as e:
-                st.info(f"No matches. (Diagnostics failed: {e})")
-
-        if n == MAX_RENDER_ROWS_ADMIN:
-            st.info(f"Showing first {MAX_RENDER_ROWS_ADMIN} matches (cap). Refine your search to narrow further.")
-        df = fetch_rows_by_ids(eng, ids)
-
-        # Column widths (secrets override)
-        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+    # If nothing matched, show DB target + total count so you know if DB is empty or query is too narrow
+    if n == 0:
         try:
-            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-        except Exception:
-            pass
-        colcfg = _column_config_from_widths(widths)
+            with get_engine().begin() as cx:
+                target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            st.info(
+                f"No matches. DB: {target} | vendors: {total_cnt}. "
+                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+            )
+        except Exception as e:
+            st.info(f"No matches. (Diagnostics failed: {e})")
 
-        # Render single-line cells; horizontal scroll via column widths
-        st.dataframe(
-            df[BROWSE_COLUMNS],
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
+    if n == MAX_RENDER_ROWS_ADMIN:
+        st.info(f"Showing first {MAX_RENDER_ROWS_ADMIN} matches (cap). Refine your search to narrow further.")
+
+    df = fetch_rows_by_ids(ids, data_ver=DATA_VER)
+
+    # Column widths (secrets override)
+    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+    try:
+        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    except Exception:
+        pass
+    colcfg = _column_config_from_widths(widths)
+
+    # Render single-line cells; horizontal scroll via column widths
+    st.dataframe(
+        df[BROWSE_COLUMNS],
+        hide_index=True,
+        use_container_width=True,
+        column_config=colcfg,
+    )
+
 
     # ---------------------
     # Add / Edit / Delete
