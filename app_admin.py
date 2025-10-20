@@ -738,6 +738,7 @@ def _fetch_rows_for_ids(cx, ids: list[int]) -> list[dict]:
     )
     params = {f"id{i}": v for i, v in enumerate(ids)}
     return [dict(r) for r in cx.exec_driver_sql(sql, params).mappings().all()]
+    
 def _recompute_ckw_for_ids(ids: list[int], *, override_locks: bool) -> tuple[int, int]:
     """
     Returns: (n_selected, n_updated)
@@ -946,26 +947,27 @@ def main() -> None:
         except Exception:
             pass
         colcfg = _column_config_from_widths(widths)
+        # Ensure CKW-related columns exist and enforce display order
+        for _col in BROWSE_COLUMNS:
+            if _col not in df.columns:
+                df[_col] = ""
 
-# Ensure CKW-related columns exist and enforce display order
-for _col in BROWSE_COLUMNS:
-    if _col not in df.columns:
-        df[_col] = ""
-# Tiny probe to make it obvious if CKW is present but empty
-try:
-    non_empty_ckw = int((df["computed_keywords"].str.len() > 0).sum())
-    st.caption(f"Rows with non-empty computed_keywords: {non_empty_ckw}")
-except Exception:
-    pass
+        # Tiny probe to make it obvious if CKW is present but empty
+        try:
+            non_empty_ckw = int((df["computed_keywords"].str.len() > 0).sum())
+            st.caption(f"Rows with non-empty computed_keywords: {non_empty_ckw}")
+        except Exception:
+            pass
 
-df = df[BROWSE_COLUMNS]
+        df = df[BROWSE_COLUMNS]
 
-st.dataframe(
-    df,
-    hide_index=True,
-    use_container_width=True,
-    column_config=colcfg,
-)
+        st.dataframe(
+            df,
+            hide_index=True,
+            use_container_width=True,
+            column_config=colcfg,
+        )
+
 
 
     # ──────────────────────────────────────────────────────────────────────
