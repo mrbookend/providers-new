@@ -1115,38 +1115,134 @@ def main() -> None:
         eng = get_engine()  # ensure local scope
         cc, ss = st.columns([1, 1], gap="large")
 
-        # (category + service management contents unchanged – keep your current code)
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Maintenance — single-button CKW recompute (override locks always on)
-    # ──────────────────────────────────────────────────────────────────────
-    with tab_maint:
-        eng = get_engine()  # ensure local scope
-        st.subheader("Maintenance — Computed Keywords (CKW)")
-        st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
-
-        # Optional display: count of providers (non-verbose)
+            # Categories
+    with cc:
+        st.markdown("**Categories**")
         try:
-            with eng.begin() as cx:
-                total_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            st.caption(f"Providers in scope: {int(total_rows)}")
-        except Exception:
-            pass
+            cats = list_categories(eng)
+        except Exception as e:
+            cats = []
+            st.error(f"Failed to load categories: {e}")
 
-        if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
+        st.markdown("**Add Category**")
+        new_cat = st.text_input("New Category", key="add_cat")
+        if st.button("Add Category", key="btn_add_cat") and new_cat.strip():
             try:
-                # Ensure seeds table exists (no-op if already present)
-                ensure_ckw_seeds_table()
-
-                with eng.begin() as cx:
-                    ids = _select_vendor_ids_for_ckw(
-                        cx, mode="all", current_ver=CURRENT_VER, override_locks=True
-                    )
-                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
+                ensure_lookup_value(eng, "categories", new_cat.strip())
+                st.session_state["DATA_VER"] += 1
+                st.success(f"Added category: {new_cat.strip()}")
             except Exception as e:
-                st.error(f"Recompute ALL failed: {e}")
+                st.error(f"Add failed: {e}")
+
+        st.markdown("**Delete Category** (only if unused)")
+        del_cat = st.selectbox("Pick category", options=["— Select —"] + cats, key="del_cat")
+        if del_cat != "— Select —":
+            try:
+                with eng.begin() as cx:
+                    cnt = cx.exec_driver_sql(
+                        "SELECT COUNT(*) FROM vendors WHERE category=:c",
+                        {"c": del_cat},
+                    ).scalar() or 0
+                st.caption(f"In use by {cnt} provider(s)")
+                if cnt == 0 and st.button("Delete Category", type="secondary", key="btn_del_cat"):
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql("DELETE FROM categories WHERE name=:n", {"n": del_cat})
+                    st.session_state["DATA_VER"] += 1
+                    st.warning(f"Deleted category: {del_cat}")
+                elif cnt > 0:
+                    st.info("Category is in use; reassign it below instead.")
+            except Exception as e:
+                st.error(f"Delete check failed: {e}")
+
+        st.markdown("**Reassign Category** (rename / move all vendors)")
+        if cats:
+            from_cat = st.selectbox("From", options=cats, key="rc_from")
+            to_cat = st.text_input("To (new or existing)", key="rc_to")
+            if st.button("Reassign Category for All Matching Vendors", key="btn_reassign_cat") and from_cat and to_cat.strip():
+                try:
+                    to_val = to_cat.strip()
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql(
+                            "UPDATE vendors SET category=:to WHERE category=:from",
+                            {"to": to_val, "from": from_cat},
+                        )
+                    ensure_lookup_value(eng, "categories", to_val)
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql("DELETE FROM categories WHERE name=:n", {"n": from_cat})
+                    # full recompute; locks ignored is handled on Maintenance tab,
+                    # here we do a quick all-rows recompute via existing helper.
+                    changed = recompute_ckw_all(eng)
+                    st.session_state["DATA_VER"] += 1
+                    st.success(
+                        f"Reassigned category '{from_cat}' → '{to_val}'. "
+                        f"Recomputed CKW for {changed} provider(s)."
+                    )
+                except Exception as e:
+                    st.error(f"Reassign failed: {e}")
+
+    # Services
+    with ss:
+        st.markdown("**Services**")
+        try:
+            srvs = list_services(eng)
+        except Exception as e:
+            srvs = []
+            st.error(f"Failed to load services: {e}")
+
+        st.markdown("**Add Service**")
+        new_srv = st.text_input("New Service", key="add_srv")
+        if st.button("Add Service", key="btn_add_srv") and new_srv.strip():
+            try:
+                ensure_lookup_value(eng, "services", new_srv.strip())
+                st.session_state["DATA_VER"] += 1
+                st.success(f"Added service: {new_srv.strip()}")
+            except Exception as e:
+                st.error(f"Add failed: {e}")
+
+        st.markdown("**Delete Service** (only if unused)")
+        del_srv = st.selectbox("Pick service", options=["— Select —"] + srvs, key="del_srv")
+        if del_srv != "— Select —":
+            try:
+                with eng.begin() as cx:
+                    cnt = cx.exec_driver_sql(
+                        "SELECT COUNT(*) FROM vendors WHERE service=:s",
+                        {"s": del_srv},
+                    ).scalar() or 0
+                st.caption(f"In use by {cnt} provider(s)")
+                if cnt == 0 and st.button("Delete Service", type="secondary", key="btn_del_srv"):
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql("DELETE FROM services WHERE name=:n", {"n": del_srv})
+                    st.session_state["DATA_VER"] += 1
+                    st.warning(f"Deleted service: {del_srv}")
+                elif cnt > 0:
+                    st.info("Service is in use; reassign it below instead.")
+            except Exception as e:
+                st.error(f"Delete check failed: {e}")
+
+        st.markdown("**Reassign Service** (rename / move all vendors)")
+        if srvs:
+            from_srv = st.selectbox("From", options=srvs, key="rs_from")
+            to_srv = st.text_input("To (new or existing)", key="rs_to")
+            if st.button("Reassign Service for All Matching Vendors", key="btn_reassign_srv") and from_srv and to_srv.strip():
+                try:
+                    to_val = to_srv.strip()
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql(
+                            "UPDATE vendors SET service=:to WHERE service=:from",
+                            {"to": to_val, "from": from_srv},
+                        )
+                    ensure_lookup_value(eng, "services", to_val)
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql("DELETE FROM services WHERE name=:n", {"n": from_srv})
+                    changed = recompute_ckw_all(eng)
+                    st.session_state["DATA_VER"] += 1
+                    st.success(
+                        f"Reassigned service '{from_srv}' → '{to_val}'. "
+                        f"Recomputed CKW for {changed} provider(s)."
+                    )
+                except Exception as e:
+                    st.error(f"Reassign failed: {e}")
+
 
 
 if __name__ == "__main__":
