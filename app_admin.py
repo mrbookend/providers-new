@@ -971,9 +971,9 @@ with tab_browse:
     remaining = [c for c in vdf.columns if c not in preferred]
     display_cols = preferred + remaining
 
-                # ---- Table (horizontal scroll via wide container; index hidden) ----
+                    # ---- Table (horizontal scroll via wide container; index hidden) ----
     # Show Keywords (ckw_manual_extra) and CKW (computed_keywords), hide id/created/updated & CKW control fields.
-    # Enforce column order and horizontal scroll via explicit widths.
+    # Enforce column order and horizontal scroll via explicit widths. Cast to strings to avoid Arrow ValueError.
 
     _src = vdf.copy()
 
@@ -982,8 +982,9 @@ with tab_browse:
         _src["computed_keywords"] = ""
     if "ckw_manual_extra" not in _src.columns:
         _src["ckw_manual_extra"] = ""
-    # Provide a friendly alias 'keywords' for display while keeping original column for export parity
-    _src.rename(columns={"ckw_manual_extra": "keywords"}, inplace=True)
+
+    # Provide a friendly alias 'keywords' for display while keeping original data
+    _src = _src.rename(columns={"ckw_manual_extra": "keywords"})
 
     # Columns to hide (note: keep 'computed_keywords' and 'keywords' visible)
     _HIDE_EXACT = {
@@ -995,26 +996,26 @@ with tab_browse:
     }
 
     def _is_ckw_control(col: str) -> bool:
-        # Hide internal CKW control/metadata columns (any ckw_*), but keep computed_keywords / keywords visible
+        # Hide internal CKW control/metadata columns (any ckw_*), but keep computed_keywords visible
         return col.startswith("ckw_")
 
     # Compute visible set
     _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
 
-    # Enforced order for *visible* columns; show curated Keywords before CKW for readability
+    # Enforced order; curated 'keywords' before CKW for readability
     ORDER = [
         "business_name",
         "category",
         "service",
-        "keywords",             # ← human-curated extras (formerly ckw_manual_extra)
-        "computed_keywords",    # ← CKW
+        "keywords",             # human-curated
+        "computed_keywords",    # CKW
         "phone",
         "website",
         "notes",
     ]
     _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-    # Column widths + friendly labels (forces horizontal scroll if total width exceeds page)
+    # Column widths + friendly labels (forces horizontal scroll if total width > page)
     _cfg = {}
     for c in _ordered:
         w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
@@ -1024,10 +1025,12 @@ with tab_browse:
         )
         _cfg[c] = st.column_config.TextColumn(label, width=w)
 
-    # Render (ordered, with explicit widths)
+    # Render (ordered) and cast to strings to avoid Arrow ValueError on mixed types
     _view = _src.loc[:, _ordered] if not _src.empty else _src
+    _view_safe = _view.fillna("").astype(str)
+
     st.dataframe(
-        _view,
+        _view_safe,
         column_config=_cfg,
         use_container_width=True,
         hide_index=True,
@@ -1038,9 +1041,9 @@ with tab_browse:
     try:
         bt1, bt_sp = st.columns([0.2, 0.8])
 
-        if not _view.empty:
-            # CSV export matches what’s visible (same columns, order, labels map to column names)
-            csv_bytes = _view.to_csv(index=False).encode("utf-8")
+        if not _view_safe.empty:
+            # CSV export matches what’s visible (same columns, same order, string-safe)
+            csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
             bt1.download_button(
                 "Download CSV",
                 data=csv_bytes,
