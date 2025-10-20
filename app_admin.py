@@ -739,6 +739,90 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
     if "business_name" in df.columns:
         df = df.sort_values(["business_name","id"], kind="stable", ignore_index=True)
     return df
+# ---- TEMP DIAGNOSTICS for Browse (place directly under the subheader) ----
+try:
+    # Pull query and paging inputs (adapt if you name them differently)
+    q = st.session_state.get("q", "").strip()
+    DATA_VER = st.session_state.get("DATA_VER", 0)
+    limit = PAGE_SIZE
+    offset = st.session_state.get("browse_offset", 0)
+
+    # 1) Count
+    try:
+        total = count_rows(q, DATA_VER)
+    except NameError:
+        # Fallback: plain count if helper missing
+        eng = get_engine()
+        with eng.connect() as cx:
+            total = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
+
+    st.caption(f"[diag] total={total}, limit={limit}, offset={offset!r}, q={q!r}, DATA_VER={DATA_VER}")
+
+    # 2) Page IDs via CKW-first (fallback to simple query if helper missing)
+    try:
+        ids = search_ids_ckw_first(q, limit, offset, DATA_VER)
+    except NameError:
+        eng = get_engine()
+        with eng.connect() as cx:
+            if q:
+                qn = f"%{q.lower()}%"
+                rows = cx.exec_driver_sql("""
+                    SELECT id
+                    FROM vendors
+                    WHERE LOWER(
+                      COALESCE(business_name,'')||' '||
+                      COALESCE(category,'')||' '||
+                      COALESCE(service,'')||' '||
+                      COALESCE(notes,'')
+                    ) LIKE ?
+                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
+                    LIMIT ? OFFSET ?
+                """, (qn, int(limit), int(offset))).all()
+            else:
+                rows = cx.exec_driver_sql("""
+                    SELECT id
+                    FROM vendors
+                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
+                    LIMIT ? OFFSET ?
+                """, (int(limit), int(offset))).all()
+        ids = [r[0] for r in rows]
+
+    st.caption(f"[diag] ids[0:10]={ids[:10]} (n={len(ids)})")
+
+    # 3) Fetch rows for those IDs (fallback to a single query if helper missing)
+    try:
+        vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
+    except NameError:
+        eng = get_engine()
+        if ids:
+            placeholders = ",".join(["?"] * len(ids))
+            with eng.connect() as cx:
+                vdf = pd.read_sql_query(f"""
+                    SELECT id, business_name, category, service, contact_name, phone, email,
+                           website, address, city, state, zip, notes, created_at, updated_at,
+                           COALESCE(computed_keywords,'') AS computed_keywords,
+                           IFNULL(ckw_locked,0) AS ckw_locked,
+                           COALESCE(ckw_version,0) AS ckw_version
+                    FROM vendors
+                    WHERE id IN ({placeholders})
+                """, cx, params=ids)
+            if "business_name" in vdf.columns:
+                vdf = vdf.sort_values(["business_name","id"], kind="stable", ignore_index=True)
+        else:
+            vdf = pd.DataFrame(columns=[
+                "id","business_name","category","service","contact_name","phone","email",
+                "website","address","city","state","zip","notes","created_at","updated_at",
+                "computed_keywords","ckw_locked","ckw_version",
+            ])
+
+    # 4) Render (always render, even if empty)
+    st.dataframe(vdf if len(vdf) <= MAX_RENDER_ROWS else vdf.head(MAX_RENDER_ROWS), use_container_width=True)
+
+except Exception as e:
+    import traceback, textwrap
+    st.error(f"Browse diagnostics failed: {e}")
+    st.code(textwrap.dedent(''.join(traceback.format_exc())))
+# ---- END TEMP DIAGNOSTICS ----
 
     # ---------------------
     # Browse (Admin)
