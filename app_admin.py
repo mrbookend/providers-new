@@ -917,7 +917,7 @@ with tab_browse:
         q = ""
     st.session_state["q"] = q
 
-        # ---- Resolve row IDs (CKW-first search) and load rows ----
+    # ---- Resolve row IDs (CKW-first search) and load rows ----
     try:
         ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, data_ver=DATA_VER)
         if not ids:
@@ -929,10 +929,9 @@ with tab_browse:
         st.error(f"Browse failed: {e}")
         vdf = pd.DataFrame()
 
-
     # ---- Ensure desired columns exist; set display order ----
     BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
-    CKW_COLS  = ["keywords", "computed_keywords"]  # adjust if your schema uses different names
+    CKW_COLS  = ["keywords", "computed_keywords"]  # adjust if schema differs
     META_COLS = ["created_at", "updated_at"]
 
     for col in CKW_COLS + META_COLS:
@@ -944,7 +943,6 @@ with tab_browse:
     display_cols = preferred + remaining
 
     # ---- Table (horizontal scroll via wide container; index hidden) ----
-    # Users can scroll right to see all columns, including keywords and computed_keywords.
     st.dataframe(
         vdf[display_cols] if not vdf.empty else vdf,
         use_container_width=True,
@@ -984,6 +982,7 @@ with tab_browse:
     label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
     if bt3.button(label, use_container_width=True):
         st.session_state["show_ckw"] = not st.session_state["show_ckw"]
+
 
     # If you want the table itself to hide CKW when off, replace the st.dataframe() above
     # with the block below instead:
