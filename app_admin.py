@@ -1098,7 +1098,19 @@ try:
         else:
             ids_fp = f"shape:{getattr(df_for_export, 'shape', None)}"
 
-        csv_bytes, csv_name = _csv_bytes_for_df(df_for_export, data_ver, q, ids_fp)
+                # Build CSV bytes + filename inline (no helper needed)
+        try:
+            csv_bytes = df_for_export.to_csv(index=False).encode("utf-8")
+        except Exception:
+            df_for_export = pd.DataFrame()  # safety
+            csv_bytes = b""
+
+        # Filename: providers-[all|filtered][-vX].csv
+        _is_filtered = bool(isinstance(q, str) and q.strip())
+        _ver = f"-v{data_ver}" if (isinstance(data_ver, str) and data_ver and data_ver != "n/a") else ""
+        csv_name = f"providers-{'filtered' if _is_filtered else 'all'}{_ver}.csv"
+
+        btn_disabled = not isinstance(df_for_export, pd.DataFrame) or df_for_export.empty
 
         c_dl, _pad = st.columns([0.25, 0.75])
         c_dl.download_button(
@@ -1107,7 +1119,10 @@ try:
             file_name=csv_name,
             mime="text/csv",
             use_container_width=True,
+            disabled=btn_disabled,
+            help=None if not btn_disabled else "Nothing to export (no matching rows).",
         )
+
 
         # Optional compact CKW-only grid for quick scanning
         if ckw_debug and isinstance(vdf, pd.DataFrame) and not vdf.empty:
