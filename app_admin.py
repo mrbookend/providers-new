@@ -868,7 +868,7 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 # ──────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────
-def main() -> None:
+    def main() -> None:
     # ---- DATA_VER init (cache-buster for @st.cache_data) ----
     if "DATA_VER" not in st.session_state:
         st.session_state["DATA_VER"] = 0
