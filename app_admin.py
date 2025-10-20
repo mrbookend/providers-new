@@ -898,18 +898,18 @@ def main() -> None:
 
     # Tabs (context)
     # tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"])
+        # ==== BROWSE BLOCK (FINAL): tabs guard + early DB sanity; Search+Clear row; vdf guard; hide audit/CKW cols in table; CSV-only export (filtered→all filtered rows, unfiltered→all rows) matching visible columns; Help expander ====
+
     # --- Guard: ensure tabs exist in this scope before using `tab_browse` ---
     try:
         tab_browse  # type: ignore[name-defined]
     except NameError:
-        # If your project uses different tab names or titles, change them here
         tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
             ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
         )
 
     # Patch #4: Early DB sanity so later tabs don't silently die on first DB touch
     try:
-        # Prefer a context manager; avoids leaving a dangling connection on exceptions
         with get_engine().connect() as _cx:
             pass
     except Exception as e:
@@ -932,14 +932,14 @@ def main() -> None:
             """Load ALL provider rows for unfiltered export."""
             eng = get_engine()
             with eng.connect() as cx:
-                return pd.read_sql(sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE"), cx)
+                return pd.read_sql(
+                    sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE"),
+                    cx,
+                )
 
         @st.cache_data
         def _load_filtered_rows_df(q: str, data_ver: str) -> pd.DataFrame:
-            """
-            Load ALL filtered rows (not just current page).
-            Uses your CKW-first search + fetch to match real ordering.
-            """
+            """Load ALL filtered rows (not just the current page) via CKW-first search + fetch."""
             ids = search_ids_ckw_first(q, data_ver)
             if not ids:
                 return pd.DataFrame()
@@ -956,21 +956,21 @@ def main() -> None:
         if c_clear.button("Clear", use_container_width=True):
             q = ""
         st.session_state["q"] = q
+
         # ---- Ensure `vdf` exists and render table (DROP-IN GUARD) ----
         try:
             vdf  # type: ignore[name-defined]
         except NameError:
             data_ver = str(st.session_state.get("DATA_VER", "n/a"))
             if q.strip():
-                # Filtered: use your CKW-first ID search + fetch
+                # Filtered: CKW-first ID search + fetch (first page)
                 try:
                     ids = search_ids_ckw_first(q.strip(), data_ver) or []
                 except Exception as e:
                     st.error(f"Search failed: {e}")
                     ids = []
                 if ids:
-                    # TODO: replace 0 with your real paging offset if you have one
-                    page_ids = tuple(ids[:PAGE_SIZE])
+                    page_ids = tuple(ids[:PAGE_SIZE])  # adjust if you have real paging
                     try:
                         vdf = fetch_rows_by_ids(page_ids, data_ver)
                     except Exception as e:
@@ -979,7 +979,7 @@ def main() -> None:
                 else:
                     vdf = pd.DataFrame()
             else:
-                # Unfiltered: take first page of all rows (ordered by business_name)
+                # Unfiltered: first page ordered by name
                 try:
                     eng = get_engine()
                     with eng.connect() as cx:
@@ -997,26 +997,18 @@ def main() -> None:
                     st.error(f"Unfiltered load failed: {e}")
                     vdf = pd.DataFrame()
 
-            # Optional: align columns to your display set if you keep one
-            try:
-                display_cols = list(BROWSE_DISPLAY_COLUMNS)
-                vdf = vdf[[c for c in display_cols if c in vdf.columns]]
-            except Exception:
-                pass
+        # ---- Hide audit & CKW columns for Browse display ----
+        try:
+            HIDE_COLS_BROWSE = ["created_at", "updated_at", "computed_keywords", "ckw_version", "ckw_locked"]
+            vdf = vdf.drop(columns=HIDE_COLS_BROWSE, errors="ignore")
+        except Exception:
+            pass
 
         # Render table (always)
         if isinstance(vdf, pd.DataFrame) and not vdf.empty:
             st.dataframe(vdf, use_container_width=True, hide_index=True)
         else:
-            st.info("No matches.")  # still shows footer so CSV/Help logic can run
-
-
-        
-        # ---- YOUR EXISTING FETCH/RENDER GOES HERE ----
-        # Example (keep your real code):
-        # total = count_rows(q, DATA_VER)
-        # vdf = fetch_page(q=q, offset=offset, limit=PAGE_SIZE, data_ver=DATA_VER)
-        # st.dataframe(vdf, use_container_width=True, hide_index=True)
+            st.info("No matches.")
 
         # ---- Footer: CSV-only download (filtered = ALL filtered rows; unfiltered = ALL records) + Help expander ----
         try:
@@ -1031,9 +1023,14 @@ def main() -> None:
             else:
                 df_for_export = _load_all_rows_df(data_ver)
 
-            # Optional: align exported columns to your display list if you have one
+            # Make export match the visible table: drop audit & CKW; optionally enforce display order
             try:
-                display_cols = list(BROWSE_DISPLAY_COLUMNS)
+                HIDE_COLS_BROWSE = ["created_at", "updated_at", "computed_keywords", "ckw_version", "ckw_locked"]
+                df_for_export = df_for_export.drop(columns=HIDE_COLS_BROWSE, errors="ignore")
+            except Exception:
+                pass
+            try:
+                display_cols = list(BROWSE_DISPLAY_COLUMNS)  # if you maintain a display list
                 df_for_export = df_for_export[[c for c in display_cols if c in df_for_export.columns]]
             except Exception:
                 pass
@@ -1061,7 +1058,6 @@ def main() -> None:
 
         except Exception as e:
             st.warning(f"CSV download/help unavailable: {e}")
-
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
