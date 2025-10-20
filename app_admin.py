@@ -904,18 +904,21 @@ def main() -> None:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # Determine if DB is ready for managed tabs that depend on tables
-    try:
-        with eng.connect() as cx:
-            cx.exec_driver_sql("SELECT 1 FROM vendors LIMIT 1").first()
-        DB_READY = True
-    except Exception:
-        DB_READY = False
+    # ── Bootstrap (must be above # Tabs): ensure DATA_VER and DB_READY exist ─────────
+# DATA_VER drives cache-busting and list refreshes
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
+DATA_VER = st.session_state["DATA_VER"]  # convenience alias; safe to pass into functions
 
-    # Tabs
-tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-    ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
-)
+# Determine if DB is ready for managed tabs that depend on tables
+try:
+    eng = get_engine()  # don't assume `eng` already exists
+    with eng.connect() as cx:
+        # lightweight check; will raise if DB unreachable or table missing
+        cx.exec_driver_sql("SELECT 1 FROM vendors LIMIT 1").first()
+    DB_READY = True
+except Exception:
+    DB_READY = False
 
 # ─────────────────────────────────────────────────────────────────────
 # Browse (Admin)
