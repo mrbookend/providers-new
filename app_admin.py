@@ -1193,34 +1193,34 @@ def main() -> None:
                     )
 
     # ──────────────────────────────────────────────────────────────────────
-    # Maintenance — single-button CKW recompute (override locks always on)
-    # ──────────────────────────────────────────────────────────────────────
-    with tab_maint:
-        st.subheader("Maintenance — Computed Keywords (CKW)")
-        st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
+# Maintenance — single-button CKW recompute (override locks always on)
+# ──────────────────────────────────────────────────────────────────────
+with tab_maint:
+    st.subheader("Maintenance — Computed Keywords (CKW)")
+    st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
 
-        # Optional display: count of providers (non-verbose)
-        try:
-            with eng.begin() as cx:
-                total_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            st.caption(f"Providers in scope: {int(total_rows)}")
-        except Exception:
-            pass
-
-        if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
+    # Optional display: count of providers (non-verbose)
     try:
-        # Ensure seeds table exists (no-op if already present)
-        ensure_ckw_seeds_table()
-
         with eng.begin() as cx:
-            ids = _select_vendor_ids_for_ckw(
-                cx, mode="all", current_ver=CURRENT_VER, override_locks=True
-            )
-        n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
-        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-        st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
-    except Exception as e:
-        st.error(f"Recompute ALL failed: {e}")
+            total_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+        st.caption(f"Providers in scope: {int(total_rows)}")
+    except Exception:
+        pass
+
+    if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
+        try:
+            # Ensure seeds table exists (no-op if already present)
+            ensure_ckw_seeds_table()
+
+            with eng.begin() as cx:
+                ids = _select_vendor_ids_for_ckw(
+                    cx, mode="all", current_ver=CURRENT_VER, override_locks=True
+                )
+            n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
+            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+            st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
+        except Exception as e:
+            st.error(f"Recompute ALL failed: {e}")
 
 
 if __name__ == "__main__":
