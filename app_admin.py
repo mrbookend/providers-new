@@ -1006,11 +1006,13 @@ def main() -> None:
 
         # Render table (always)  ── with on-demand CKW visibility and matched export
 try:
-    # Base columns for normal view (created/updated hidden per your preference)
-    BASE_BROWSE_COLUMNS = (
-        list(BROWSE_DISPLAY_COLUMNS)  # if you maintain a global display list
-        if "BROWSE_DISPLAY_COLUMNS" in globals()
-        else [
+    # ---- Safety preamble: define sane defaults if earlier code hasn't run ----
+    if "q" not in locals():
+        q = st.session_state.get("q", "")
+    if "vdf" not in locals():
+        vdf = pd.DataFrame()
+    if "BROWSE_DISPLAY_COLUMNS" not in globals():
+        BROWSE_DISPLAY_COLUMNS = [
             "category",
             "service",
             "business_name",
@@ -1020,7 +1022,16 @@ try:
             "website",
             "notes",
         ]
-    )
+    if "HELP_MD" not in globals():
+        HELP_MD = (
+            "### Browse Help\n"
+            "- Use **Search** to filter by name, category, service, notes, phone, website.\n"
+            "- **Download CSV** exports exactly the columns currently visible.\n"
+            "- Toggle **Show CKW debug columns** to inspect keyword fields during tuning."
+        )
+
+    # Base columns for normal view (created/updated hidden per your preference)
+    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)
 
     # Optional CKW diagnostics columns (shown only when toggled on)
     CKW_DEBUG_COLUMNS = ["keywords", "computed_keywords", "ckw_version", "ckw_locked"]
@@ -1035,16 +1046,16 @@ try:
         help="Temporarily include keywords/CKW fields for inspection and export.",
     )
 
-    # Build visible columns (base + optional CKW), and ensure they exist in vdf
-    desired_cols = BASE_BROWSE_COLUMNS + (CKW_DEBUG_COLUMNS if ckw_debug else [])
-    desired_cols = [c for c in desired_cols if c not in ALWAYS_HIDE]
+    # Build visible columns (base + optional CKW), filtered to those that exist
+    desired_cols = [c for c in (BASE_BROWSE_COLUMNS + (CKW_DEBUG_COLUMNS if ckw_debug else [])) if c not in ALWAYS_HIDE]
+
     if isinstance(vdf, pd.DataFrame) and not vdf.empty:
         visible_cols = [c for c in desired_cols if c in vdf.columns]
-        vdf_visible = vdf.loc[:, visible_cols]
+        vdf_visible = vdf.loc[:, visible_cols] if visible_cols else vdf.copy()
         st.dataframe(vdf_visible, use_container_width=True, hide_index=True)
     else:
         st.info("No matches.")
-        vdf_visible = pd.DataFrame()  # keep downstream logic simple
+        vdf_visible = pd.DataFrame(columns=[c for c in desired_cols])
 
     # ---- Footer: CSV-only download (filtered = ALL filtered rows; unfiltered = ALL records) + Help expander ----
     try:
@@ -1098,7 +1109,7 @@ try:
             use_container_width=True,
         )
 
-        # Optional: compact CKW-only view when debugging, for quick scanning
+        # Optional compact CKW-only grid for quick scanning
         if ckw_debug and isinstance(vdf, pd.DataFrame) and not vdf.empty:
             with st.expander("CKW diagnostics (compact)", expanded=False):
                 ckw_cols_present = [c for c in (["business_name", "category", "service"] + CKW_DEBUG_COLUMNS) if c in vdf.columns]
@@ -1116,6 +1127,7 @@ try:
         st.warning(f"CSV download/help unavailable: {e}")
 except Exception as e:
     st.error(f"Render failed: {e}")
+
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
