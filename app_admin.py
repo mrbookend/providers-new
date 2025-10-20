@@ -520,21 +520,6 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 #   Main App
 # =============================
 
-    eng = build_engine()
-    ensure_schema(eng)
-    # ---- One-time CSV bootstrap (safe no-op if vendors already populated) ----
-    boot_msg = _bootstrap_from_csv_if_needed(eng, SEED_CSV)
-    if os.getenv("SHOW_STATUS") == "1" and boot_msg:
-        st.caption(boot_msg)
-
-    # (Header removed per request)
-
-    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs([
-        "Browse",
-        "Add / Edit / Delete",
-        "Category / Service",
-        "Maintenance",
-    ])
 # === Cached engine + hashable-only data functions =========================
 @st.cache_resource
 def get_engine() -> Engine:
@@ -581,63 +566,86 @@ def fetch_page(q: str, offset: int = 0, limit: int = PAGE_SIZE, data_ver: int = 
     return df
 # === End cached engine + data functions ===================================
 
-    
+
+def main() -> None:
+    # ---- DATA_VER init (cache-buster for @st.cache_data) ----
+    if "DATA_VER" not in st.session_state:
+        st.session_state["DATA_VER"] = 0
+    DATA_VER = st.session_state["DATA_VER"]
+
+    # ---- Build engine for schema/bootstrap (a local eng is fine for writes/DDL) ----
+    eng = build_engine()
+    ensure_schema(eng)
+
+    # One-time CSV bootstrap (safe no-op if vendors already populated)
+    boot_msg = _bootstrap_from_csv_if_needed(eng, SEED_CSV)
+    if os.getenv("SHOW_STATUS") == "1" and boot_msg:
+        st.caption(boot_msg)
+
+    # Tabs
+    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs([
+        "Browse",
+        "Add / Edit / Delete",
+        "Category / Service",
+        "Maintenance",
+    ])
+
     # ---------------------
-# Browse (Admin)
-# ---------------------
-with tab_browse:
-    # (Per Randy) Remove the header lines at the *top of the Browse page*.
-    # We keep them above the tabs globally, so nothing here.
+    # Browse (Admin)
+    # ---------------------
+    with tab_browse:
+        # (Per Randy) no page header here; global header only.
 
-    # Search box
-    c1, c2 = st.columns([1, 0.3])
-    q = c1.text_input(
-        "Search",
-        value=st.session_state.get("q", ""),
-        placeholder="name, category, service, notes, phone, website…",
-    )
-    if c2.button("Clear"):
-        q = ""
-    st.session_state["q"] = q
+        # Search box
+        c1, c2 = st.columns([1, 0.3])
+        q = c1.text_input(
+            "Search",
+            value=st.session_state.get("q", ""),
+            placeholder="name, category, service, notes, phone, website…",
+        )
+        if c2.button("Clear"):
+            q = ""
+        st.session_state["q"] = q
 
-    # Search CKW-first, fallback if needed; cap results; no Prev/Next
-    ids = search_ids_ckw_first(q, limit=MAX_RENDER_ROWS_ADMIN, data_ver=DATA_VER)
-    n = len(ids)
+        # Search CKW-first, fallback if needed; cap results; no Prev/Next
+        # NOTE: Assumes search_ids_ckw_first is refactored to be hashable-only and uses get_engine() internally.
+        ids = search_ids_ckw_first(q, limit=MAX_RENDER_ROWS_ADMIN, data_ver=DATA_VER)
+        n = len(ids)
 
-    # If nothing matched, show DB target + total count so you know if DB is empty or query is too narrow
-    if n == 0:
+        # If nothing matched, show DB target + total count so you know if DB is empty or query is too narrow
+        if n == 0:
+            try:
+                with get_engine().begin() as cx:
+                    target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+                st.info(
+                    f"No matches. DB: {target} | vendors: {total_cnt}. "
+                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+                )
+            except Exception as e:
+                st.info(f"No matches. (Diagnostics failed: {e})")
+
+        if n == MAX_RENDER_ROWS_ADMIN:
+            st.info(f"Showing first {MAX_RENDER_ROWS_ADMIN} matches (cap). Refine your search to narrow further.")
+
+        # NOTE: Assumes fetch_rows_by_ids is also refactored to be hashable-only and uses get_engine() internally.
+        df = fetch_rows_by_ids(ids, data_ver=DATA_VER)
+
+        # Column widths (secrets override)
+        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
         try:
-            with get_engine().begin() as cx:
-                target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            st.info(
-                f"No matches. DB: {target} | vendors: {total_cnt}. "
-                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-            )
-        except Exception as e:
-            st.info(f"No matches. (Diagnostics failed: {e})")
+            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        except Exception:
+            pass
+        colcfg = _column_config_from_widths(widths)
 
-    if n == MAX_RENDER_ROWS_ADMIN:
-        st.info(f"Showing first {MAX_RENDER_ROWS_ADMIN} matches (cap). Refine your search to narrow further.")
-
-    df = fetch_rows_by_ids(ids, data_ver=DATA_VER)
-
-    # Column widths (secrets override)
-    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-    try:
-        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    except Exception:
-        pass
-    colcfg = _column_config_from_widths(widths)
-
-    # Render single-line cells; horizontal scroll via column widths
-    st.dataframe(
-        df[BROWSE_COLUMNS],
-        hide_index=True,
-        use_container_width=True,
-        column_config=colcfg,
-    )
-
+        # Render single-line cells; horizontal scroll via column widths
+        st.dataframe(
+            df[BROWSE_COLUMNS],
+            hide_index=True,
+            use_container_width=True,
+            column_config=colcfg,
+        )
 
     # ---------------------
     # Add / Edit / Delete
@@ -688,12 +696,13 @@ with tab_browse:
                 vid = insert_vendor(eng, data)
                 ensure_lookup_value(eng, "categories", category)
                 ensure_lookup_value(eng, "services", service)
+                # Invalidate caches after a write
+                st.session_state["DATA_VER"] += 1
                 st.success(f"Added provider #{vid}: {data['business_name']}")
 
             # ---------- Delete (left, under Add) ----------
             st.divider()
             st.subheader("Delete Provider")
-            # Lightweight selector: list business names with id
             with eng.begin() as cx:
                 opts = cx.exec_driver_sql(
                     "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
@@ -708,6 +717,7 @@ with tab_browse:
                     ack = st.text_input("Type DELETE to confirm")
                     if st.button("Delete", type="secondary", disabled=not (confirm and ack == "DELETE")):
                         delete_vendor(eng, del_id)
+                        st.session_state["DATA_VER"] += 1
                         st.warning(f"Deleted provider #{del_id}.")
             else:
                 st.info("No providers to delete.")
@@ -739,12 +749,12 @@ with tab_browse:
                     e_c1, e_c2 = st.columns([1, 1])
                     cat_choice_e = e_c1.selectbox("Category *", options=["— Select —"] + cats, index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0)
                     cat_new_e = e_c2.text_input("New Category (optional)")
-                    category_e = cat_new_e.strip() if cat_new_e.strip() else (cat_choice_e if cat_choice_e != "— Select —" else r["category"]) 
+                    category_e = cat_new_e.strip() if cat_new_e.strip() else (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
 
                     e_s1, e_s2 = st.columns([1, 1])
                     srv_choice_e = e_s1.selectbox("Service *", options=["— Select —"] + srvs, index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0)
                     srv_new_e = e_s2.text_input("New Service (optional)")
-                    service_e = srv_new_e.strip() if srv_new_e.strip() else (srv_choice_e if srv_choice_e != "— Select —" else r["service"]) 
+                    service_e = srv_new_e.strip() if srv_new_e.strip() else (srv_choice_e if srv_choice_e != "— Select —" else r["service"])
 
                     contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "")
                     phone_e = st.text_input("Phone", value=r["phone"] or "")
@@ -766,8 +776,9 @@ with tab_browse:
                             "notes": notes_e.strip(),
                         }
                         update_vendor(eng, sel_id, data)
-                        ensure_lookup_value(eng, "categories", data["category"]) 
-                        ensure_lookup_value(eng, "services", data["service"]) 
+                        ensure_lookup_value(eng, "categories", data["category"])
+                        ensure_lookup_value(eng, "services", data["service"])
+                        st.session_state["DATA_VER"] += 1
                         st.success(f"Saved changes to provider #{sel_id}.")
 
     # ---------------------
@@ -789,6 +800,7 @@ with tab_browse:
             new_cat = st.text_input("New Category", key="add_cat")
             if st.button("Add Category") and new_cat.strip():
                 ensure_lookup_value(eng, "categories", new_cat.strip())
+                st.session_state["DATA_VER"] += 1
                 st.success(f"Added category: {new_cat.strip()}")
 
             st.markdown("**Delete Category** (only if unused)")
@@ -803,6 +815,7 @@ with tab_browse:
                 if cnt == 0 and st.button("Delete Category", type="secondary"):
                     with eng.begin() as cx:
                         cx.exec_driver_sql("DELETE FROM categories WHERE name=:n", {"n": del_cat})
+                    st.session_state["DATA_VER"] += 1
                     st.warning(f"Deleted category: {del_cat}")
                 elif cnt > 0:
                     st.info("Category is in use; reassign it below instead.")
@@ -821,8 +834,8 @@ with tab_browse:
                     ensure_lookup_value(eng, "categories", to_val)
                     with eng.begin() as cx:
                         cx.exec_driver_sql("DELETE FROM categories WHERE name=:n", {"n": from_cat})
-                    changed = recompute_ckw_for_catserv(eng, to_val, "%")  # not exact; do full recompute below
-                    changed = recompute_ckw_all(eng)  # safe and simple at small scale
+                    changed = recompute_ckw_all(eng)
+                    st.session_state["DATA_VER"] += 1
                     st.success(f"Reassigned category '{from_cat}' → '{to_val}'. Recomputed CKW for {changed} provider(s).")
 
         # ---- Service management (right)
@@ -836,6 +849,7 @@ with tab_browse:
             new_srv = st.text_input("New Service", key="add_srv")
             if st.button("Add Service") and new_srv.strip():
                 ensure_lookup_value(eng, "services", new_srv.strip())
+                st.session_state["DATA_VER"] += 1
                 st.success(f"Added service: {new_srv.strip()}")
 
             st.markdown("**Delete Service** (only if unused)")
@@ -850,6 +864,7 @@ with tab_browse:
                 if cnt == 0 and st.button("Delete Service", type="secondary"):
                     with eng.begin() as cx:
                         cx.exec_driver_sql("DELETE FROM services WHERE name=:n", {"n": del_srv})
+                    st.session_state["DATA_VER"] += 1
                     st.warning(f"Deleted service: {del_srv}")
                 elif cnt > 0:
                     st.info("Service is in use; reassign it below instead.")
@@ -869,6 +884,7 @@ with tab_browse:
                     with eng.begin() as cx:
                         cx.exec_driver_sql("DELETE FROM services WHERE name=:n", {"n": from_srv})
                     changed = recompute_ckw_all(eng)
+                    st.session_state["DATA_VER"] += 1
                     st.success(f"Reassigned service '{from_srv}' → '{to_val}'. Recomputed CKW for {changed} provider(s).")
 
     # ---------------------
@@ -890,6 +906,7 @@ with tab_browse:
                 vid = int(opts[labels.index(sel)][0])
                 if st.button("Recompute for this provider"):
                     n = recompute_ckw_for_ids(eng, [vid])
+                    st.session_state["DATA_VER"] += 1
                     st.success(f"Recomputed CKW for {n} provider(s).")
         else:
             st.info("No providers yet.")
@@ -898,8 +915,10 @@ with tab_browse:
         st.divider()
         if st.button("Recompute CKW for ALL providers", type="secondary"):
             n = recompute_ckw_all(eng)
+            st.session_state["DATA_VER"] += 1
             st.success(f"Recomputed CKW for {n} provider(s).")
 
 
 if __name__ == "__main__":
     main()
+
