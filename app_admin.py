@@ -889,83 +889,86 @@ def main() -> None:
         st.error(f"Database unavailable: {e}")
 
     # ──────────────────────────────────────────────────────────────────────
-    # Browse (Admin)
-    # ──────────────────────────────────────────────────────────────────────
-    with tab_browse:
-        eng = get_engine()  # ensure local scope
-        DATA_VER = st.session_state.get("DATA_VER", 0)
-        st.subheader("Browse Providers")
+# Browse (Admin)
+# ──────────────────────────────────────────────────────────────────────
+with tab_browse:
+    eng = get_engine()  # ensure local scope
+    DATA_VER = st.session_state.get("DATA_VER", 0)
+    st.subheader("Browse Providers")
 
-        # ---- Search UI (no callback; dedicated key; manual clear) ----------
-        c1, c2 = st.columns([1, 0.25])
-        q_val = c1.text_input(
-            "Search",
-            value=st.session_state.get("browse_q", ""),
-            placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
-            key="browse_q",
-        )
-        clear_pressed = c2.button("Clear", key="browse_clear")
+    # --- CLEAR HANDLER: run BEFORE rendering the text_input ---------------
+    if st.session_state.get("_clear_browse", False):
+        # Reset the query safely before the widget is created this run
+        st.session_state["_clear_browse"] = False
+        st.session_state["browse_q"] = ""
 
-        if clear_pressed:
-            # reset input and re-run; avoids callback write-on-register conflict
-            st.session_state["browse_q"] = ""
-            q_val = ""
-            st.rerun()
+    # ---- Search UI -------------------------------------------------------
+    c1, c2 = st.columns([1, 0.25])
 
-        q = q_val  # canonical query used below
+    # Important: bind to a stable key; do NOT assign to this key later in the run
+    q = c1.text_input(
+        "Search",
+        value=st.session_state.get("browse_q", ""),
+        placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
+        key="browse_q",
+    )
 
-        # ---- CKW-first search (no pager; capped) -----------------------------
-        limit = MAX_RENDER_ROWS_ADMIN
-        offset = 0
+    # Clear button only flips a flag via on_click; it does NOT write to 'browse_q'
+    c2.button("Clear", key="browse_clear", on_click=_mark_clear_browse)
+
+    # ---- CKW-first search (no pager; capped) -----------------------------
+    limit = MAX_RENDER_ROWS_ADMIN
+    offset = 0
+    try:
+        ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Search failed: {e}")
+        ids = []
+
+    if not ids:
+        # Lightweight DB diagnostics to help the operator
         try:
-            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
+            with eng.connect() as cx:
+                db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            st.info(
+                f"No matches. DB: {db_target} | vendors: {total_cnt}. "
+                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+            )
         except Exception as e:
-            st.error(f"Search failed: {e}")
-            ids = []
+            st.info(f"No matches. (Diagnostics failed: {e})")
 
-        if not ids:
-            # Lightweight DB diagnostics to help the operator
-            try:
-                with eng.connect() as cx:
-                    db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-                st.info(
-                    f"No matches. DB: {db_target} | vendors: {total_cnt}. "
-                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-                )
-            except Exception as e:
-                st.info(f"No matches. (Diagnostics failed: {e})")
+    if len(ids) == limit and limit > 0:
+        st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-        if len(ids) == limit and limit > 0:
-            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+    # ---- Fetch rows by id list -------------------------------------------
+    try:
+        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+    except Exception as e:
+        st.error(f"Fetch failed: {e}")
+        df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-        # ---- Fetch rows by id list -------------------------------------------
-        try:
-            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-        except Exception as e:
-            st.error(f"Fetch failed: {e}")
-            df = pd.DataFrame(columns=BROWSE_COLUMNS)
+    # ---- Column widths / render ------------------------------------------
+    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+    try:
+        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    except Exception:
+        pass
+    colcfg = _column_config_from_widths(widths)
 
-        # ---- Column widths / render ------------------------------------------
-        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-        try:
-            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-        except Exception:
-            pass
-        colcfg = _column_config_from_widths(widths)
+    # Safety fill to guarantee columns exist and order is correct
+    for _col in BROWSE_COLUMNS:
+        if _col not in df.columns:
+            df[_col] = ""
+    df = df[BROWSE_COLUMNS]
 
-        # Safety fill to guarantee columns exist and order is correct
-        for _col in BROWSE_COLUMNS:
-            if _col not in df.columns:
-                df[_col] = ""
-        df = df[BROWSE_COLUMNS]
+    st.dataframe(
+        df,
+        hide_index=True,
+        use_container_width=True,
+        column_config=colcfg,
+    )
 
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
