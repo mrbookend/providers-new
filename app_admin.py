@@ -42,6 +42,13 @@ ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
 
 PAGE_SIZE = 200
 MAX_RENDER_ROWS = 1000
+# ---- CKW algorithm version ----
+CURRENT_VER = int(os.getenv("CKW_CURRENT_VER", "1"))
+
+# ---- Data cache version (for @st.cache_data invalidation) ----
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
+
 MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", str(MAX_RENDER_ROWS)))
 
 # Columns to display on Browse (Admin). CKW visible here for validation.
