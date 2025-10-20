@@ -971,48 +971,67 @@ with tab_browse:
     remaining = [c for c in vdf.columns if c not in preferred]
     display_cols = preferred + remaining
 
-            # ---- Table (horizontal scroll via wide container; index hidden) ----
-    # Hide id/created_at/updated_at and any CKW columns; enforce order; force horizontal scroll via column widths
+                # ---- Table (horizontal scroll via wide container; index hidden) ----
+    # Show Keywords (ckw_manual_extra) and CKW (computed_keywords), hide id/created/updated & CKW control fields.
+    # Enforce column order and horizontal scroll via explicit widths.
 
-    # Start from whatever rows you already loaded into 'vdf'
     _src = vdf.copy()
 
-    # Columns to hide (explicit)
+    # Ensure display columns exist even on older DBs
+    if "computed_keywords" not in _src.columns:
+        _src["computed_keywords"] = ""
+    if "ckw_manual_extra" not in _src.columns:
+        _src["ckw_manual_extra"] = ""
+    # Provide a friendly alias 'keywords' for display while keeping original column for export parity
+    _src.rename(columns={"ckw_manual_extra": "keywords"}, inplace=True)
+
+    # Columns to hide (note: keep 'computed_keywords' and 'keywords' visible)
     _HIDE_EXACT = {
         "id",
         "created_at",
         "updated_at",
-        "computed_keywords",
         "ckw_locked",
         "ckw_version",
     }
 
-    # Hide any column whose name begins with ckw_
-    def _is_ckw(col: str) -> bool:
+    def _is_ckw_control(col: str) -> bool:
+        # Hide internal CKW control/metadata columns (any ckw_*), but keep computed_keywords / keywords visible
         return col.startswith("ckw_")
 
     # Compute visible set
-    _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw(c)]
+    _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
 
-    # Enforced order for the *visible* columns; anything else stays but goes after
-    ORDER = ["business_name", "category", "service", "phone", "website", "notes"]
+    # Enforced order for *visible* columns; show curated Keywords before CKW for readability
+    ORDER = [
+        "business_name",
+        "category",
+        "service",
+        "keywords",             # ← human-curated extras (formerly ckw_manual_extra)
+        "computed_keywords",    # ← CKW
+        "phone",
+        "website",
+        "notes",
+    ]
     _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-    # Build column_config with widths to force horizontal scroll when total width > page
+    # Column widths + friendly labels (forces horizontal scroll if total width exceeds page)
     _cfg = {}
     for c in _ordered:
-        # Use your defaults if present; else a sensible width
         w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
-        _cfg[c] = st.column_config.TextColumn(c.replace("_", " ").title(), width=w)
+        label = (
+            "Keywords" if c == "keywords"
+            else ("CKW" if c == "computed_keywords" else c.replace("_", " ").title())
+        )
+        _cfg[c] = st.column_config.TextColumn(label, width=w)
 
-    # Render: with explicit widths, the table will exceed the page width -> scrollbar appears
+    # Render (ordered, with explicit widths)
     _view = _src.loc[:, _ordered] if not _src.empty else _src
     st.dataframe(
         _view,
         column_config=_cfg,
-        use_container_width=True,  # fills container; overflow handled with horizontal scroll
+        use_container_width=True,
         hide_index=True,
-        height=520,               # tweak if you want more/less vertical rows visible
+        height=520,
     )
 
     # ---- Bottom toolbar (CSV export + help) ----
@@ -1020,7 +1039,7 @@ with tab_browse:
         bt1, bt_sp = st.columns([0.2, 0.8])
 
         if not _view.empty:
-            # CSV export matches what’s visible (same order)
+            # CSV export matches what’s visible (same columns, order, labels map to column names)
             csv_bytes = _view.to_csv(index=False).encode("utf-8")
             bt1.download_button(
                 "Download CSV",
@@ -1035,6 +1054,7 @@ with tab_browse:
 
     except Exception as e:
         st.warning(f"CSV download/help unavailable: {e}")
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
