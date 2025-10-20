@@ -683,81 +683,81 @@ def main() -> None:
     with tab_manage:
         lc, rc = st.columns([1, 1], gap="large")
 
-        # ---------- Add (left) ----------
-with lc:
-    st.subheader("Add Provider")
-    cats = list_categories(eng)
-    srvs = list_services(eng)
+            # ---------- Add (left) ----------
+    with lc:
+        st.subheader("Add Provider")
+        cats = list_categories(eng)
+        srvs = list_services(eng)
 
-    bn = st.text_input("Business Name *", key="bn_add")
+        bn = st.text_input("Business Name *", key="bn_add")
 
-    # Category select or new
-    ccol1, ccol2 = st.columns([1, 1])
-    cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-    cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
-    category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
+        # Category select or new
+        ccol1, ccol2 = st.columns([1, 1])
+        cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+        cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
+        category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
 
-    # Service select or new
-    scol1, scol2 = st.columns([1, 1])
-    srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
-    srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
-    service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
+        # Service select or new
+        scol1, scol2 = st.columns([1, 1])
+        srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+        srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
+        service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
 
-    contact_name = st.text_input("Contact Name", key="contact_add")
-    phone = st.text_input("Phone", key="phone_add")
-    email = st.text_input("Email", key="email_add")
-    website = st.text_input("Website", key="website_add")
-    address = st.text_input("Address", key="address_add")
-    ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
-    city = ac1.text_input("City", key="city_add")
-    state = ac2.text_input("State", key="state_add")
-    zip_ = ac3.text_input("Zip", key="zip_add")
-    notes = st.text_area("Notes", height=100, key="notes_add")
+        contact_name = st.text_input("Contact Name", key="contact_add")
+        phone = st.text_input("Phone", key="phone_add")
+        email = st.text_input("Email", key="email_add")
+        website = st.text_input("Website", key="website_add")
+        address = st.text_input("Address", key="address_add")
+        ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
+        city = ac1.text_input("City", key="city_add")
+        state = ac2.text_input("State", key="state_add")
+        zip_ = ac3.text_input("Zip", key="zip_add")
+        notes = st.text_area("Notes", height=100, key="notes_add")
 
-    disabled = not (bn.strip() and category and service)
-    if st.button("Add Provider", type="primary", disabled=disabled):
-        data = {
-            "business_name": bn.strip(),
-            "category": category.strip(),
-            "service": service.strip(),
-            "contact_name": contact_name.strip(),
-            "phone": phone.strip(),
-            "email": email.strip(),
-            "website": website.strip(),
-            "address": address.strip(),
-            "city": city.strip(),
-            "state": state.strip(),
-            "zip": zip_.strip(),
-            "notes": notes.strip(),
-        }
-        vid = insert_vendor(eng, data)
-        ensure_lookup_value(eng, "categories", data["category"])
-        ensure_lookup_value(eng, "services", data["service"])
-        st.session_state["DATA_VER"] += 1
-        st.success(f"Added provider #{vid}: {data['business_name']}")
+        disabled = not (bn.strip() and category and service)
+        if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
+            data = {
+                "business_name": bn.strip(),
+                "category": category.strip(),
+                "service": service.strip(),
+                "contact_name": contact_name.strip(),
+                "phone": phone.strip(),
+                "email": email.strip(),
+                "website": website.strip(),
+                "address": address.strip(),
+                "city": city.strip(),
+                "state": state.strip(),
+                "zip": zip_.strip(),
+                "notes": notes.strip(),
+            }
+            vid = insert_vendor(eng, data)
+            ensure_lookup_value(eng, "categories", data["category"])
+            ensure_lookup_value(eng, "services", data["service"])
+            st.session_state["DATA_VER"] += 1
+            st.success(f"Added provider #{vid}: {data['business_name']}")
 
+        # ---------- Delete (left, under Add) ----------
+        st.divider()
+        st.subheader("Delete Provider")
+        with eng.begin() as cx:
+            opts = cx.exec_driver_sql(
+                "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+            ).all()
+        if opts:
+            labels = [f"#{i} — {n}" for (i, n) in opts]
+            pick = st.selectbox("Select provider to delete", options=["— Select —"] + labels, key="del_pick")
+            if pick != "— Select —":
+                idx = labels.index(pick)
+                del_id = int(opts[idx][0])
+                confirm = st.checkbox("I understand this will permanently delete the provider.", key="del_confirm")
+                ack = st.text_input("Type DELETE to confirm", key="del_ack")
+                if st.button("Delete", type="secondary", disabled=not (confirm and ack == "DELETE"), key="btn_delete"):
+                    delete_vendor(eng, del_id)
+                    st.session_state["DATA_VER"] += 1
+                    st.warning(f"Deleted provider #{del_id}.")
+        else:
+            st.info("No providers to delete.")
 
-            # Delete
-            st.divider()
-            st.subheader("Delete Provider")
-            with eng.begin() as cx:
-                opts = cx.exec_driver_sql(
-                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-                ).all()
-            if opts:
-                labels = [f"#{i} — {n}" for (i, n) in opts]
-                pick = st.selectbox("Select provider to delete", options=["— Select —"] + labels)
-                if pick != "— Select —":
-                    idx = labels.index(pick)
-                    del_id = int(opts[idx][0])
-                    confirm = st.checkbox("I understand this will permanently delete the provider.")
-                    ack = st.text_input("Type DELETE to confirm")
-                    if st.button("Delete", type="secondary", disabled=not (confirm and ack == "DELETE")):
-                        delete_vendor(eng, del_id)
-                        st.session_state["DATA_VER"] += 1
-                        st.warning(f"Deleted provider #{del_id}.")
-            else:
-                st.info("No providers to delete.")
 
         # Edit
         with rc:
