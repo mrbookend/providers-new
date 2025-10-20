@@ -896,7 +896,7 @@ def main() -> None:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # # Tabs (recreate unconditionally to avoid undefined names)
+    # Tabs (recreate to avoid undefined names)
 tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
     ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
 )
@@ -905,12 +905,58 @@ tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
 # Browse (Admin)
 # ──────────────────────────────────────────────────────────────────────
 with tab_browse:
-    # ---- Safety preamble (no external helpers required) ----
-    q = st.session_state.get("q", "")  # use whatever your Search input stores
+    # ---- Local helpers (no external deps) ----
+    def _get_engine_fallback():
+        try:
+            return get_engine()  # use your real builder if present
+        except Exception:
+            pass
+        import sqlalchemy as sa
+        db_path = globals().get("DB_PATH", "providers.db")
+        return sa.create_engine(f"sqlite:///{db_path}", future=True)
+
+    def _has_table(engine, name: str) -> bool:
+        import sqlalchemy as sa
+        try:
+            with engine.connect() as cx:
+                q = sa.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n")
+                return cx.execute(q, {"n": name}).first() is not None
+        except Exception:
+            return False
+
+    def _load_vendors_visible(engine, q: str, limit: int = 1000) -> pd.DataFrame:
+        import sqlalchemy as sa
+        cols = [
+            "id","category","service","business_name","contact_name",
+            "phone","email","website","notes",
+            "keywords","computed_keywords","ckw_version","ckw_locked",
+            "created_at","updated_at",
+        ]
+        base_sql = f"SELECT {', '.join(cols)} FROM vendors"
+        params = {}
+        if isinstance(q, str) and q.strip():
+            like = f"%{q.strip()}%"
+            params = {"qq": like}
+            base_sql += (
+                " WHERE business_name LIKE :qq OR category LIKE :qq OR service LIKE :qq "
+                " OR notes LIKE :qq OR phone LIKE :qq OR website LIKE :qq OR email LIKE :qq "
+                " OR computed_keywords LIKE :qq OR keywords LIKE :qq"
+            )
+        base_sql += " ORDER BY business_name COLLATE NOCASE LIMIT :lim"
+        params["lim"] = int(limit if limit else globals().get("MAX_RENDER_ROWS", 1000))
+        try:
+            with engine.connect() as cx:
+                df = pd.read_sql_query(sa.text(base_sql), cx, params=params)
+        except Exception:
+            df = pd.DataFrame()
+        return df
+
+    # ---- Safety preamble / defaults ----
+    q = st.session_state.get("q", "")
     if "BROWSE_DISPLAY_COLUMNS" not in globals():
         BROWSE_DISPLAY_COLUMNS = [
-            "category", "service", "business_name", "contact_name",
-            "phone", "email", "website", "notes",
+            "category","service","business_name","contact_name",
+            "phone","email","website","notes",
         ]
     if "HELP_MD" not in globals():
         HELP_MD = (
@@ -920,17 +966,18 @@ with tab_browse:
             "- Toggle **Show CKW debug columns** to inspect keyword fields during tuning."
         )
 
-    # Ensure vdf exists; prefer previously-built value if present
-    _existing_vdf = locals().get("vdf", globals().get("vdf", None))
-    if isinstance(_existing_vdf, pd.DataFrame):
-        vdf = _existing_vdf
+    # ---- Build/refresh vdf from the database ----
+    eng = _get_engine_fallback()
+    DB_READY = _has_table(eng, "vendors")
+    if DB_READY:
+        vdf = _load_vendors_visible(eng, q, limit=int(globals().get("MAX_RENDER_ROWS", 1000)))
     else:
         vdf = pd.DataFrame()
 
     # ---- CKW toggle + visible columns selection ----
-    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)  # created/updated intentionally omitted
-    CKW_DEBUG_COLUMNS = ["keywords", "computed_keywords", "ckw_version", "ckw_locked"]
-    ALWAYS_HIDE = ["created_at", "updated_at"]
+    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)   # created/updated intentionally omitted
+    CKW_DEBUG_COLUMNS = ["keywords","computed_keywords","ckw_version","ckw_locked"]
+    ALWAYS_HIDE = ["created_at","updated_at"]
 
     ckw_debug = st.checkbox(
         "Show CKW debug columns",
@@ -946,19 +993,21 @@ with tab_browse:
         vdf_visible = vdf.loc[:, visible_cols] if visible_cols else vdf.copy()
         st.dataframe(vdf_visible, use_container_width=True, hide_index=True)
     else:
-        st.info("No matches.")
+        if DB_READY:
+            st.info("No matches.")
+        else:
+            st.warning("Database not ready (no 'vendors' table). Initialize or seed the DB, then refresh.")
         vdf_visible = pd.DataFrame(columns=desired_cols)
 
-    # ---- Footer: CSV download (matches visible columns) + optional CKW compact view + Help ----
+    # ---- Footer: CSV download (matches visible columns) + CKW compact view + Help ----
     try:
-        # Build CSV from the currently visible frame (no helper calls)
+        # Build CSV from the currently visible frame
         try:
             csv_bytes = vdf_visible.to_csv(index=False).encode("utf-8")
         except Exception:
             vdf_visible = pd.DataFrame()
             csv_bytes = b""
 
-        # File name reflects filtered state and DATA_VER if present
         data_ver = str(st.session_state.get("DATA_VER", "n/a"))
         _is_filtered = bool(isinstance(q, str) and q.strip())
         _ver = f"-v{data_ver}" if (isinstance(data_ver, str) and data_ver and data_ver != "n/a") else ""
@@ -977,17 +1026,15 @@ with tab_browse:
             help=None if not btn_disabled else "Nothing to export (no matching rows).",
         )
 
-        # Optional compact CKW-only grid for quick scanning
-        if ckw_debug and isinstance(vdf, pd.DataFrame) and not vdf.empty:
+        if ckw_debug and not vdf.empty:
             with st.expander("CKW diagnostics (compact)", expanded=False):
-                ckw_cols_present = [c for c in (["business_name", "category", "service"] + CKW_DEBUG_COLUMNS) if c in vdf.columns]
+                ckw_cols_present = [c for c in (["business_name","category","service"] + CKW_DEBUG_COLUMNS) if c in vdf.columns]
                 st.dataframe(
                     vdf.loc[:, ckw_cols_present],
                     use_container_width=True,
                     hide_index=True,
                 )
 
-        # Full-width help expander (long, printable)
         with st.expander("Help — How to use Browse (click to open)", expanded=False):
             st.markdown(HELP_MD)
 
@@ -995,25 +1042,23 @@ with tab_browse:
         st.warning(f"CSV download/help unavailable: {e}")
 
 # ──────────────────────────────────────────────────────────────────────
-# Add / Edit / Delete
+# Add / Edit / Delete  (guarded to avoid crashes when tables missing)
 # ──────────────────────────────────────────────────────────────────────
 with tab_manage:
-    # keep your existing Add/Edit/Delete block below this line
-    pass
-
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Add / Edit / Delete
-    # ──────────────────────────────────────────────────────────────────────
-    with tab_manage:
+    if not DB_READY:
+        st.info("Database not ready — skipping Add/Edit UI because required tables are missing.")
+    else:
+        # ---------- Your existing Add/Edit/Delete code starts here ----------
         eng = get_engine()  # ensure local scope
         lc, rc = st.columns([1, 1], gap="large")
 
         # ---------- Add (left) ----------
         with lc:
             st.subheader("Add Provider")
-            cats = list_categories(eng)
-            srvs = list_services(eng)
+
+            # Safely fetch categories/services; avoid crashing if tables absent
+            cats = list_categories(eng) if _has_table(eng, "categories") else []
+            srvs = list_services(eng) if _has_table(eng, "services") else []
 
             bn = st.text_input("Business Name *", key="bn_add")
 
@@ -1046,6 +1091,8 @@ with tab_manage:
                 height=80,
                 key="kw_add",
             )
+        # ---------- Your existing Add/Edit/Delete code continues below ----------
+
 
             disabled = not (bn.strip() and category and service)
             if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
