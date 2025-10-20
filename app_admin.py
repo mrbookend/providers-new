@@ -549,12 +549,15 @@ def count_rows(q: str, data_ver: int = 0) -> int:
         n = cx.execute(sa.text(sql), params).scalar()
     return int(n or 0)
 
+# ==== REPLACE: fetch_page() (begin) =======================================
 @st.cache_data(show_spinner=False)
 def fetch_page(q: str, offset: int = 0, limit: int | None = None, data_ver: int = 0) -> pd.DataFrame:
     _engine = get_engine()
     if limit is None:
         limit = PAGE_SIZE
+
     where, params = _make_where_and_params(q)
+
     sql = (
         "SELECT id, business_name, category, service, contact_name, phone, "
         "email, website, address, city, state, zip, notes, created_at, updated_at "
@@ -563,10 +566,15 @@ def fetch_page(q: str, offset: int = 0, limit: int | None = None, data_ver: int 
         "ORDER BY business_name COLLATE NOCASE ASC "
         "LIMIT :limit OFFSET :offset"
     )
+
     params = {**params, "limit": int(limit), "offset": int(offset)}
+
     with _engine.connect() as cx:
         df = pd.read_sql_query(sa.text(sql), cx, params=params)
+
     return df
+# ==== REPLACE: fetch_page() (end) =========================================
+
 
 # === End cached engine + data functions ===================================
 
