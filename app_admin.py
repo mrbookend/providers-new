@@ -896,22 +896,23 @@ def main() -> None:
         DATA_VER = st.session_state.get("DATA_VER", 0)
         st.subheader("Browse Providers")
 
-        # --- handlers (defined before widgets that use these keys) ---
-        def _clear_browse_search():
-            st.session_state["browse_search"] = ""
-
-        # ---- Search UI -------------------------------------------------------
+        # ---- Search UI (no callback; dedicated key; manual clear) ----------
         c1, c2 = st.columns([1, 0.25])
-        c1.text_input(
+        q_val = c1.text_input(
             "Search",
-            value=st.session_state.get("browse_search", ""),
+            value=st.session_state.get("browse_q", ""),
             placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
-            key="browse_search",
+            key="browse_q",
         )
-        c2.button("Clear", key="browse_clear", on_click=_clear_browse_search)
+        clear_pressed = c2.button("Clear", key="browse_clear")
 
-        # Use the canonical query value from session state
-        q = st.session_state.get("browse_search", "")
+        if clear_pressed:
+            # reset input and re-run; avoids callback write-on-register conflict
+            st.session_state["browse_q"] = ""
+            q_val = ""
+            st.rerun()
+
+        q = q_val  # canonical query used below
 
         # ---- CKW-first search (no pager; capped) -----------------------------
         limit = MAX_RENDER_ROWS_ADMIN
