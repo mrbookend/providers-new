@@ -23,6 +23,7 @@ _safe_page_config()
 # ── Stdlib ────────────────────────────────────────────────────────────────
 import os
 import csv
+import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -400,16 +401,27 @@ def _load_ckw_seed(cx, category: str | None, service: str | None) -> list[str]:
     Schema: ckw_seeds(category TEXT, service TEXT, keywords TEXT)
     - Accepts keywords as JSON array or delimited text (comma/pipe/semicolon).
     - Returns a de-duplicated list[str].
+    - If the table doesn't exist, returns [] (quietly).
     """
     cat = (category or "").strip()
     svc = (service or "").strip()
     if not cat and not svc:
         return []
 
-    rows = cx.exec_driver_sql(
-        "SELECT keywords FROM ckw_seeds WHERE category = :c AND service = :s",
-        {"c": cat, "s": svc},
-    ).all()
+    try:
+        rows = cx.exec_driver_sql(
+            "SELECT keywords FROM ckw_seeds WHERE category = :c AND service = :s",
+            {"c": cat, "s": svc},
+        ).all()
+    except sqlite3.OperationalError as e:
+        # Table not found → treat as no seeds configured
+        if "no such table: ckw_seeds" in str(e).lower():
+            return []
+        raise
+    except Exception:
+        # Any other seed-load failure: fail soft
+        return []
+
     if not rows:
         return []
 
@@ -441,6 +453,7 @@ def _load_ckw_seed(cx, category: str | None, service: str | None) -> list[str]:
         seen.add(tl)
         uniq.append(t)
     return uniq
+
 
 @st.cache_resource
 def _get_ckw_synonyms_map() -> dict:
@@ -1195,16 +1208,19 @@ def main() -> None:
             pass
 
         if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
-            try:
-                with eng.begin() as cx:
-                    ids = _select_vendor_ids_for_ckw(
-                        cx, mode="all", current_ver=CURRENT_VER, override_locks=True
-                    )
-                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
-            except Exception as e:
-                st.error(f"Recompute ALL failed: {e}")
+    try:
+        # Ensure seeds table exists (no-op if already present)
+        ensure_ckw_seeds_table()
+
+        with eng.begin() as cx:
+            ids = _select_vendor_ids_for_ckw(
+                cx, mode="all", current_ver=CURRENT_VER, override_locks=True
+            )
+        n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
+        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+        st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
+    except Exception as e:
+        st.error(f"Recompute ALL failed: {e}")
 
 
 if __name__ == "__main__":
