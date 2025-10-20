@@ -1027,36 +1027,75 @@ def main() -> None:
                         f"Recomputed CKW for {changed} provider(s)."
                     )
 
-    # ──────────────────────────────────────────────────────────────────────
+        # ──────────────────────────────────────────────────────────────────────
     # Maintenance
     # ──────────────────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
-        st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for bulk fixes.")
+        st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for targeted or bulk recomputes.")
 
-        # Single vendor recompute
-        with eng.begin() as cx:
-            opts = cx.exec_driver_sql(
-                "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-            ).all()
+        # ---- Single provider recompute -----------------------------------
+        try:
+            eng = get_engine()
+            with eng.begin() as cx:
+                opts = cx.exec_driver_sql(
+                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                ).all()
+        except Exception as e:
+            opts = []
+            st.error(f"Failed to load providers: {e}")
+
         if opts:
-            labels = [f"#{i} — {n}" for (i, n) in opts]
-            sel = st.selectbox("Recompute CKW for one provider", options=["— Select —"] + labels)
-            if sel != "— Select —":
-                vid = int(opts[labels.index(sel)][0])
-                if st.button("Recompute for this provider"):
-                    n = recompute_ckw_for_ids(eng, [vid])
-                    st.session_state["DATA_VER"] += 1
-                    st.success(f"Recomputed CKW for {n} provider(s).")
-        else:
-            st.info("No providers yet.")
+            labels = [f"#{pid} — {name}" for (pid, name) in opts]
+            sel_label = st.selectbox("Recompute CKW for one provider", options=["— Select —"] + labels)
+            if sel_label != "— Select —":
+                # Map the chosen label back to its id
+                idx = labels.index(sel_label)
+                vid = int(opts[idx][0])
 
-        # Recompute all
+                if st.button("Recompute keywords for this provider", key="ckw_one"):
+                    try:
+                        n_sel, n_upd = _recompute_ckw_for_ids([vid], override_locks=False)
+                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                        st.success(f"Selected: {n_sel} | Updated: {n_upd} (provider id={vid})")
+                    except Exception as e:
+                        st.error(f"Recompute failed: {e}")
+        else:
+            st.info("No providers found.")
+
+        # ---- Bulk recompute ----------------------------------------------
         st.divider()
-        if st.button("Recompute CKW for ALL providers", type="secondary"):
-            n = recompute_ckw_all(eng)
-            st.session_state["DATA_VER"] += 1
-            st.success(f"Recomputed CKW for {n} provider(s).")
+        st.subheader("Bulk recompute")
+        st.caption("Use STALE for safe, minimal updates. Use ALL for full rebuilds; you can override locks if needed.")
+
+        c1, c2, c3 = st.columns(3)
+        if c1.button("Recompute STALE (unlocked only)", key="ckw_stale"):
+            try:
+                eng = get_engine()
+                with eng.begin() as cx:
+                    ids = _select_vendor_ids_for_ckw(
+                        cx, mode="stale", current_ver=CURRENT_VER, override_locks=False
+                    )
+                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=False)
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.success(f"Stale selection: {n_sel} | Updated: {n_upd}")
+            except Exception as e:
+                st.error(f"Stale recompute failed: {e}")
+
+        override = c2.checkbox("Override locks for ALL", value=False, help="If checked, locked providers will be recomputed too.")
+        if c3.button("Recompute ALL", key="ckw_all"):
+            try:
+                eng = get_engine()
+                with eng.begin() as cx:
+                    ids = _select_vendor_ids_for_ckw(
+                        cx, mode="all", current_ver=CURRENT_VER, override_locks=override
+                    )
+                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=override)
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.success(f"All selection: {n_sel} | Updated: {n_upd} (override_locks={override})")
+            except Exception as e:
+                st.error(f"ALL recompute failed: {e}")
+
 
 
 if __name__ == "__main__":
