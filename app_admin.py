@@ -877,98 +877,99 @@ def main() -> None:
     except Exception as e:
         st.warning(f"Bootstrap skipped: {e}")
 
-    # Tabs
+    # Helper used by the Browse tab "Clear" button.
+    # Important: this only sets a FLAG. We clear the actual query BEFORE rendering the text_input.
+    def _mark_clear_browse():
+        st.session_state["_clear_browse"] = True
+
+    # Tabs (all tab blocks must remain inside main())
     tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
 
-    # Early DB sanity so later tabs don't silently die on first DB touch
+    # Patch #4: Early DB sanity so later tabs don't silently die on first DB touch
     try:
         _ = get_engine().connect().close()
     except Exception as e:
         st.error(f"Database unavailable: {e}")
 
     # ──────────────────────────────────────────────────────────────────────
-# Browse (Admin)
-# ──────────────────────────────────────────────────────────────────────
-with tab_browse:
-    eng = get_engine()  # ensure local scope
-    DATA_VER = st.session_state.get("DATA_VER", 0)
-    st.subheader("Browse Providers")
+    # Browse (Admin)
+    # ──────────────────────────────────────────────────────────────────────
+    with tab_browse:
+        eng = get_engine()  # ensure local scope
+        DATA_VER = st.session_state.get("DATA_VER", 0)
+        st.subheader("Browse Providers")
 
-    # --- CLEAR HANDLER: run BEFORE rendering the text_input ---------------
-    if st.session_state.get("_clear_browse", False):
-        # Reset the query safely before the widget is created this run
-        st.session_state["_clear_browse"] = False
-        st.session_state["browse_q"] = ""
+        # --- CLEAR HANDLER (must run BEFORE text_input renders) -------------
+        if st.session_state.get("_clear_browse", False):
+            st.session_state["_clear_browse"] = False
+            # Clear the actual query value BEFORE the widget is created this run
+            st.session_state["browse_q"] = ""
 
-    # ---- Search UI -------------------------------------------------------
-    c1, c2 = st.columns([1, 0.25])
+        # ---- Search UI -----------------------------------------------------
+        c1, c2 = st.columns([1, 0.25])
+        q = c1.text_input(
+            "Search",
+            value=st.session_state.get("browse_q", ""),
+            placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
+            key="browse_q",  # Never assign to this key later in the same run
+        )
+        # Clear only sets a flag so we don't mutate 'browse_q' after widget creation
+        c2.button("Clear", key="browse_clear", on_click=_mark_clear_browse)
 
-    # Important: bind to a stable key; do NOT assign to this key later in the run
-    q = c1.text_input(
-        "Search",
-        value=st.session_state.get("browse_q", ""),
-        placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
-        key="browse_q",
-    )
-
-    # Clear button only flips a flag via on_click; it does NOT write to 'browse_q'
-    c2.button("Clear", key="browse_clear", on_click=_mark_clear_browse)
-
-    # ---- CKW-first search (no pager; capped) -----------------------------
-    limit = MAX_RENDER_ROWS_ADMIN
-    offset = 0
-    try:
-        ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
-    except Exception as e:
-        st.error(f"Search failed: {e}")
-        ids = []
-
-    if not ids:
-        # Lightweight DB diagnostics to help the operator
+        # ---- CKW-first search (no pager; capped) ---------------------------
+        limit = MAX_RENDER_ROWS_ADMIN
+        offset = 0
         try:
-            with eng.connect() as cx:
-                db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            st.info(
-                f"No matches. DB: {db_target} | vendors: {total_cnt}. "
-                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-            )
+            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
         except Exception as e:
-            st.info(f"No matches. (Diagnostics failed: {e})")
+            st.error(f"Search failed: {e}")
+            ids = []
 
-    if len(ids) == limit and limit > 0:
-        st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+        if not ids:
+            # Lightweight DB diagnostics to help the operator
+            try:
+                with eng.connect() as cx:
+                    db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+                st.info(
+                    f"No matches. DB: {db_target} | vendors: {total_cnt}. "
+                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+                )
+            except Exception as e:
+                st.info(f"No matches. (Diagnostics failed: {e})")
 
-    # ---- Fetch rows by id list -------------------------------------------
-    try:
-        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-    except Exception as e:
-        st.error(f"Fetch failed: {e}")
-        df = pd.DataFrame(columns=BROWSE_COLUMNS)
+        if len(ids) == limit and limit > 0:
+            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-    # ---- Column widths / render ------------------------------------------
-    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-    try:
-        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    except Exception:
-        pass
-    colcfg = _column_config_from_widths(widths)
+        # ---- Fetch rows by id list -----------------------------------------
+        try:
+            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+        except Exception as e:
+            st.error(f"Fetch failed: {e}")
+            df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-    # Safety fill to guarantee columns exist and order is correct
-    for _col in BROWSE_COLUMNS:
-        if _col not in df.columns:
-            df[_col] = ""
-    df = df[BROWSE_COLUMNS]
+        # ---- Column widths / render ----------------------------------------
+        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+        try:
+            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        except Exception:
+            pass
+        colcfg = _column_config_from_widths(widths)
 
-    st.dataframe(
-        df,
-        hide_index=True,
-        use_container_width=True,
-        column_config=colcfg,
-    )
+        # Safety fill to guarantee columns exist and order is correct
+        for _col in BROWSE_COLUMNS:
+            if _col not in df.columns:
+                df[_col] = ""
+        df = df[BROWSE_COLUMNS]
 
+        st.dataframe(
+            df,
+            hide_index=True,
+            use_container_width=True,
+            column_config=colcfg,
+        )
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
@@ -1263,7 +1264,7 @@ with tab_browse:
         DATA_VER = st.session_state.get("DATA_VER", 0)
         st.subheader("Maintenance — Computed Keywords (CKW)")
 
-        # Init guard so the tab never renders blank
+        # Init probe
         try:
             with eng.connect() as cx:
                 total_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
@@ -1272,15 +1273,17 @@ with tab_browse:
             st.error(f"Maintenance init failed: {e}")
             st.stop()
 
-        st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
+        st.caption(
+            "Rebuilds computed_keywords for every provider, ignoring CKW locks. "
+            "Use after changing keywords, seeds, or algorithm."
+        )
 
-        # Ensure seeds table exists (non-fatal)
+        # Ensure seeds table exists (non-fatal if it fails)
         try:
             ensure_ckw_seeds_table()
         except Exception as e:
             st.warning(f"Could not verify ckw_seeds table (continuing without seeds): {e}")
 
-        # Button with surfaced exceptions + hard refresh on success
         if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
             try:
                 with eng.begin() as cx:
@@ -1290,7 +1293,6 @@ with tab_browse:
                 n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
                 st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                 st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
-                st.rerun()
             except Exception as e:
                 st.error(f"Recompute ALL failed: {e}")
                 st.exception(e)
