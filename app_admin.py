@@ -1004,60 +1004,118 @@ def main() -> None:
         except Exception:
             pass
 
-        # Render table (always)
-        if isinstance(vdf, pd.DataFrame) and not vdf.empty:
-            st.dataframe(vdf, use_container_width=True, hide_index=True)
+        # Render table (always)  ── with on-demand CKW visibility and matched export
+try:
+    # Base columns for normal view (created/updated hidden per your preference)
+    BASE_BROWSE_COLUMNS = (
+        list(BROWSE_DISPLAY_COLUMNS)  # if you maintain a global display list
+        if "BROWSE_DISPLAY_COLUMNS" in globals()
+        else [
+            "category",
+            "service",
+            "business_name",
+            "contact_name",
+            "phone",
+            "email",
+            "website",
+            "notes",
+        ]
+    )
+
+    # Optional CKW diagnostics columns (shown only when toggled on)
+    CKW_DEBUG_COLUMNS = ["keywords", "computed_keywords", "ckw_version", "ckw_locked"]
+
+    # Columns to always hide from user view/export (audit fields)
+    ALWAYS_HIDE = ["created_at", "updated_at"]
+
+    # Toggle: only show CKW fields on demand
+    ckw_debug = st.checkbox(
+        "Show CKW debug columns",
+        value=False,
+        help="Temporarily include keywords/CKW fields for inspection and export.",
+    )
+
+    # Build visible columns (base + optional CKW), and ensure they exist in vdf
+    desired_cols = BASE_BROWSE_COLUMNS + (CKW_DEBUG_COLUMNS if ckw_debug else [])
+    desired_cols = [c for c in desired_cols if c not in ALWAYS_HIDE]
+    if isinstance(vdf, pd.DataFrame) and not vdf.empty:
+        visible_cols = [c for c in desired_cols if c in vdf.columns]
+        vdf_visible = vdf.loc[:, visible_cols]
+        st.dataframe(vdf_visible, use_container_width=True, hide_index=True)
+    else:
+        st.info("No matches.")
+        vdf_visible = pd.DataFrame()  # keep downstream logic simple
+
+    # ---- Footer: CSV-only download (filtered = ALL filtered rows; unfiltered = ALL records) + Help expander ----
+    try:
+        data_ver = str(st.session_state.get("DATA_VER", "n/a"))
+
+        # Build the export DF from full underlying set (filtered/unfiltered),
+        # then align to exactly the currently visible columns.
+        if isinstance(q, str) and q.strip():
+            try:
+                df_for_export = _load_filtered_rows_df(q.strip(), data_ver)
+                if df_for_export.empty and isinstance(vdf_visible, pd.DataFrame):
+                    df_for_export = vdf_visible.copy()
+            except Exception:
+                df_for_export = vdf_visible.copy() if isinstance(vdf_visible, pd.DataFrame) else pd.DataFrame()
         else:
-            st.info("No matches.")
-
-        # ---- Footer: CSV-only download (filtered = ALL filtered rows; unfiltered = ALL records) + Help expander ----
-        try:
-            data_ver = str(st.session_state.get("DATA_VER", "n/a"))
-            if q.strip():
-                try:
-                    df_for_export = _load_filtered_rows_df(q.strip(), data_ver)
-                    if df_for_export.empty:
-                        df_for_export = vdf.copy() if isinstance(vdf, pd.DataFrame) else pd.DataFrame()
-                except Exception:
-                    df_for_export = vdf.copy() if isinstance(vdf, pd.DataFrame) else pd.DataFrame()
-            else:
+            try:
                 df_for_export = _load_all_rows_df(data_ver)
-
-            # Make export match the visible table: drop audit & CKW; optionally enforce display order
-            try:
-                HIDE_COLS_BROWSE = ["created_at", "updated_at", "computed_keywords", "ckw_version", "ckw_locked"]
-                df_for_export = df_for_export.drop(columns=HIDE_COLS_BROWSE, errors="ignore")
             except Exception:
-                pass
-            try:
-                display_cols = list(BROWSE_DISPLAY_COLUMNS)  # if you maintain a display list
-                df_for_export = df_for_export[[c for c in display_cols if c in df_for_export.columns]]
-            except Exception:
-                pass
+                df_for_export = vdf_visible.copy() if isinstance(vdf_visible, pd.DataFrame) else pd.DataFrame()
 
-            # Stable fingerprint for caching
-            if "id" in df_for_export.columns:
-                ids_fp = f"{len(df_for_export)}:{tuple(df_for_export['id'].tolist()[:5])}:{tuple(df_for_export['id'].tolist()[-5:])}"
-            else:
-                ids_fp = f"shape:{df_for_export.shape}"
+        # Make export match exactly what is visible in the table:
+        #  - drop audit fields
+        #  - keep only the visible columns (including CKW when toggled on)
+        try:
+            df_for_export = df_for_export.drop(columns=ALWAYS_HIDE, errors="ignore")
+        except Exception:
+            pass
+        try:
+            if isinstance(vdf_visible, pd.DataFrame) and not vdf_visible.empty:
+                keep_cols = [c for c in vdf_visible.columns if c in df_for_export.columns]
+                if keep_cols:
+                    df_for_export = df_for_export.loc[:, keep_cols]
+        except Exception:
+            pass
 
-            csv_bytes, csv_name = _csv_bytes_for_df(df_for_export, data_ver, q, ids_fp)
+        # Stable fingerprint for caching
+        if isinstance(df_for_export, pd.DataFrame) and "id" in df_for_export.columns:
+            ids = df_for_export["id"].tolist()
+            ids_fp = f"{len(df_for_export)}:{tuple(ids[:5])}:{tuple(ids[-5:])}"
+        else:
+            ids_fp = f"shape:{getattr(df_for_export, 'shape', None)}"
 
-            c_dl, _pad = st.columns([0.25, 0.75])
-            c_dl.download_button(
-                "Download CSV",
-                data=csv_bytes,
-                file_name=csv_name,
-                mime="text/csv",
-                use_container_width=True,
-            )
+        csv_bytes, csv_name = _csv_bytes_for_df(df_for_export, data_ver, q, ids_fp)
 
-            # Full-width help expander (long, printable)
-            with st.expander("Help — How to use Browse (click to open)", expanded=False):
-                st.markdown(HELP_MD)
+        c_dl, _pad = st.columns([0.25, 0.75])
+        c_dl.download_button(
+            "Download CSV (visible columns)",
+            data=csv_bytes,
+            file_name=csv_name,
+            mime="text/csv",
+            use_container_width=True,
+        )
 
-        except Exception as e:
-            st.warning(f"CSV download/help unavailable: {e}")
+        # Optional: compact CKW-only view when debugging, for quick scanning
+        if ckw_debug and isinstance(vdf, pd.DataFrame) and not vdf.empty:
+            with st.expander("CKW diagnostics (compact)", expanded=False):
+                ckw_cols_present = [c for c in (["business_name", "category", "service"] + CKW_DEBUG_COLUMNS) if c in vdf.columns]
+                st.dataframe(
+                    vdf.loc[:, ckw_cols_present],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        # Full-width help expander (long, printable)
+        with st.expander("Help — How to use Browse (click to open)", expanded=False):
+            st.markdown(HELP_MD)
+
+    except Exception as e:
+        st.warning(f"CSV download/help unavailable: {e}")
+except Exception as e:
+    st.error(f"Render failed: {e}")
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
