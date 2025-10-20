@@ -949,60 +949,47 @@ with tab_browse:
         hide_index=True,
     )
 
-    # ---- Bottom toolbar (exports + CKW visibility control) ----
-    bt1, bt2, bt3, bt_sp = st.columns([0.18, 0.18, 0.20, 0.44])
+        # ---- Bottom toolbar (exports + CKW visibility control) ----
+    try:
+        bt1, bt2, bt3, bt_sp = st.columns([0.18, 0.18, 0.20, 0.44])
 
-    if not vdf.empty:
-        # CSV export (matches current display order)
-        csv_bytes = vdf[display_cols].to_csv(index=False).encode("utf-8")
-        bt1.download_button(
-            "Download CSV",
-            data=csv_bytes,
-            file_name="providers.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+        if not vdf.empty:
+            # CSV export (matches current display order)
+            csv_bytes = vdf[display_cols].to_csv(index=False).encode("utf-8")
+            bt1.download_button(
+                "Download CSV",
+                data=csv_bytes,
+                file_name="providers.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
-        # XLSX export (optional but included)
-        from io import BytesIO
-        b = BytesIO()
-        with pd.ExcelWriter(b, engine="xlsxwriter") as xw:
-            vdf[display_cols].to_excel(xw, index=False, sheet_name="Providers")
-        bt2.download_button(
-            "Download XLSX",
-            data=b.getvalue(),
-            file_name="providers.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+            # XLSX export (optional but included)
+            from io import BytesIO
+            b = BytesIO()
+            with pd.ExcelWriter(b, engine="xlsxwriter") as xw:
+                vdf[display_cols].to_excel(xw, index=False, sheet_name="Providers")
+            bt2.download_button(
+                "Download XLSX",
+                data=b.getvalue(),
+                file_name="providers.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
-    # Show/Hide CKW columns control at the bottom (per your request)
-    if "show_ckw" not in st.session_state:
-        st.session_state["show_ckw"] = True
-    label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
-    if bt3.button(label, use_container_width=True):
-        st.session_state["show_ckw"] = not st.session_state["show_ckw"]
-
-
-    # If you want the table itself to hide CKW when off, replace the st.dataframe() above
-    # with the block below instead:
-    #
-    # visible_cols = display_cols.copy()
-    # if not st.session_state["show_ckw"]:
-    #     for c in CKW_COLS:
-    #         if c in visible_cols:
-    #             visible_cols.remove(c)
-    # st.dataframe(
-    #     vdf[visible_cols] if not vdf.empty else vdf,
-    #     use_container_width=True,
-    #     hide_index=True,
-    # )
+        # Show/Hide CKW columns control at the bottom (per your request)
+        if "show_ckw" not in st.session_state:
+            st.session_state["show_ckw"] = True
+        label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
+        if bt3.button(label, use_container_width=True):
+            st.session_state["show_ckw"] = not st.session_state["show_ckw"]
 
         with st.expander("Help — How to use Browse (click to open)", expanded=False):
             st.markdown(HELP_MD)
 
     except Exception as e:
         st.warning(f"CSV download/help unavailable: {e}")
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
