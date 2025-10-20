@@ -1230,25 +1230,12 @@ with tab_manage:
 
         labels, by_label = _list_providers_min(st.session_state["DATA_VER"])
 
-        # ---- Find + filter (partial word, case-insensitive) ----
-        fcol, _sp = st.columns([0.7, 0.3])
-        find_q = fcol.text_input(
-            "Find provider",
-            value=st.session_state.get("del_find_q", ""),
-            placeholder="Type part of the business name…",
-            key="del_find_q",
-        )
-
-        filtered = (
-            [lbl for lbl in labels if st.session_state["del_find_q"].lower() in lbl.lower()]
-            if st.session_state["del_find_q"] else labels
-        )
-
+                # ---- Select provider (no find box; full list) ----
         sel = st.selectbox(
             "Select provider to delete",
-            options=filtered,
+            options=labels,
             index=None,
-            placeholder="Start typing, then choose…",
+            placeholder="Choose a provider…",
             key="del_select_label",
         )
 
@@ -1277,7 +1264,6 @@ with tab_manage:
 
                     # Invalidate caches and clear controls
                     st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                    st.session_state["del_find_q"] = ""
                     st.session_state["del_select_label"] = None
                     st.session_state["del_perm_ack"] = False
 
