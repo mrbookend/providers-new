@@ -41,6 +41,9 @@ DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")  # <— re-add this
 PAGE_SIZE = 200
 # MAX_RENDER_ROWS_ADMIN, BROWSE_COLUMNS, etc. as you already have them
+# Caps
+MAX_RENDER_ROWS = 1000
+MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", "1000"))
 
 
 # Columns to display on Browse (Admin). CKW visible here for validation.
