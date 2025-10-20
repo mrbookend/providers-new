@@ -896,29 +896,21 @@ def main() -> None:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # Tabs (guarded — recreate if missing)
-if 'tab_browse' not in locals():
-    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
-    )
+    # # Tabs (recreate unconditionally to avoid undefined names)
+tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+    ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+)
 
 # ──────────────────────────────────────────────────────────────────────
 # Browse (Admin)
 # ──────────────────────────────────────────────────────────────────────
 with tab_browse:
-    # ---- Safety preamble: ensure q / vdf / display list / help exist ----
-    if "q" not in locals():
-        q = st.session_state.get("q", "")
+    # ---- Safety preamble (no external helpers required) ----
+    q = st.session_state.get("q", "")  # use whatever your Search input stores
     if "BROWSE_DISPLAY_COLUMNS" not in globals():
         BROWSE_DISPLAY_COLUMNS = [
-            "category",
-            "service",
-            "business_name",
-            "contact_name",
-            "phone",
-            "email",
-            "website",
-            "notes",
+            "category", "service", "business_name", "contact_name",
+            "phone", "email", "website", "notes",
         ]
     if "HELP_MD" not in globals():
         HELP_MD = (
@@ -928,20 +920,15 @@ with tab_browse:
             "- Toggle **Show CKW debug columns** to inspect keyword fields during tuning."
         )
 
-    # ---- Minimal DF bootstrap if vdf missing (pulls filtered/all via helpers) ----
-    if "vdf" not in locals():
-        try:
-            _dv = str(st.session_state.get("DATA_VER", "n/a"))
-            if isinstance(q, str) and q.strip():
-                _tmp = _load_filtered_rows_df(q.strip(), _dv)
-            else:
-                _tmp = _load_all_rows_df(_dv)
-        except Exception:
-            _tmp = pd.DataFrame()
-        vdf = _tmp if isinstance(_tmp, pd.DataFrame) else pd.DataFrame()
+    # Ensure vdf exists; prefer previously-built value if present
+    _existing_vdf = locals().get("vdf", globals().get("vdf", None))
+    if isinstance(_existing_vdf, pd.DataFrame):
+        vdf = _existing_vdf
+    else:
+        vdf = pd.DataFrame()
 
     # ---- CKW toggle + visible columns selection ----
-    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)  # created/updated not in this list
+    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)  # created/updated intentionally omitted
     CKW_DEBUG_COLUMNS = ["keywords", "computed_keywords", "ckw_version", "ckw_locked"]
     ALWAYS_HIDE = ["created_at", "updated_at"]
 
@@ -960,50 +947,24 @@ with tab_browse:
         st.dataframe(vdf_visible, use_container_width=True, hide_index=True)
     else:
         st.info("No matches.")
-        vdf_visible = pd.DataFrame(columns=[c for c in desired_cols])
+        vdf_visible = pd.DataFrame(columns=desired_cols)
 
     # ---- Footer: CSV download (matches visible columns) + optional CKW compact view + Help ----
     try:
-        data_ver = str(st.session_state.get("DATA_VER", "n/a"))
-
-        # Start from filtered/all dataset, then align to visible columns
-        if isinstance(q, str) and q.strip():
-            try:
-                df_for_export = _load_filtered_rows_df(q.strip(), data_ver)
-                if df_for_export.empty and isinstance(vdf_visible, pd.DataFrame):
-                    df_for_export = vdf_visible.copy()
-            except Exception:
-                df_for_export = vdf_visible.copy() if isinstance(vdf_visible, pd.DataFrame) else pd.DataFrame()
-        else:
-            try:
-                df_for_export = _load_all_rows_df(data_ver)
-            except Exception:
-                df_for_export = vdf_visible.copy() if isinstance(vdf_visible, pd.DataFrame) else pd.DataFrame()
-
-        # Drop audit fields; keep exactly the visible columns (including CKW when toggled on)
+        # Build CSV from the currently visible frame (no helper calls)
         try:
-            df_for_export = df_for_export.drop(columns=ALWAYS_HIDE, errors="ignore")
+            csv_bytes = vdf_visible.to_csv(index=False).encode("utf-8")
         except Exception:
-            pass
-        try:
-            keep_cols = [c for c in getattr(vdf_visible, "columns", []) if c in df_for_export.columns]
-            if keep_cols:
-                df_for_export = df_for_export.loc[:, keep_cols]
-        except Exception:
-            pass
-
-        # Build CSV inline (no helper)
-        try:
-            csv_bytes = df_for_export.to_csv(index=False).encode("utf-8")
-        except Exception:
-            df_for_export = pd.DataFrame()
+            vdf_visible = pd.DataFrame()
             csv_bytes = b""
 
+        # File name reflects filtered state and DATA_VER if present
+        data_ver = str(st.session_state.get("DATA_VER", "n/a"))
         _is_filtered = bool(isinstance(q, str) and q.strip())
         _ver = f"-v{data_ver}" if (isinstance(data_ver, str) and data_ver and data_ver != "n/a") else ""
         csv_name = f"providers-{'filtered' if _is_filtered else 'all'}{_ver}.csv"
 
-        btn_disabled = not isinstance(df_for_export, pd.DataFrame) or df_for_export.empty
+        btn_disabled = vdf_visible.empty
 
         c_dl, _pad = st.columns([0.25, 0.75])
         c_dl.download_button(
