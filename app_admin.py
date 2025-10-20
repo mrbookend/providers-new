@@ -88,6 +88,45 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers (string / time)
 # ──────────────────────────────────────────────────────────────────────────
+
+# ---- computed keywords builder --------------------------------------------
+_STOP = {"and", "&", "the", "of", "for", "to", "a", "an", "in", "on", "at"}
+def _norm_token(s: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else " " for ch in s or "")
+
+def _split_tokens(s: str) -> list[str]:
+    return [t for t in _norm_token(s).split() if t and t not in _STOP]
+
+def _unique_join(parts: list[str]) -> str:
+    seen, out = set(), []
+    for p in parts:
+        p = p.strip()
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+    return " ".join(out)
+
+def _build_ckw(row: dict[str, str], *, seed: list[str] | None,
+               syn_service: list[str] | None, syn_category: list[str] | None) -> str:
+    base = []
+    base += _split_tokens(row.get("business_name", ""))
+    base += _split_tokens(row.get("category", ""))
+    base += _split_tokens(row.get("service", ""))
+    base += [t for t in _split_tokens(row.get("notes", "")) if 3 <= len(t) <= 20]
+    if syn_service:
+        base += [t for t in syn_service if t and t not in _STOP]
+    if syn_category:
+        base += [t for t in syn_category if t and t not in _STOP]
+    if seed:
+        for kw in seed:
+            if not kw:
+                continue
+            base.append(kw.lower())
+            base += _split_tokens(kw)
+    return _unique_join(base)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -336,6 +375,97 @@ def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
 # ──────────────────────────────────────────────────────────────────────────
 # CKW-first search helpers (hashable-only, no engine param)
 # ──────────────────────────────────────────────────────────────────────────
+# ---- CKW helpers: seeds + synonyms ----------------------------------------
+def _load_ckw_seed(cx, category: str | None, service: str | None) -> list[str]:
+    """
+    Schema: ckw_seeds(category TEXT, service TEXT, keywords TEXT)
+    - Accepts keywords as JSON array or delimited text (comma/pipe/semicolon).
+    - Returns a de-duplicated list[str].
+    """
+    cat = (category or "").strip()
+    svc = (service or "").strip()
+    if not cat and not svc:
+        return []
+
+    rows = cx.exec_driver_sql(
+        "SELECT keywords FROM ckw_seeds WHERE category = :c AND service = :s",
+        {"c": cat, "s": svc},
+    ).all()
+    if not rows:
+        return []
+
+    out: list[str] = []
+    for (raw,) in rows:
+        if raw is None:
+            continue
+        s = str(raw).strip()
+        # Try JSON array first
+        try:
+            import json
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                out.extend([str(x).strip() for x in parsed if str(x).strip()])
+                continue
+        except Exception:
+            pass
+        # Delimited fallback
+        for delim in ("|", ";"):
+            s = s.replace(delim, ",")
+        out.extend([p.strip() for p in s.split(",") if p.strip()])
+
+    # De-dup, stable order
+    seen, uniq = set(), []
+    for t in out:
+        tl = t.lower()
+        if tl in seen:
+            continue
+        seen.add(tl)
+        uniq.append(t)
+    return uniq
+
+@st.cache_resource
+def _get_ckw_synonyms_map() -> dict:
+    """
+    Load optional synonyms from env or st.secrets.
+    Expect JSON like: {"service":{"garage doors":["garage door","opener"]},
+                       "category":{"insurance":["policy","broker"]}}
+    Keys should be lowercase.
+    """
+    import json, os
+    blob = os.getenv("CKW_SYNONYMS_JSON", "")
+    if not blob:
+        try:
+            blob = st.secrets.get("CKW_SYNONYMS_JSON", "")
+        except Exception:
+            blob = ""
+    if blob:
+        try:
+            m = json.loads(blob) if isinstance(blob, str) else blob
+            if isinstance(m, dict):
+                m.setdefault("service", {})
+                m.setdefault("category", {})
+                m["service"]  = {str(k).lower(): v for k, v in m["service"].items()}
+                m["category"] = {str(k).lower(): v for k, v in m["category"].items()}
+                return m
+        except Exception:
+            pass
+    return {"service": {}, "category": {}}
+
+def _load_synonyms_service(service: str | None) -> list[str]:
+    name = (service or "").strip().lower()
+    if not name:
+        return []
+    vals = _get_ckw_synonyms_map().get("service", {}).get(name, [])
+    return [str(x).strip() for x in vals if str(x).strip()]
+
+def _load_synonyms_category(category: str | None) -> list[str]:
+    name = (category or "").strip().lower()
+    if not name:
+        return []
+    vals = _get_ckw_synonyms_map().get("category", {}).get(name, [])
+    return [str(x).strip() for x in vals if str(x).strip()]
+
+
 # ---- CKW Seeds: ensure + existence check ---------------------------------
 def _ckw_seeds_exists(cx) -> bool:
     try:
@@ -1121,6 +1251,25 @@ def main() -> None:
                     st.info("ckw_seeds exists but has no rows yet.")
         except Exception as e:
             st.info(f"Seeds diagnostics: {e}")
+
+            if st.button("Insert example CKW seeds (JSON)", key="ckw_seed_examples"):
+        try:
+            eng = get_engine()
+            with eng.begin() as cx:
+                cx.exec_driver_sql(
+                    "INSERT OR REPLACE INTO ckw_seeds(category, service, keywords) VALUES (:c,:s,:k)",
+                    [
+                        {"c":"Home Repair & Trades","s":"Garage Doors",
+                         "k":'["garage door","opener","torsion spring","panel","track","remote"]'},
+                        {"c":"Insurance","s":"Insurance Agent",
+                         "k":'["insurance","policy","broker","homeowners","auto","umbrella","medicare"]'},
+                    ],
+                )
+            st.success("Inserted example seeds. Now run STALE or ALL.")
+        except Exception as e:
+            st.error(f"Insert failed: {e}")
+
+        
 
         # ---- Single provider recompute -----------------------------------
         try:
