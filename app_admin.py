@@ -912,7 +912,7 @@ with tab_browse:
         except Exception:
             pass
         import sqlalchemy as sa
-        db_path = globals().get("DB_PATH", "providers.db")
+        db_path = str(globals().get("DB_PATH", "providers.db"))
         return sa.create_engine(f"sqlite:///{db_path}", future=True)
 
     def _has_table(engine, name: str) -> bool:
@@ -925,34 +925,40 @@ with tab_browse:
             return False
 
     def _load_vendors_visible(engine, q: str, limit: int = 1000) -> pd.DataFrame:
+        """Safer loader: SELECT * then subset; robust to schema drift."""
         import sqlalchemy as sa
-        cols = [
-            "id","category","service","business_name","contact_name",
-            "phone","email","website","notes",
-            "keywords","computed_keywords","ckw_version","ckw_locked",
-            "created_at","updated_at",
-        ]
-        base_sql = f"SELECT {', '.join(cols)} FROM vendors"
-        params = {}
-        if isinstance(q, str) and q.strip():
-            like = f"%{q.strip()}%"
-            params = {"qq": like}
-            base_sql += (
-                " WHERE business_name LIKE :qq OR category LIKE :qq OR service LIKE :qq "
-                " OR notes LIKE :qq OR phone LIKE :qq OR website LIKE :qq OR email LIKE :qq "
-                " OR computed_keywords LIKE :qq OR keywords LIKE :qq"
-            )
-        base_sql += " ORDER BY business_name COLLATE NOCASE LIMIT :lim"
-        params["lim"] = int(limit if limit else globals().get("MAX_RENDER_ROWS", 1000))
         try:
             with engine.connect() as cx:
-                df = pd.read_sql_query(sa.text(base_sql), cx, params=params)
+                if isinstance(q, str) and q.strip():
+                    like = f"%{q.strip()}%"
+                    sql = sa.text(
+                        "SELECT * FROM vendors WHERE "
+                        "business_name LIKE :qq OR category LIKE :qq OR service LIKE :qq "
+                        "OR notes LIKE :qq OR phone LIKE :qq OR website LIKE :qq OR email LIKE :qq "
+                        "OR COALESCE(computed_keywords,'') LIKE :qq OR COALESCE(keywords,'') LIKE :qq "
+                        "ORDER BY business_name COLLATE NOCASE LIMIT :lim"
+                    )
+                    df = pd.read_sql_query(sql, cx, params={"qq": like, "lim": int(limit)})
+                else:
+                    sql = sa.text(
+                        "SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE LIMIT :lim"
+                    )
+                    df = pd.read_sql_query(sql, cx, params={"lim": int(limit)})
         except Exception:
             df = pd.DataFrame()
         return df
 
     # ---- Safety preamble / defaults ----
-    q = st.session_state.get("q", "")
+    # Show search box + Clear; keep session in sync
+    q_default = st.session_state.get("q", "")
+    c1, c2 = st.columns([0.8, 0.2])
+    with c1:
+        q = c1.text_input("Search name, category, service, notes, phone, website…", value=q_default, key="q")
+    with c2:
+        if c2.button("Clear search", use_container_width=True):
+            st.session_state["q"] = ""
+            q = ""
+
     if "BROWSE_DISPLAY_COLUMNS" not in globals():
         BROWSE_DISPLAY_COLUMNS = [
             "category","service","business_name","contact_name",
@@ -968,6 +974,7 @@ with tab_browse:
 
     # ---- Build/refresh vdf from the database ----
     eng = _get_engine_fallback()
+    DB_PATH_DEBUG = str(globals().get("DB_PATH", "providers.db"))
     DB_READY = _has_table(eng, "vendors")
     if DB_READY:
         vdf = _load_vendors_visible(eng, q, limit=int(globals().get("MAX_RENDER_ROWS", 1000)))
@@ -986,8 +993,7 @@ with tab_browse:
     )
 
     desired_cols = [c for c in (BASE_BROWSE_COLUMNS + (CKW_DEBUG_COLUMNS if ckw_debug else [])) if c not in ALWAYS_HIDE]
-
-    # ---- Render table (or no matches) ----
+    # keep only columns that exist in current vdf
     if isinstance(vdf, pd.DataFrame) and not vdf.empty:
         visible_cols = [c for c in desired_cols if c in vdf.columns]
         vdf_visible = vdf.loc[:, visible_cols] if visible_cols else vdf.copy()
@@ -998,6 +1004,34 @@ with tab_browse:
         else:
             st.warning("Database not ready (no 'vendors' table). Initialize or seed the DB, then refresh.")
         vdf_visible = pd.DataFrame(columns=desired_cols)
+
+    # ---- Diagnostics: show DB path, table list, counts (helps when empty) ----
+    with st.expander("DB diagnostics (temporary)", expanded=False):
+        import sqlalchemy as sa
+        diag = {"db_path_or_url": DB_PATH_DEBUG, "db_ready": DB_READY, "q": q}
+        try:
+            with eng.connect() as cx:
+                # list tables (sqlite)
+                try:
+                    tables = [r[0] for r in cx.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).fetchall()]
+                except Exception:
+                    tables = []
+                diag["tables"] = tables
+                # counts
+                total_cnt = cx.execute(sa.text("SELECT COUNT(*) FROM vendors")) .scalar() if DB_READY else None
+                diag["vendors_count_total"] = total_cnt
+                # filtered count approximates visible df size
+                diag["vendors_count_filtered"] = int(vdf.shape[0]) if isinstance(vdf, pd.DataFrame) else None
+                st.code(diag, language="python")
+                # peek few rows from vendors if present
+                if DB_READY:
+                    try:
+                        peek = pd.read_sql_query(sa.text("SELECT * FROM vendors ORDER BY business_name LIMIT 5"), cx)
+                        st.dataframe(peek, use_container_width=True, hide_index=True)
+                    except Exception as _:
+                        st.write("Peek failed.")
+        except Exception as _:
+            st.write("Engine connect failed.")
 
     # ---- Footer: CSV download (matches visible columns) + CKW compact view + Help ----
     try:
@@ -1091,6 +1125,8 @@ with tab_manage:
                 height=80,
                 key="kw_add",
             )
+        # ---------- Your existing Add/Edit/Delete code continues below ----------
+
         
         # ---------- Your existing Add/Edit/Delete code continues below ----------
 
