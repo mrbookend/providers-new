@@ -549,9 +549,12 @@ def count_rows(q: str, data_ver: int = 0) -> int:
     return int(n or 0)
 
 @st.cache_data(show_spinner=False)
-def fetch_page(q: str, offset: int = 0, limit: int = PAGE_SIZE, data_ver: int = 0) -> pd.DataFrame:
+def fetch_page(q: str, offset: int = 0, limit: int | None = None, data_ver: int = 0) -> pd.DataFrame:
     _engine = get_engine()
+    if limit is None:
+        limit = PAGE_SIZE
     where, params = _make_where_and_params(q)
+
     sql = (
         "SELECT id, business_name, category, service, contact_name, phone, "
         "email, website, address, city, state, zip, notes, created_at, updated_at "
