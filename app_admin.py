@@ -965,9 +965,9 @@ def main() -> None:
             hide_index=True,
         )
 
-        # ---- Bottom toolbar (exports + CKW visibility control + help) ----
+                # ---- Bottom toolbar (CSV export + help) ----
         try:
-            bt1, bt2, bt3, bt_sp = st.columns([0.18, 0.18, 0.20, 0.44])
+            bt1, bt_sp = st.columns([0.2, 0.8])
 
             if not vdf.empty:
                 # CSV export (matches current display order)
@@ -980,31 +980,12 @@ def main() -> None:
                     use_container_width=True,
                 )
 
-                # XLSX export (optional but included)
-                from io import BytesIO
-                b = BytesIO()
-                with pd.ExcelWriter(b, engine="xlsxwriter") as xw:
-                    vdf[display_cols].to_excel(xw, index=False, sheet_name="Providers")
-                bt2.download_button(
-                    "Download XLSX",
-                    data=b.getvalue(),
-                    file_name="providers.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
-
-            # Show/Hide CKW columns control at the bottom (per your request)
-            if "show_ckw" not in st.session_state:
-                st.session_state["show_ckw"] = True
-            label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
-            if bt3.button(label, use_container_width=True):
-                st.session_state["show_ckw"] = not st.session_state["show_ckw"]
-
             with st.expander("Help — How to use Browse (click to open)", expanded=False):
                 st.markdown(HELP_MD)
 
         except Exception as e:
             st.warning(f"CSV download/help unavailable: {e}")
+
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
