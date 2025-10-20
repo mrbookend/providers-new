@@ -604,6 +604,141 @@ def main() -> None:
         "Category / Service",
         "Maintenance",
     ])
+# ---- CKW-first search helpers (hashable-only, no engine param) ----
+@st.cache_data(show_spinner=False)
+def _has_ckw_column(data_ver: int) -> bool:
+    eng = get_engine()
+    with eng.connect() as cx:
+        try:
+            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
+            return any((r[1] if isinstance(r, tuple) else r["name"]) == "computed_keywords" for r in rows)
+        except Exception:
+            return False
+
+@st.cache_data(show_spinner=False)
+def count_rows(q: str, data_ver: int) -> int:
+    eng = get_engine()
+    q_norm = (q or "").strip().lower()
+    with eng.connect() as cx:
+        if q_norm:
+            if _has_ckw_column(data_ver):
+                sql = sa.text("""
+                    SELECT COUNT(*) FROM (
+                      SELECT id FROM vendors WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
+                      UNION
+                      SELECT id FROM vendors
+                      WHERE LOWER(
+                        COALESCE(business_name,'')||' '||
+                        COALESCE(category,'')||' '||
+                        COALESCE(service,'')||' '||
+                        COALESCE(notes,'')
+                      ) LIKE :q2
+                    )
+                """)
+                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%"}
+            else:
+                sql = sa.text("""
+                    SELECT COUNT(*) FROM vendors
+                    WHERE LOWER(
+                      COALESCE(business_name,'')||' '||
+                      COALESCE(category,'')||' '||
+                      COALESCE(service,'')||' '||
+                      COALESCE(notes,'')
+                    ) LIKE :q
+                """)
+                params = {"q": f"%{q_norm}%"}
+        else:
+            sql = sa.text("SELECT COUNT(*) FROM vendors")
+            params = {}
+        return int(cx.execute(sql, params).scalar() or 0)
+
+@st.cache_data(show_spinner=False)
+def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
+    """Return vendor IDs with CKW hits ranked before generic text hits; stable order otherwise."""
+    eng = get_engine()
+    q_norm = (q or "").strip().lower()
+    with eng.connect() as cx:
+        if q_norm:
+            if _has_ckw_column(data_ver):
+                sql = sa.text("""
+                    WITH m AS (
+                      SELECT id, 1 AS pri
+                      FROM vendors
+                      WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
+                      UNION ALL
+                      SELECT id, 2 AS pri
+                      FROM vendors
+                      WHERE LOWER(
+                        COALESCE(business_name,'')||' '||
+                        COALESCE(category,'')||' '||
+                        COALESCE(service,'')||' '||
+                        COALESCE(notes,'')
+                      ) LIKE :q2
+                    ),
+                    r AS (
+                      SELECT id, MIN(pri) AS pri
+                      FROM m
+                      GROUP BY id
+                    )
+                    SELECT id
+                    FROM r
+                    ORDER BY pri ASC, id ASC
+                    LIMIT :limit OFFSET :offset
+                """)
+                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
+            else:
+                sql = sa.text("""
+                    SELECT id
+                    FROM vendors
+                    WHERE LOWER(
+                      COALESCE(business_name,'')||' '||
+                      COALESCE(category,'')||' '||
+                      COALESCE(service,'')||' '||
+                      COALESCE(notes,'')
+                    ) LIKE :q
+                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
+                    LIMIT :limit OFFSET :offset
+                """)
+                params = {"q": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
+        else:
+            sql = sa.text("""
+                SELECT id
+                FROM vendors
+                ORDER BY business_name COLLATE NOCASE ASC, id ASC
+                LIMIT :limit OFFSET :offset
+            """)
+            params = {"limit": int(limit), "offset": int(offset)}
+        return [row[0] for row in cx.execute(sql, params).all()]
+
+@st.cache_data(show_spinner=False)
+def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
+    """Fetch display columns for a given tuple of IDs. Empty-safe."""
+    if not ids:
+        return pd.DataFrame(columns=[
+            "id","business_name","category","service","contact_name","phone","email",
+            "website","address","city","state","zip","notes","created_at","updated_at",
+            "computed_keywords","ckw_locked","ckw_version",
+        ])
+    eng = get_engine()
+    placeholders = ",".join([f":id{i}" for i in range(len(ids))])
+    params = {f"id{i}": v for i, v in enumerate(ids)}
+    with eng.connect() as cx:
+        sql = sa.text(f"""
+            SELECT
+              id, business_name, category, service, contact_name, phone, email,
+              website, address, city, state, zip, notes,
+              created_at, updated_at,
+              COALESCE(computed_keywords,'') AS computed_keywords,
+              IFNULL(ckw_locked,0) AS ckw_locked,
+              COALESCE(ckw_version,0) AS ckw_version
+            FROM vendors
+            WHERE id IN ({placeholders})
+        """)
+        df = pd.read_sql(sql, cx, params=params)
+    # Optional: sort by business_name for display consistency
+    if "business_name" in df.columns:
+        df = df.sort_values(["business_name","id"], kind="stable", ignore_index=True)
+    return df
 
     # ---------------------
     # Browse (Admin)
