@@ -35,7 +35,7 @@ from sqlalchemy.engine import Engine
 # ──────────────────────────────────────────────────────────────────────────
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
-APP_VER = "admin-2025-10-19.8"
+APP_VER = "admin-2025-10-20.0"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
@@ -61,9 +61,6 @@ BROWSE_COLUMNS = [
     "email",
     "website",
     "address",
-    "city",
-    "state",
-    "zip",
     "notes",
     "computed_keywords",
 ]
@@ -78,9 +75,6 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "email": 240,
     "website": 240,
     "address": 280,
-    "city": 110,
-    "state": 80,
-    "zip": 90,
     "notes": 360,
     "computed_keywords": 420,
 }
@@ -110,20 +104,30 @@ def _unique_join(parts: list[str]) -> str:
 def _build_ckw(row: dict[str, str], *, seed: list[str] | None,
                syn_service: list[str] | None, syn_category: list[str] | None) -> str:
     base = []
+    # Core fields → tokens
     base += _split_tokens(row.get("business_name", ""))
     base += _split_tokens(row.get("category", ""))
     base += _split_tokens(row.get("service", ""))
     base += [t for t in _split_tokens(row.get("notes", "")) if 3 <= len(t) <= 20]
+    # curated expansions
     if syn_service:
         base += [t for t in syn_service if t and t not in _STOP]
     if syn_category:
         base += [t for t in syn_category if t and t not in _STOP]
+    # per-(category,service) seeds (phrases + tokens)
     if seed:
         for kw in seed:
             if not kw:
                 continue
             base.append(kw.lower())
             base += _split_tokens(kw)
+    # manual extras (phrases + tokens), unioned, never overwritten
+    manual = (row.get("ckw_manual_extra") or "").strip()
+    if manual:
+        s = manual.replace("|", ",").replace(";", ",")
+        for piece in [p.strip() for p in s.split(",") if p.strip()]:
+            base.append(piece.lower())
+            base += _split_tokens(piece)
     return _unique_join(base)
 
 
@@ -195,7 +199,7 @@ def ensure_schema_uncached() -> str:
     eng = get_engine()
     altered: List[str] = []
     with eng.begin() as cx:
-        # 1) Create vendors table if missing (includes city/state/zip to match queries)
+        # 1) Create vendors table if missing (no city/state/zip)
         cx.exec_driver_sql(
             """
             CREATE TABLE IF NOT EXISTS vendors (
@@ -208,15 +212,13 @@ def ensure_schema_uncached() -> str:
               email TEXT,
               website TEXT,
               address TEXT,
-              city TEXT,
-              state TEXT,
-              zip TEXT,
               notes TEXT,
               created_at TEXT,
               updated_at TEXT,
               computed_keywords TEXT,
               ckw_locked INTEGER DEFAULT 0,
-              ckw_version INTEGER DEFAULT 0
+              ckw_version INTEGER DEFAULT 0,
+              ckw_manual_extra TEXT
             )
             """
         )
@@ -224,12 +226,10 @@ def ensure_schema_uncached() -> str:
         # 2) Add columns idempotently (older DBs may lack some)
         cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").all()]
         want_cols = {
-            "city": "ALTER TABLE vendors ADD COLUMN city TEXT",
-            "state": "ALTER TABLE vendors ADD COLUMN state TEXT",
-            "zip": "ALTER TABLE vendors ADD COLUMN zip TEXT",
             "computed_keywords": "ALTER TABLE vendors ADD COLUMN computed_keywords TEXT",
             "ckw_locked": "ALTER TABLE vendors ADD COLUMN ckw_locked INTEGER DEFAULT 0",
             "ckw_version": "ALTER TABLE vendors ADD COLUMN ckw_version INTEGER DEFAULT 0",
+            "ckw_manual_extra": "ALTER TABLE vendors ADD COLUMN ckw_manual_extra TEXT",
         }
         for c, stmt in want_cols.items():
             if c not in cols:
@@ -289,8 +289,6 @@ def bootstrap_from_csv_if_needed() -> str | None:
                 row = {k: (r.get(k) or "").strip() for k in allowed}
                 if "phone" in row and row["phone"]:
                     row["phone"] = _digits_only(row["phone"])
-                if "state" in row and row["state"]:
-                    row["state"] = row["state"].upper()
                 if "created_at" in table_cols and not row.get("created_at"):
                     row["created_at"] = now
                 if "updated_at" in table_cols and not row.get("updated_at"):
@@ -310,6 +308,10 @@ def bootstrap_from_csv_if_needed() -> str | None:
 # CKW: compute & writebacks
 # ──────────────────────────────────────────────────────────────────────────
 def compute_ckw(row: Dict[str, Any]) -> str:
+    """
+    Lightweight immediate CKW used on add/edit; full algorithm (with seeds/synonyms/manual union)
+    runs in Maintenance recompute. We still include manual extras here for decent first-pass.
+    """
     parts: List[str] = []
     parts.extend(_tokenize_for_ckw(row.get("category", "")))
     parts.extend(_tokenize_for_ckw(row.get("service", "")))
@@ -322,7 +324,20 @@ def compute_ckw(row: Dict[str, Any]) -> str:
         parts.extend(_tokenize_for_ckw(host))
     parts.extend(_tokenize_for_ckw(row.get("address", "")))
     parts.extend(_tokenize_for_ckw(row.get("notes", "")))
-    return " ".join(parts).strip()
+    # Include manual extras immediately
+    manual = (row.get("ckw_manual_extra") or "").strip()
+    if manual:
+        s = manual.replace("|", ",").replace(";", ",")
+        for piece in [p.strip() for p in s.split(",") if p.strip()]:
+            parts.append(piece.lower())
+            parts.extend(_tokenize_for_ckw(piece))
+    # de-dup
+    seen, out = set(), []
+    for t in parts:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return " ".join(out).strip()
 
 
 def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
@@ -332,16 +347,17 @@ def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
     with eng.begin() as cx:
         for vid in ids:
             r = cx.exec_driver_sql(
-                "SELECT business_name,category,service,contact_name,phone,email,website,address,notes "
+                "SELECT business_name,category,service,contact_name,phone,email,website,address,notes,ckw_manual_extra "
                 "FROM vendors WHERE id=:id",
                 {"id": vid},
             ).mappings().first()
             if not r:
                 continue
+            # Minimal inline build (still decent); full batch path below is preferred
             ckw = compute_ckw(dict(r))
             cx.exec_driver_sql(
-                "UPDATE vendors SET computed_keywords=:ckw, updated_at=:u WHERE id=:id",
-                {"ckw": ckw, "u": _now_iso(), "id": vid},
+                "UPDATE vendors SET computed_keywords=:ckw, ckw_version=:ver, updated_at=:u WHERE id=:id",
+                {"ckw": ckw, "ver": CURRENT_VER, "u": _now_iso(), "id": vid},
             )
             updated += 1
     return updated
@@ -533,10 +549,7 @@ def count_rows(q: str, data_ver: int) -> int:
                         COALESCE(notes,'')||' '||
                         COALESCE(phone,'')||' '||
                         COALESCE(website,'')||' '||
-                        COALESCE(address,'')||' '||
-                        COALESCE(city,'')||' '||
-                        COALESCE(state,'')||' '||
-                        COALESCE(zip,'')
+                        COALESCE(address,'')
                       ) LIKE :q2
                     )
                     """
@@ -553,10 +566,7 @@ def count_rows(q: str, data_ver: int) -> int:
                       COALESCE(notes,'')||' '||
                       COALESCE(phone,'')||' '||
                       COALESCE(website,'')||' '||
-                      COALESCE(address,'')||' '||
-                      COALESCE(city,'')||' '||
-                      COALESCE(state,'')||' '||
-                      COALESCE(zip,'')
+                      COALESCE(address,'')
                     ) LIKE :q
                     """
                 )
@@ -591,10 +601,7 @@ def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list
                         COALESCE(notes,'')||' '||
                         COALESCE(phone,'')||' '||
                         COALESCE(website,'')||' '||
-                        COALESCE(address,'')||' '||
-                        COALESCE(city,'')||' '||
-                        COALESCE(state,'')||' '||
-                        COALESCE(zip,'')
+                        COALESCE(address,'')
                       ) LIKE :q2
                     ),
                     r AS (
@@ -621,10 +628,7 @@ def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list
                       COALESCE(notes,'')||' '||
                       COALESCE(phone,'')||' '||
                       COALESCE(website,'')||' '||
-                      COALESCE(address,'')||' '||
-                      COALESCE(city,'')||' '||
-                      COALESCE(state,'')||' '||
-                      COALESCE(zip,'')
+                      COALESCE(address,'')
                     ) LIKE :q
                     ORDER BY business_name COLLATE NOCASE ASC, id ASC
                     LIMIT :limit OFFSET :offset
@@ -658,9 +662,6 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
             "email",
             "website",
             "address",
-            "city",
-            "state",
-            "zip",
             "notes",
             "created_at",
             "updated_at",
@@ -676,7 +677,7 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
             f"""
             SELECT
               id, business_name, category, service, contact_name, phone, email,
-              website, address, city, state, zip, notes,
+              website, address, notes,
               created_at, updated_at,
               COALESCE(computed_keywords,'') AS computed_keywords,
               IFNULL(ckw_locked,0) AS ckw_locked,
@@ -726,7 +727,7 @@ def _fetch_rows_for_ids(cx, ids: list[int]) -> list[dict]:
     # Use a dynamic IN list to avoid the "IN :ids" pitfall.
     placeholders = ",".join([f":id{i}" for i in range(len(ids))])
     sql = (
-        "SELECT id, business_name, category, service, notes, ckw_locked, ckw_version, updated_at "
+        "SELECT id, business_name, category, service, notes, ckw_locked, ckw_version, updated_at, ckw_manual_extra "
         f"FROM vendors WHERE id IN ({placeholders})"
     )
     params = {f"id{i}": v for i, v in enumerate(ids)}
@@ -761,8 +762,8 @@ def _recompute_ckw_for_ids(ids: list[int], *, override_locks: bool) -> tuple[int
             if updates:
                 # executemany
                 cx.exec_driver_sql(
-                    "UPDATE vendors SET computed_keywords=:ckw, ckw_version=:ver WHERE id=:id",
-                    updates,
+                    "UPDATE vendors SET computed_keywords=:ckw, ckw_version=:ver, updated_at=:u WHERE id=:id",
+                    [{"ckw": u["ckw"], "ver": u["ver"], "id": u["id"], "u": _now_iso()} for u in updates],
                 )
                 total_updated += len(updates)
     return (total_selected, total_updated)
@@ -780,11 +781,11 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
                 """
                 INSERT INTO vendors (
                   business_name,category,service,contact_name,phone,email,website,
-                  address,city,state,zip,notes,created_at,updated_at,computed_keywords
+                  address,notes,ckw_manual_extra,created_at,updated_at,computed_keywords
                 )
                 VALUES (
                   :business_name,:category,:service,:contact_name,:phone,:email,:website,
-                  :address,:city,:state,:zip,:notes,:created_at,:updated_at,:computed_keywords
+                  :address,:notes,:ckw_manual_extra,:created_at,:updated_at,:computed_keywords
                 )
                 """
             ),
@@ -814,10 +815,8 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
                     email=:email,
                     website=:website,
                     address=:address,
-                    city=:city,
-                    state=:state,
-                    zip=:zip,
                     notes=:notes,
+                    ckw_manual_extra=:ckw_manual_extra,
                     computed_keywords=:computed_keywords,
                     updated_at=:updated_at
                 WHERE id=:id
@@ -985,11 +984,16 @@ def main() -> None:
             email = st.text_input("Email", key="email_add")
             website = st.text_input("Website", key="website_add")
             address = st.text_input("Address", key="address_add")
-            ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
-            city = ac1.text_input("City", key="city_add")
-            state = ac2.text_input("State", key="state_add")
-            zip_ = ac3.text_input("Zip", key="zip_add")
             notes = st.text_area("Notes", height=100, key="notes_add")
+
+            keywords_manual = st.text_area(
+                "Keywords",
+                value="",
+                help="Optional, comma/pipe/semicolon-separated phrases to always include. "
+                     "Example: garage door, torsion spring, opener repair",
+                height=80,
+                key="kw_add",
+            )
 
             disabled = not (bn.strip() and category and service)
             if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
@@ -1002,16 +1006,14 @@ def main() -> None:
                     "email": email.strip(),
                     "website": website.strip(),
                     "address": address.strip(),
-                    "city": city.strip(),
-                    "state": state.strip(),
-                    "zip": zip_.strip(),
                     "notes": notes.strip(),
+                    "ckw_manual_extra": (keywords_manual or "").strip(),
                 }
                 vid = insert_vendor(eng, data)
                 ensure_lookup_value(eng, "categories", data["category"])
                 ensure_lookup_value(eng, "services", data["service"])
                 st.session_state["DATA_VER"] += 1
-                st.success(f"Added provider #{vid}: {data['business_name']}")
+                st.success(f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords.")
 
             # ---------- Delete (left, under Add) ----------
             st.divider()
@@ -1051,7 +1053,7 @@ def main() -> None:
                 with eng.begin() as cx:
                     r = cx.exec_driver_sql(
                         "SELECT business_name,category,service,contact_name,phone,email,website,"
-                        "address,city,state,zip,notes FROM vendors WHERE id=:id",
+                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
                         {"id": sel_id},
                     ).mappings().first()
                 if r:
@@ -1083,11 +1085,15 @@ def main() -> None:
                     email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
                     website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
                     address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
-                    ac1e, ac2e, ac3e = st.columns([1, 0.5, 0.5])
-                    city_e = ac1e.text_input("City", value=r["city"] or "", key="city_edit")
-                    state_e = ac2e.text_input("State", value=r["state"] or "", key="state_edit")
-                    zip_e = ac3e.text_input("Zip", value=r["zip"] or "", key="zip_edit")
                     notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+
+                    keywords_manual_e = st.text_area(
+                        "Keywords",
+                        value=(r.get("ckw_manual_extra") or ""),
+                        help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
+                        height=80,
+                        key="kw_edit",
+                    )
 
                     if st.button("Save Changes", type="primary", key="save_changes_btn"):
                         data = {
@@ -1099,16 +1105,14 @@ def main() -> None:
                             "email": email_e.strip(),
                             "website": website_e.strip(),
                             "address": address_e.strip(),
-                            "city": city_e.strip(),
-                            "state": state_e.strip(),
-                            "zip": zip_e.strip(),
                             "notes": notes_e.strip(),
+                            "ckw_manual_extra": (keywords_manual_e or "").strip(),
                         }
                         update_vendor(eng, sel_id, data)
                         ensure_lookup_value(eng, "categories", data["category"])
                         ensure_lookup_value(eng, "services", data["service"])
                         st.session_state["DATA_VER"] += 1
-                        st.success(f"Saved changes to provider #{sel_id}.")
+                        st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
 
 
 
