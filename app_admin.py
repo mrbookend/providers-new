@@ -905,169 +905,98 @@ tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
 # Browse (Admin)
 # ──────────────────────────────────────────────────────────────────────
 with tab_browse:
-    # ---- Local helpers (no external deps) ----
-    def _get_engine_fallback():
-        try:
-            return get_engine()  # use your real builder if present
-        except Exception:
-            pass
-        import sqlalchemy as sa
-        db_path = str(globals().get("DB_PATH", "providers.db"))
-        return sa.create_engine(f"sqlite:///{db_path}", future=True)
+    # ---- Compact search row (50% width; label collapsed; inline Clear) ----
+    c1, c2, c3 = st.columns([0.5, 0.12, 0.38])
+    q = c1.text_input(
+        label="Search",  # label intentionally hidden
+        value=st.session_state.get("q", ""),
+        placeholder="Search name, category, service, notes, phone, website…",
+        label_visibility="collapsed",
+    )
+    if c2.button("Clear", use_container_width=True):
+        q = ""
+    st.session_state["q"] = q
 
-    def _has_table(engine, name: str) -> bool:
-        import sqlalchemy as sa
-        try:
-            with engine.connect() as cx:
-                q = sa.text("SELECT name FROM sqlite_master WHERE type='table' AND name=:n")
-                return cx.execute(q, {"n": name}).first() is not None
-        except Exception:
-            return False
-
-    def _load_vendors_visible(engine, q: str, limit: int = 1000) -> pd.DataFrame:
-        """Safer loader: SELECT * then subset; robust to schema drift."""
-        import sqlalchemy as sa
-        try:
-            with engine.connect() as cx:
-                if isinstance(q, str) and q.strip():
-                    like = f"%{q.strip()}%"
-                    sql = sa.text(
-                        "SELECT * FROM vendors WHERE "
-                        "business_name LIKE :qq OR category LIKE :qq OR service LIKE :qq "
-                        "OR notes LIKE :qq OR phone LIKE :qq OR website LIKE :qq OR email LIKE :qq "
-                        "OR COALESCE(computed_keywords,'') LIKE :qq OR COALESCE(keywords,'') LIKE :qq "
-                        "ORDER BY business_name COLLATE NOCASE LIMIT :lim"
-                    )
-                    df = pd.read_sql_query(sql, cx, params={"qq": like, "lim": int(limit)})
-                else:
-                    sql = sa.text(
-                        "SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE LIMIT :lim"
-                    )
-                    df = pd.read_sql_query(sql, cx, params={"lim": int(limit)})
-        except Exception:
-            df = pd.DataFrame()
-        return df
-
-    # ---- Safety preamble / defaults ----
-    # Show search box + Clear; keep session in sync
-    q_default = st.session_state.get("q", "")
-    c1, c2 = st.columns([0.8, 0.2])
-    with c1:
-        q = c1.text_input("Search name, category, service, notes, phone, website…", value=q_default, key="q")
-    with c2:
-        if c2.button("Clear search", use_container_width=True):
-            st.session_state["q"] = ""
-            q = ""
-
-    if "BROWSE_DISPLAY_COLUMNS" not in globals():
-        BROWSE_DISPLAY_COLUMNS = [
-            "category","service","business_name","contact_name",
-            "phone","email","website","notes",
-        ]
-    if "HELP_MD" not in globals():
-        HELP_MD = (
-            "### Browse Help\n"
-            "- Use **Search** to filter by name, category, service, notes, phone, website.\n"
-            "- **Download CSV** exports exactly the columns currently visible.\n"
-            "- Toggle **Show CKW debug columns** to inspect keyword fields during tuning."
-        )
-
-    # ---- Build/refresh vdf from the database ----
-    eng = _get_engine_fallback()
-    DB_PATH_DEBUG = str(globals().get("DB_PATH", "providers.db"))
-    DB_READY = _has_table(eng, "vendors")
-    if DB_READY:
-        vdf = _load_vendors_visible(eng, q, limit=int(globals().get("MAX_RENDER_ROWS", 1000)))
-    else:
+    # ---- Resolve row IDs (CKW-first search) and load rows ----
+    try:
+        ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, data_ver=DATA_VER)
+        if not ids:
+            st.info("No matches.")
+            vdf = pd.DataFrame()
+        else:
+            vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed: {e}")
         vdf = pd.DataFrame()
 
-    # ---- CKW toggle + visible columns selection ----
-    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)   # created/updated intentionally omitted
-    CKW_DEBUG_COLUMNS = ["keywords","computed_keywords","ckw_version","ckw_locked"]
-    ALWAYS_HIDE = ["created_at","updated_at"]
+    # ---- Ensure desired columns exist; set display order ----
+    BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
+    CKW_COLS  = ["keywords", "computed_keywords"]  # adjust if your schema uses different names
+    META_COLS = ["created_at", "updated_at"]
 
-    ckw_debug = st.checkbox(
-        "Show CKW debug columns",
-        value=False,
-        help="Temporarily include keywords/CKW fields for inspection and export.",
+    for col in CKW_COLS + META_COLS:
+        if col not in vdf.columns:
+            vdf[col] = ""
+
+    preferred = [c for c in BASE_COLS + CKW_COLS + META_COLS if c in vdf.columns]
+    remaining = [c for c in vdf.columns if c not in preferred]
+    display_cols = preferred + remaining
+
+    # ---- Table (horizontal scroll via wide container; index hidden) ----
+    # Users can scroll right to see all columns, including keywords and computed_keywords.
+    st.dataframe(
+        vdf[display_cols] if not vdf.empty else vdf,
+        use_container_width=True,
+        hide_index=True,
     )
 
-    desired_cols = [c for c in (BASE_BROWSE_COLUMNS + (CKW_DEBUG_COLUMNS if ckw_debug else [])) if c not in ALWAYS_HIDE]
-    # keep only columns that exist in current vdf
-    if isinstance(vdf, pd.DataFrame) and not vdf.empty:
-        visible_cols = [c for c in desired_cols if c in vdf.columns]
-        vdf_visible = vdf.loc[:, visible_cols] if visible_cols else vdf.copy()
-        st.dataframe(vdf_visible, use_container_width=True, hide_index=True)
-    else:
-        if DB_READY:
-            st.info("No matches.")
-        else:
-            st.warning("Database not ready (no 'vendors' table). Initialize or seed the DB, then refresh.")
-        vdf_visible = pd.DataFrame(columns=desired_cols)
+    # ---- Bottom toolbar (exports + CKW visibility control) ----
+    bt1, bt2, bt3, bt_sp = st.columns([0.18, 0.18, 0.20, 0.44])
 
-    # ---- Diagnostics: show DB path, table list, counts (helps when empty) ----
-    with st.expander("DB diagnostics (temporary)", expanded=False):
-        import sqlalchemy as sa
-        diag = {"db_path_or_url": DB_PATH_DEBUG, "db_ready": DB_READY, "q": q}
-        try:
-            with eng.connect() as cx:
-                # list tables (sqlite)
-                try:
-                    tables = [r[0] for r in cx.execute(sa.text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")).fetchall()]
-                except Exception:
-                    tables = []
-                diag["tables"] = tables
-                # counts
-                total_cnt = cx.execute(sa.text("SELECT COUNT(*) FROM vendors")) .scalar() if DB_READY else None
-                diag["vendors_count_total"] = total_cnt
-                # filtered count approximates visible df size
-                diag["vendors_count_filtered"] = int(vdf.shape[0]) if isinstance(vdf, pd.DataFrame) else None
-                st.code(diag, language="python")
-                # peek few rows from vendors if present
-                if DB_READY:
-                    try:
-                        peek = pd.read_sql_query(sa.text("SELECT * FROM vendors ORDER BY business_name LIMIT 5"), cx)
-                        st.dataframe(peek, use_container_width=True, hide_index=True)
-                    except Exception as _:
-                        st.write("Peek failed.")
-        except Exception as _:
-            st.write("Engine connect failed.")
-
-    # ---- Footer: CSV download (matches visible columns) + CKW compact view + Help ----
-    try:
-        # Build CSV from the currently visible frame
-        try:
-            csv_bytes = vdf_visible.to_csv(index=False).encode("utf-8")
-        except Exception:
-            vdf_visible = pd.DataFrame()
-            csv_bytes = b""
-
-        data_ver = str(st.session_state.get("DATA_VER", "n/a"))
-        _is_filtered = bool(isinstance(q, str) and q.strip())
-        _ver = f"-v{data_ver}" if (isinstance(data_ver, str) and data_ver and data_ver != "n/a") else ""
-        csv_name = f"providers-{'filtered' if _is_filtered else 'all'}{_ver}.csv"
-
-        btn_disabled = vdf_visible.empty
-
-        c_dl, _pad = st.columns([0.25, 0.75])
-        c_dl.download_button(
-            "Download CSV (visible columns)",
+    if not vdf.empty:
+        # CSV export (matches current display order)
+        csv_bytes = vdf[display_cols].to_csv(index=False).encode("utf-8")
+        bt1.download_button(
+            "Download CSV",
             data=csv_bytes,
-            file_name=csv_name,
+            file_name="providers.csv",
             mime="text/csv",
             use_container_width=True,
-            disabled=btn_disabled,
-            help=None if not btn_disabled else "Nothing to export (no matching rows).",
         )
 
-        if ckw_debug and not vdf.empty:
-            with st.expander("CKW diagnostics (compact)", expanded=False):
-                ckw_cols_present = [c for c in (["business_name","category","service"] + CKW_DEBUG_COLUMNS) if c in vdf.columns]
-                st.dataframe(
-                    vdf.loc[:, ckw_cols_present],
-                    use_container_width=True,
-                    hide_index=True,
-                )
+        # XLSX export (optional but included)
+        from io import BytesIO
+        b = BytesIO()
+        with pd.ExcelWriter(b, engine="xlsxwriter") as xw:
+            vdf[display_cols].to_excel(xw, index=False, sheet_name="Providers")
+        bt2.download_button(
+            "Download XLSX",
+            data=b.getvalue(),
+            file_name="providers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+    # Show/Hide CKW columns control at the bottom (per your request)
+    if "show_ckw" not in st.session_state:
+        st.session_state["show_ckw"] = True
+    label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
+    if bt3.button(label, use_container_width=True):
+        st.session_state["show_ckw"] = not st.session_state["show_ckw"]
+
+    # If you want the table itself to hide CKW when off, replace the st.dataframe() above
+    # with the block below instead:
+    #
+    # visible_cols = display_cols.copy()
+    # if not st.session_state["show_ckw"]:
+    #     for c in CKW_COLS:
+    #         if c in visible_cols:
+    #             visible_cols.remove(c)
+    # st.dataframe(
+    #     vdf[visible_cols] if not vdf.empty else vdf,
+    #     use_container_width=True,
+    #     hide_index=True,
+    # )
 
         with st.expander("Help — How to use Browse (click to open)", expanded=False):
             st.markdown(HELP_MD)
