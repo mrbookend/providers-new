@@ -1142,7 +1142,101 @@ def main() -> None:
                             st.session_state["DATA_VER"] += 1
                             st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
     # ──────────────────────────────────────────────────────────────────────
-        # >>> Delete Provider (partial-word find + dropdown; checkbox gate o
+        # ▼▼ Delete Provider (partial-word find + dropdown; checkbox gate only) ▼▼
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
+
+st.markdown("### Delete Provider")
+st.caption("Danger zone: Permanently removes a record from **vendors**.")
+
+# Local fallback to get an engine if your app doesn't expose get_engine()
+def _get_engine_fallback():
+    try:
+        return get_engine()  # your real builder if present
+    except Exception:
+        pass
+    import sqlalchemy as sa
+    db_path = globals().get("DB_PATH", "providers.db")
+    return sa.create_engine(f"sqlite:///{db_path}", future=True)
+
+import sqlalchemy as sa
+from sqlalchemy import text as sql_text
+
+@st.cache_data(show_spinner=False)
+def _list_providers_min(data_ver: int):
+    """Minimal list for delete UI; cached by data_ver."""
+    eng = _get_engine_fallback()
+    with eng.connect() as cx:
+        q = sql_text("""
+            SELECT id, business_name, category, service
+            FROM vendors
+            ORDER BY business_name COLLATE NOCASE
+        """)
+        rows = [dict(r) for r in cx.execute(q).mappings().all()]
+    labels, by_label = [], {}
+    for r in rows:
+        label = f'{r["id"]} — {r["business_name"]} ({r["category"]} → {r["service"]})'
+        labels.append(label)
+        by_label[label] = r
+    return labels, by_label
+
+labels, by_label = _list_providers_min(st.session_state["DATA_VER"])
+
+# ---- Find + filter (partial word, case-insensitive) ----
+fcol, _sp = st.columns([0.7, 0.3])
+find_q = fcol.text_input(
+    "Find provider",
+    value=st.session_state.get("del_find_q", ""),
+    placeholder="Type part of the business name…",
+    key="del_find_q",
+)
+
+filtered = (
+    [lbl for lbl in labels if st.session_state["del_find_q"].lower() in lbl.lower()]
+    if st.session_state["del_find_q"] else labels
+)
+
+sel = st.selectbox(
+    "Select provider to delete",
+    options=filtered,
+    index=None,
+    placeholder="Start typing, then choose…",
+    key="del_select_label",
+)
+
+row = by_label.get(sel) if sel else None
+
+if row:
+    ok_checkbox = st.checkbox(
+        "I understand this action is **permanent** and cannot be undone.",
+        key="del_perm_ack",
+        value=st.session_state.get("del_perm_ack", False),
+    )
+
+    del_btn = st.button(
+        "Delete provider",
+        type="primary",
+        disabled=not ok_checkbox,
+        help="Enabled only after you tick the permanent-action checkbox.",
+    )
+
+    if del_btn and ok_checkbox:
+        try:
+            eng = _get_engine_fallback()
+            with eng.begin() as cx:  # transactional delete
+                dq = sql_text("DELETE FROM vendors WHERE id = :id")
+                cx.execute(dq, {"id": row["id"]})
+
+            # Invalidate caches and clear controls
+            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+            st.session_state["del_find_q"] = ""
+            st.session_state["del_select_label"] = None
+            st.session_state["del_perm_ack"] = False
+
+            st.success(f"Deleted provider id={row['id']} ({row['business_name']}).")
+        except Exception as e:
+            st.error(f"Delete failed: {e}")
+# ▲▲ End Delete Provider ▲▲
 
     # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
