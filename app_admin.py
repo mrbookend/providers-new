@@ -1246,14 +1246,12 @@ with tab_manage:
 
         # Categories
         with cc:
-            st.markdown("**Categories**")
             try:
                 cats = list_categories(eng)
             except Exception as e:
                 cats = []
                 st.error(f"Failed to load categories: {e}")
 
-            st.markdown("**Add Category**")
             new_cat = st.text_input("New Category", key="add_cat")
             if st.button("Add Category", key="btn_add_cat") and new_cat.strip():
                 try:
