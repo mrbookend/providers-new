@@ -1200,7 +1200,7 @@ def main() -> None:
                         f"Recomputed CKW for {changed} provider(s)."
                     )
 
-    # ──────────────────────────────────────────────────────────────────────
+        # ──────────────────────────────────────────────────────────────────────
     # Maintenance
     # ──────────────────────────────────────────────────────────────────────
     with tab_maint:
@@ -1221,6 +1221,7 @@ def main() -> None:
                 st.info("ckw_seeds table does not exist yet.")
                 if st.button("Create ckw_seeds table", key="create_ckw_seeds"):
                     try:
+                        eng = get_engine()
                         with eng.begin() as cx:
                             cx.exec_driver_sql("""
                                 CREATE TABLE IF NOT EXISTS ckw_seeds (
@@ -1239,6 +1240,7 @@ def main() -> None:
                         st.error(f"Create table failed: {e}")
             else:
                 # Show schema + a small sample if present
+                eng = get_engine()
                 with eng.begin() as cx:
                     cols = cx.exec_driver_sql("PRAGMA table_info(ckw_seeds)").all()
                     st.caption("ckw_seeds columns (cid, name, type, notnull, dflt, pk):")
@@ -1252,27 +1254,37 @@ def main() -> None:
         except Exception as e:
             st.info(f"Seeds diagnostics: {e}")
 
-            if st.button("Insert example CKW seeds (JSON)", key="ckw_seed_examples"):
+        # Optional: insert a couple of example JSON seeds to test recompute
         try:
             eng = get_engine()
             with eng.begin() as cx:
-                cx.exec_driver_sql(
-                    "INSERT OR REPLACE INTO ckw_seeds(category, service, keywords) VALUES (:c,:s,:k)",
-                    [
-                        {"c":"Home Repair & Trades","s":"Garage Doors",
-                         "k":'["garage door","opener","torsion spring","panel","track","remote"]'},
-                        {"c":"Insurance","s":"Insurance Agent",
-                         "k":'["insurance","policy","broker","homeowners","auto","umbrella","medicare"]'},
-                    ],
-                )
-            st.success("Inserted example seeds. Now run STALE or ALL.")
-        except Exception as e:
-            st.error(f"Insert failed: {e}")
+                exists_row = cx.exec_driver_sql(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
+                ).first()
+                seeds_table_exists = bool(exists_row)
+        except Exception:
+            seeds_table_exists = False
 
-        
+        if seeds_table_exists and st.button("Insert example CKW seeds (JSON)", key="ckw_seed_examples"):
+            try:
+                eng = get_engine()
+                with eng.begin() as cx:
+                    cx.exec_driver_sql(
+                        "INSERT OR REPLACE INTO ckw_seeds(category, service, keywords) VALUES (:c,:s,:k)",
+                        [
+                            {"c": "Home Repair & Trades", "s": "Garage Doors",
+                             "k": '["garage door","opener","torsion spring","panel","track","remote"]'},
+                            {"c": "Insurance", "s": "Insurance Agent",
+                             "k": '["insurance","policy","broker","homeowners","auto","umbrella","medicare"]'},
+                        ],
+                    )
+                st.success("Inserted example seeds. Now run STALE or ALL.")
+            except Exception as e:
+                st.error(f"Insert failed: {e}")
 
         # ---- Single provider recompute -----------------------------------
         try:
+            eng = get_engine()
             with eng.begin() as cx:
                 opts = cx.exec_driver_sql(
                     "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
@@ -1306,6 +1318,7 @@ def main() -> None:
         c1, c2, c3 = st.columns(3)
         if c1.button("Recompute STALE (unlocked only)", key="ckw_stale"):
             try:
+                eng = get_engine()
                 with eng.begin() as cx:
                     ids = _select_vendor_ids_for_ckw(
                         cx, mode="stale", current_ver=CURRENT_VER, override_locks=False
@@ -1323,6 +1336,7 @@ def main() -> None:
         )
         if c3.button("Recompute ALL", key="ckw_all"):
             try:
+                eng = get_engine()
                 with eng.begin() as cx:
                     ids = _select_vendor_ids_for_ckw(
                         cx, mode="all", current_ver=CURRENT_VER, override_locks=override
@@ -1332,6 +1346,7 @@ def main() -> None:
                 st.success(f"All selection: {n_sel} | Updated: {n_upd} (override_locks={override})")
             except Exception as e:
                 st.error(f"ALL recompute failed: {e}")
+
 
 
 
