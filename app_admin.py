@@ -896,121 +896,19 @@ def main() -> None:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # Tabs (context)
-    # tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"])
-        # ==== BROWSE BLOCK (FINAL): tabs guard + early DB sanity; Search+Clear row; vdf guard; hide audit/CKW cols in table; CSV-only export (filtered→all filtered rows, unfiltered→all rows) matching visible columns; Help expander ====
+    # Tabs (guarded — recreate if missing)
+if 'tab_browse' not in locals():
+    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+    )
 
-    # --- Guard: ensure tabs exist in this scope before using `tab_browse` ---
-    try:
-        tab_browse  # type: ignore[name-defined]
-    except NameError:
-        tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-            ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
-        )
-
-    # Patch #4: Early DB sanity so later tabs don't silently die on first DB touch
-    try:
-        with get_engine().connect() as _cx:
-            pass
-    except Exception as e:
-        st.error(f"Database unavailable: {e}")
-
-    # ──────────────────────────────────────────────────────────────────────
-    # Browse (Admin)
-    # ──────────────────────────────────────────────────────────────────────
-    with tab_browse:
-        # ---- Local cached helpers (inside tab to avoid module-level cache collisions) ----
-        @st.cache_data
-        def _csv_bytes_for_df(df: pd.DataFrame, data_ver: str, q: str, ids_fingerprint: str) -> tuple[bytes, str]:
-            """Cache CSV export bytes. Fingerprint prevents recompute for same visible data."""
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d")
-            name = f"providers-{('filtered-' if q.strip() else 'all-')}{ts}.csv"
-            return df.to_csv(index=False).encode("utf-8"), name
-
-        @st.cache_data
-        def _load_all_rows_df(data_ver: str) -> pd.DataFrame:
-            """Load ALL provider rows for unfiltered export."""
-            eng = get_engine()
-            with eng.connect() as cx:
-                return pd.read_sql(
-                    sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE"),
-                    cx,
-                )
-
-        @st.cache_data
-        def _load_filtered_rows_df(q: str, data_ver: str) -> pd.DataFrame:
-            """Load ALL filtered rows (not just the current page) via CKW-first search + fetch."""
-            ids = search_ids_ckw_first(q, data_ver)
-            if not ids:
-                return pd.DataFrame()
-            return fetch_rows_by_ids(tuple(ids), data_ver)
-
-        # ---- One-row Search + Clear (50% width), compact header (no subheader) ----
-        c_search, c_clear, _sp = st.columns([0.50, 0.12, 0.38])
-        q = c_search.text_input(
-            "Search",
-            value=st.session_state.get("q", ""),
-            placeholder="Search name, category, service, notes, phone, website…",
-            label_visibility="collapsed",
-        )
-        if c_clear.button("Clear", use_container_width=True):
-            q = ""
-        st.session_state["q"] = q
-
-        # ---- Ensure `vdf` exists and render table (DROP-IN GUARD) ----
-        try:
-            vdf  # type: ignore[name-defined]
-        except NameError:
-            data_ver = str(st.session_state.get("DATA_VER", "n/a"))
-            if q.strip():
-                # Filtered: CKW-first ID search + fetch (first page)
-                try:
-                    ids = search_ids_ckw_first(q.strip(), data_ver) or []
-                except Exception as e:
-                    st.error(f"Search failed: {e}")
-                    ids = []
-                if ids:
-                    page_ids = tuple(ids[:PAGE_SIZE])  # adjust if you have real paging
-                    try:
-                        vdf = fetch_rows_by_ids(page_ids, data_ver)
-                    except Exception as e:
-                        st.error(f"Fetch by IDs failed: {e}")
-                        vdf = pd.DataFrame()
-                else:
-                    vdf = pd.DataFrame()
-            else:
-                # Unfiltered: first page ordered by name
-                try:
-                    eng = get_engine()
-                    with eng.connect() as cx:
-                        vdf = pd.read_sql(
-                            sa.text("""
-                                SELECT *
-                                FROM vendors
-                                ORDER BY business_name COLLATE NOCASE
-                                LIMIT :limit
-                            """),
-                            cx,
-                            params={"limit": PAGE_SIZE},
-                        )
-                except Exception as e:
-                    st.error(f"Unfiltered load failed: {e}")
-                    vdf = pd.DataFrame()
-
-        # ---- Hide audit & CKW columns for Browse display ----
-        try:
-            HIDE_COLS_BROWSE = ["created_at", "updated_at", "computed_keywords", "ckw_version", "ckw_locked"]
-            vdf = vdf.drop(columns=HIDE_COLS_BROWSE, errors="ignore")
-        except Exception:
-            pass
-
-        # Render table (always)  ── with on-demand CKW visibility and matched export
-try:
-    # ---- Safety preamble: define sane defaults if earlier code hasn't run ----
+# ──────────────────────────────────────────────────────────────────────
+# Browse (Admin)
+# ──────────────────────────────────────────────────────────────────────
+with tab_browse:
+    # ---- Safety preamble: ensure q / vdf / display list / help exist ----
     if "q" not in locals():
         q = st.session_state.get("q", "")
-    if "vdf" not in locals():
-        vdf = pd.DataFrame()
     if "BROWSE_DISPLAY_COLUMNS" not in globals():
         BROWSE_DISPLAY_COLUMNS = [
             "category",
@@ -1030,25 +928,32 @@ try:
             "- Toggle **Show CKW debug columns** to inspect keyword fields during tuning."
         )
 
-    # Base columns for normal view (created/updated hidden per your preference)
-    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)
+    # ---- Minimal DF bootstrap if vdf missing (pulls filtered/all via helpers) ----
+    if "vdf" not in locals():
+        try:
+            _dv = str(st.session_state.get("DATA_VER", "n/a"))
+            if isinstance(q, str) and q.strip():
+                _tmp = _load_filtered_rows_df(q.strip(), _dv)
+            else:
+                _tmp = _load_all_rows_df(_dv)
+        except Exception:
+            _tmp = pd.DataFrame()
+        vdf = _tmp if isinstance(_tmp, pd.DataFrame) else pd.DataFrame()
 
-    # Optional CKW diagnostics columns (shown only when toggled on)
+    # ---- CKW toggle + visible columns selection ----
+    BASE_BROWSE_COLUMNS = list(BROWSE_DISPLAY_COLUMNS)  # created/updated not in this list
     CKW_DEBUG_COLUMNS = ["keywords", "computed_keywords", "ckw_version", "ckw_locked"]
-
-    # Columns to always hide from user view/export (audit fields)
     ALWAYS_HIDE = ["created_at", "updated_at"]
 
-    # Toggle: only show CKW fields on demand
     ckw_debug = st.checkbox(
         "Show CKW debug columns",
         value=False,
         help="Temporarily include keywords/CKW fields for inspection and export.",
     )
 
-    # Build visible columns (base + optional CKW), filtered to those that exist
     desired_cols = [c for c in (BASE_BROWSE_COLUMNS + (CKW_DEBUG_COLUMNS if ckw_debug else [])) if c not in ALWAYS_HIDE]
 
+    # ---- Render table (or no matches) ----
     if isinstance(vdf, pd.DataFrame) and not vdf.empty:
         visible_cols = [c for c in desired_cols if c in vdf.columns]
         vdf_visible = vdf.loc[:, visible_cols] if visible_cols else vdf.copy()
@@ -1057,12 +962,11 @@ try:
         st.info("No matches.")
         vdf_visible = pd.DataFrame(columns=[c for c in desired_cols])
 
-    # ---- Footer: CSV-only download (filtered = ALL filtered rows; unfiltered = ALL records) + Help expander ----
+    # ---- Footer: CSV download (matches visible columns) + optional CKW compact view + Help ----
     try:
         data_ver = str(st.session_state.get("DATA_VER", "n/a"))
 
-        # Build the export DF from full underlying set (filtered/unfiltered),
-        # then align to exactly the currently visible columns.
+        # Start from filtered/all dataset, then align to visible columns
         if isinstance(q, str) and q.strip():
             try:
                 df_for_export = _load_filtered_rows_df(q.strip(), data_ver)
@@ -1076,36 +980,25 @@ try:
             except Exception:
                 df_for_export = vdf_visible.copy() if isinstance(vdf_visible, pd.DataFrame) else pd.DataFrame()
 
-        # Make export match exactly what is visible in the table:
-        #  - drop audit fields
-        #  - keep only the visible columns (including CKW when toggled on)
+        # Drop audit fields; keep exactly the visible columns (including CKW when toggled on)
         try:
             df_for_export = df_for_export.drop(columns=ALWAYS_HIDE, errors="ignore")
         except Exception:
             pass
         try:
-            if isinstance(vdf_visible, pd.DataFrame) and not vdf_visible.empty:
-                keep_cols = [c for c in vdf_visible.columns if c in df_for_export.columns]
-                if keep_cols:
-                    df_for_export = df_for_export.loc[:, keep_cols]
+            keep_cols = [c for c in getattr(vdf_visible, "columns", []) if c in df_for_export.columns]
+            if keep_cols:
+                df_for_export = df_for_export.loc[:, keep_cols]
         except Exception:
             pass
 
-        # Stable fingerprint for caching
-        if isinstance(df_for_export, pd.DataFrame) and "id" in df_for_export.columns:
-            ids = df_for_export["id"].tolist()
-            ids_fp = f"{len(df_for_export)}:{tuple(ids[:5])}:{tuple(ids[-5:])}"
-        else:
-            ids_fp = f"shape:{getattr(df_for_export, 'shape', None)}"
-
-                # Build CSV bytes + filename inline (no helper needed)
+        # Build CSV inline (no helper)
         try:
             csv_bytes = df_for_export.to_csv(index=False).encode("utf-8")
         except Exception:
-            df_for_export = pd.DataFrame()  # safety
+            df_for_export = pd.DataFrame()
             csv_bytes = b""
 
-        # Filename: providers-[all|filtered][-vX].csv
         _is_filtered = bool(isinstance(q, str) and q.strip())
         _ver = f"-v{data_ver}" if (isinstance(data_ver, str) and data_ver and data_ver != "n/a") else ""
         csv_name = f"providers-{'filtered' if _is_filtered else 'all'}{_ver}.csv"
@@ -1123,7 +1016,6 @@ try:
             help=None if not btn_disabled else "Nothing to export (no matching rows).",
         )
 
-
         # Optional compact CKW-only grid for quick scanning
         if ckw_debug and isinstance(vdf, pd.DataFrame) and not vdf.empty:
             with st.expander("CKW diagnostics (compact)", expanded=False):
@@ -1140,8 +1032,13 @@ try:
 
     except Exception as e:
         st.warning(f"CSV download/help unavailable: {e}")
-except Exception as e:
-    st.error(f"Render failed: {e}")
+
+# ──────────────────────────────────────────────────────────────────────
+# Add / Edit / Delete
+# ──────────────────────────────────────────────────────────────────────
+with tab_manage:
+    # keep your existing Add/Edit/Delete block below this line
+    pass
 
 
     # ──────────────────────────────────────────────────────────────────────
