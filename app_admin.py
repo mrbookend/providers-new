@@ -1030,6 +1030,21 @@ def main() -> None:
         # ──────────────────────────────────────────────────────────────────────
     # Maintenance
     # ──────────────────────────────────────────────────────────────────────
+# --- CKW seeds diagnostics (temporary) ---
+try:
+    eng = get_engine()
+    with eng.begin() as cx:
+        cols = cx.exec_driver_sql("PRAGMA table_info(ckw_seeds)").all()
+        st.caption("ckw_seeds columns (cid, name, type, notnull, dflt, pk):")
+        st.code("\n".join(str(c) for c in cols))
+
+        sample = cx.exec_driver_sql("SELECT * FROM ckw_seeds LIMIT 5").mappings().all()
+        st.caption("ckw_seeds sample rows:")
+        st.code("\n".join(str(dict(r)) for r in sample))
+except Exception as e:
+    st.info(f"Seeds diagnostics: {e}")
+
+    
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
         st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for targeted or bulk recomputes.")
