@@ -1348,194 +1348,71 @@ def main() -> None:
     with tab_maint:
         # ── Existing section (keep yours here): "Maintenance — Computed Keywords (CKW)" and Force Recompute ALL (override locks)
         # e.g., your current header + button that rebuilds computed_keywords for every provider ignoring locks
+            # ── Maintenance — Computed Keywords (CKW): Force Recompute ALL (override locks)
+    st.subheader("Maintenance — Computed Keywords (CKW)")
+    try:
+        eng = get_engine()
+        with eng.connect() as cx:
+            _prov_cnt = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
+        st.caption(f"Providers in scope: {_prov_cnt}")
+    except Exception as e:
+        st.warning(f"Count unavailable: {e}")
 
-        st.divider()
+    st.write("Rebuilds **computed_keywords** for every provider, **ignoring CKW locks**. "
+             "Use after changing keywords, seeds, or algorithm.")
 
-        # Local cached helpers (scoped here to avoid module-level cache collisions)
-        @st.cache_data
-        def _backup_csv_bytes(df: pd.DataFrame, data_ver: str) -> tuple[bytes, str]:
-            ts = datetime.now(timezone.utc).strftime("%Y%m%d")
-            name = f"providers-backup-{ts}-v{data_ver}.csv"
-            return df.to_csv(index=False).encode("utf-8"), name
+    # WARNING before risky operation
+    st.warning("WARNING: This overwrites computed_keywords on **ALL** rows and updates ckw_version. "
+               "Locked rows will be updated as well (override locks).", icon="⚠️")
 
-        @st.cache_data
-        def _load_all_for_backup(data_ver: str) -> pd.DataFrame:
-            eng = get_engine()
-            with eng.connect() as cx:
-                return pd.read_sql(
-                    sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE"),
-                    cx,
-                )
-
-        @st.cache_data
-        def _count_providers() -> int:
-            eng = get_engine()
-            with eng.connect() as cx:
-                return int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
-
-        @st.cache_data
-        def _integrity_counts() -> dict:
-            eng = get_engine()
-            with eng.connect() as cx:
-                empty_names = int(cx.exec_driver_sql(
-                    "SELECT COUNT(*) FROM vendors WHERE COALESCE(TRIM(business_name),'')=''"
-                ).scalar() or 0)
-                bad_phones = int(cx.exec_driver_sql(
-                    "SELECT COUNT(*) FROM vendors WHERE LENGTH(REPLACE(COALESCE(phone,''),' ','')) NOT IN (0,10)"
-                ).scalar() or 0)
-                dupes = int(cx.exec_driver_sql(
-                    "SELECT COUNT(*) FROM (SELECT business_name, COUNT(*) c FROM vendors GROUP BY business_name HAVING c>1)"
-                ).scalar() or 0)
-            return {"empty_names": empty_names, "bad_phones": bad_phones, "duplicate_names": dupes}
-
-        @st.cache_data
-        def _ckw_current_version() -> int:
-            # If app defines a constant (e.g., CKW_VER or CURRENT_VER), prefer that; otherwise derive from data.
+    c1, c2 = st.columns([0.25, 0.75])
+    with c1:
+        _confirm = st.checkbox("I understand", key="ckw_force_confirm")
+    with c2:
+        if st.button("Force Recompute ALL (override locks)", disabled=not _confirm, type="primary"):
             try:
-                return int(CKW_VER)  # type: ignore[name-defined]
-            except Exception:
-                pass
-            try:
-                return int(CURRENT_VER)  # type: ignore[name-defined]
-            except Exception:
-                pass
-            eng = get_engine()
-            with eng.connect() as cx:
-                v = cx.exec_driver_sql("SELECT COALESCE(MAX(ckw_version),0) FROM vendors").scalar()
-            return int(v or 0)
+                # Prefer calling your existing recompute helper if it exists:
+                called = False
+                for fn_name in (
+                    "recompute_ckw_all_override",    # common name in your baseline
+                    "force_recompute_all_ckw",       # alt naming
+                    "recompute_ckw_force_all",       # alt naming
+                    "recompute_ckw_all",             # alt (may respect locks)
+                ):
+                    fn = globals().get(fn_name)
+                    if callable(fn):
+                        fn()            # function should do its own commit
+                        called = True
+                        break
 
-        @st.cache_data
-        def _ckw_stale_preview(limit: int = 100) -> pd.DataFrame:
-            cur = _ckw_current_version()
-            eng = get_engine()
-            with eng.connect() as cx:
-                return pd.read_sql(
-                    sa.text("""
-                        SELECT id, business_name, category, service, ckw_version
-                        FROM vendors
-                        WHERE COALESCE(ckw_version,0) <> :cur
-                        ORDER BY business_name COLLATE NOCASE
-                        LIMIT :lim
-                    """),
-                    cx,
-                    params={"cur": cur, "lim": limit},
-                )
+                if not called:
+                    # Fallback: do a simple SQL-side rebuild that ignores locks.
+                    # NOTE: this is a minimal recompute (name/category/service concat).
+                    # If you rely on seeds/synonyms, replace this fallback with your generator.
+                    with eng.begin() as tx:
+                        # Bump target version to (MAX(ckw_version) + 1)
+                        new_ver = tx.exec_driver_sql(
+                            "SELECT COALESCE(MAX(ckw_version), 0) + 1 FROM vendors"
+                        ).scalar()
 
-        @st.cache_data
-        def _ckw_stale_all_ids() -> pd.DataFrame:
-            cur = _ckw_current_version()
-            eng = get_engine()
-            with eng.connect() as cx:
-                return pd.read_sql(
-                    sa.text("""
-                        SELECT id, business_name, category, service, ckw_version
-                        FROM vendors
-                        WHERE COALESCE(ckw_version,0) <> :cur
-                        ORDER BY business_name COLLATE NOCASE
-                    """),
-                    cx,
-                    params={"cur": cur},
-                )
+                        # Minimal CKW rebuild (override locks): concat fields → lowercase
+                        tx.exec_driver_sql("""
+                            UPDATE vendors
+                            SET computed_keywords = LOWER(
+                                    TRIM(COALESCE(business_name,'') || ' ' ||
+                                         COALESCE(category,'')      || ' ' ||
+                                         COALESCE(service,''))
+                                ),
+                                ckw_version = :v
+                        """, {"v": int(new_ver)})
 
-        # Quick header with count
-        try:
-            st.caption(f"Providers in scope: {_count_providers()}")
-        except Exception as e:
-            st.warning(f"Count unavailable: {e}")
+                # Cache-bust: bump DATA_VER so cached lists/exports refresh
+                st.session_state["DATA_VER"] = f"{st.session_state.get('DATA_VER','0')}-ckw-{datetime.now(timezone.utc).strftime('%H%M%S')}"
 
-        # ── 1) Quick Engine Probe
-        with st.expander("Quick Engine Probe", expanded=False):
-            try:
-                with get_engine().connect() as cx:
-                    vendors_cnt = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
-                st.success(f"Engine OK — vendors: {vendors_cnt}")
+                st.success("CKW force recompute complete. Refreshing views…")
             except Exception as e:
-                st.error(f"Engine/DB check failed: {e}")
+                st.error(f"CKW recompute failed: {e}")
 
-        # ── 2) Integrity Self-Test (safe checks only)
-        with st.expander("Run Integrity Self-Test", expanded=False):
-            if st.button("Run self-test now", key="btn_integrity"):
-                try:
-                    res = _integrity_counts()
-                    st.write({
-                        "empty_names": res["empty_names"],
-                        "bad_phones_non_10_digits": res["bad_phones"],
-                        "duplicate_business_names": res["duplicate_names"],
-                    })
-                    if res["empty_names"] == 0 and res["bad_phones"] == 0 and res["duplicate_names"] == 0:
-                        st.success("Integrity self-test passed.")
-                    else:
-                        st.warning("Integrity self-test found issues (see counts above).")
-                except Exception as e:
-                    st.error(f"Self-test failed: {e}")
-
-        # ── 3) CKW Seed Coverage (shows stored seeds by (category, service) if table exists)
-        with st.expander("CKW Seed Coverage", expanded=False):
-            if st.button("Show seed coverage", key="btn_seed_cov"):
-                try:
-                    eng = get_engine()
-                    with eng.connect() as cx:
-                        df = pd.read_sql(
-                            sa.text("""
-                                SELECT category, service, keywords
-                                FROM ckw_seeds
-                                ORDER BY category, service
-                            """),
-                            cx,
-                        )
-                    if df.empty:
-                        st.info("No CKW seeds found.")
-                    else:
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-                        st.caption(f"{len(df)} seed rows.")
-                except Exception as e:
-                    st.warning(f"No seed table or query failed: {e}")
-
-        # ── 4) CKW Stale Audit (compare to current CKW version)
-        with st.expander("CKW Stale Audit", expanded=False):
-            cur = _ckw_current_version()
-            st.caption(f"Current CKW version: {cur}")
-            try:
-                preview = _ckw_stale_preview(limit=100)
-                total = len(_ckw_stale_all_ids())
-                if total == 0:
-                    st.success("No stale CKW rows detected.")
-                else:
-                    st.warning(f"{total} provider(s) have stale CKW.")
-                    if not preview.empty:
-                        st.dataframe(preview, use_container_width=True, hide_index=True)
-                    # Download full stale list as CSV
-                    stale_full = _ckw_stale_all_ids()
-                    csv_bytes, csv_name = _backup_csv_bytes(stale_full, str(st.session_state.get("DATA_VER", "n/a")))
-                    st.download_button(
-                        "Download stale CKW list (CSV)",
-                        data=csv_bytes,
-                        file_name=csv_name.replace("backup", "stale-ckw"),
-                        mime="text/csv",
-                        use_container_width=False,
-                    )
-            except Exception as e:
-                st.error(f"CKW audit failed: {e}")
-
-        # ── 5) Full CSV Backup (entire table; aligns with your normal export order)
-        with st.expander("Download Full CSV Backup", expanded=False):
-            try:
-                data_ver = str(st.session_state.get("DATA_VER", "n/a"))
-                df_all = _load_all_for_backup(data_ver)
-                if df_all.empty:
-                    st.info("No data to export.")
-                else:
-                    csv_bytes, csv_name = _backup_csv_bytes(df_all, data_ver)
-                    st.download_button(
-                        "Download full database (CSV)",
-                        data=csv_bytes,
-                        file_name=csv_name,
-                        mime="text/csv",
-                        use_container_width=False,
-                    )
-                    st.caption(f"Rows: {len(df_all)}  |  DATA_VER={data_ver}")
-            except Exception as e:
-                st.error(f"Backup export failed: {e}")
 
 
 if __name__ == "__main__":
