@@ -535,6 +535,51 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
         "Category / Service",
         "Maintenance",
     ])
+# === Cached engine + hashable-only data functions =========================
+@st.cache_resource
+def get_engine() -> Engine:
+    # build_engine() must exist somewhere in this file; it's only called when needed.
+    return build_engine()
+
+def _make_where_and_params(q: str) -> tuple[str, dict[str, str]]:
+    q = (q or "").strip()
+    if not q:
+        return "", {}
+    like = f"%{q}%"
+    where = (
+        "WHERE business_name LIKE :q OR "
+        "category LIKE :q OR "
+        "service LIKE :q OR "
+        "notes LIKE :q"
+    )
+    return where, {"q": like}
+
+@st.cache_data(show_spinner=False)
+def count_rows(q: str, data_ver: int = 0) -> int:
+    _engine = get_engine()
+    where, params = _make_where_and_params(q)
+    sql = f"SELECT COUNT(*) AS n FROM vendors {where}"
+    with _engine.connect() as cx:
+        n = cx.execute(sa.text(sql), params).scalar()
+    return int(n or 0)
+
+@st.cache_data(show_spinner=False)
+def fetch_page(q: str, offset: int = 0, limit: int = PAGE_SIZE, data_ver: int = 0) -> pd.DataFrame:
+    _engine = get_engine()
+    where, params = _make_where_and_params(q)
+    sql = (
+        "SELECT id, business_name, category, service, contact_name, phone, "
+        "email, website, address, city, state, zip, notes, created_at, updated_at "
+        "FROM vendors "
+        f"{where} "
+        "ORDER BY business_name COLLATE NOCASE ASC "
+        "LIMIT :limit OFFSET :offset"
+    )
+    params = {**params, "limit": int(limit), "offset": int(offset)}
+    with _engine.connect() as cx:
+        df = pd.read_sql_query(sa.text(sql), cx, params=params)
+    return df
+# === End cached engine + data functions ===================================
     
     # ---------------------
 # Browse (Admin)
