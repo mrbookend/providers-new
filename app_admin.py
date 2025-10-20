@@ -1063,31 +1063,60 @@ def main() -> None:
                         f"Recomputed CKW for {changed} provider(s)."
                     )
 
-        # ──────────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     # Maintenance
     # ──────────────────────────────────────────────────────────────────────
-# --- CKW seeds diagnostics (temporary) ---
-try:
-    eng = get_engine()
-    with eng.begin() as cx:
-        cols = cx.exec_driver_sql("PRAGMA table_info(ckw_seeds)").all()
-        st.caption("ckw_seeds columns (cid, name, type, notnull, dflt, pk):")
-        st.code("\n".join(str(c) for c in cols))
-
-        sample = cx.exec_driver_sql("SELECT * FROM ckw_seeds LIMIT 5").mappings().all()
-        st.caption("ckw_seeds sample rows:")
-        st.code("\n".join(str(dict(r)) for r in sample))
-except Exception as e:
-    st.info(f"Seeds diagnostics: {e}")
-
-    
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
         st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for targeted or bulk recomputes.")
-       
-        # ---- Single provider recompute -----------------------------------
+
+        # --- CKW seeds diagnostics (SAFE and inside the tab) --------------
         try:
             eng = get_engine()
+            with eng.begin() as cx:
+                # Check if ckw_seeds exists (SQLite/libsql-safe)
+                exists_row = cx.exec_driver_sql(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
+                ).first()
+                exists = bool(exists_row)
+
+            if not exists:
+                st.info("ckw_seeds table does not exist yet.")
+                if st.button("Create ckw_seeds table", key="create_ckw_seeds"):
+                    try:
+                        with eng.begin() as cx:
+                            cx.exec_driver_sql("""
+                                CREATE TABLE IF NOT EXISTS ckw_seeds (
+                                    category TEXT NOT NULL,
+                                    service  TEXT NOT NULL,
+                                    keywords TEXT NOT NULL,
+                                    PRIMARY KEY (category, service)
+                                )
+                            """)
+                            cx.exec_driver_sql("""
+                                CREATE INDEX IF NOT EXISTS idx_ckw_seeds_cat_svc
+                                ON ckw_seeds(category, service)
+                            """)
+                        st.success("ckw_seeds table created.")
+                    except Exception as e:
+                        st.error(f"Create table failed: {e}")
+            else:
+                # Show schema + a small sample if present
+                with eng.begin() as cx:
+                    cols = cx.exec_driver_sql("PRAGMA table_info(ckw_seeds)").all()
+                    st.caption("ckw_seeds columns (cid, name, type, notnull, dflt, pk):")
+                    st.code("\n".join(str(c) for c in cols))
+                    sample = cx.exec_driver_sql("SELECT * FROM ckw_seeds LIMIT 5").mappings().all()
+                if sample:
+                    st.caption("ckw_seeds sample rows:")
+                    st.code("\n".join(str(dict(r)) for r in sample))
+                else:
+                    st.info("ckw_seeds exists but has no rows yet.")
+        except Exception as e:
+            st.info(f"Seeds diagnostics: {e}")
+
+        # ---- Single provider recompute -----------------------------------
+        try:
             with eng.begin() as cx:
                 opts = cx.exec_driver_sql(
                     "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
@@ -1100,7 +1129,6 @@ except Exception as e:
             labels = [f"#{pid} — {name}" for (pid, name) in opts]
             sel_label = st.selectbox("Recompute CKW for one provider", options=["— Select —"] + labels)
             if sel_label != "— Select —":
-                # Map the chosen label back to its id
                 idx = labels.index(sel_label)
                 vid = int(opts[idx][0])
 
@@ -1122,7 +1150,6 @@ except Exception as e:
         c1, c2, c3 = st.columns(3)
         if c1.button("Recompute STALE (unlocked only)", key="ckw_stale"):
             try:
-                eng = get_engine()
                 with eng.begin() as cx:
                     ids = _select_vendor_ids_for_ckw(
                         cx, mode="stale", current_ver=CURRENT_VER, override_locks=False
@@ -1133,10 +1160,13 @@ except Exception as e:
             except Exception as e:
                 st.error(f"Stale recompute failed: {e}")
 
-        override = c2.checkbox("Override locks for ALL", value=False, help="If checked, locked providers will be recomputed too.")
+        override = c2.checkbox(
+            "Override locks for ALL",
+            value=False,
+            help="If checked, locked providers will be recomputed too.",
+        )
         if c3.button("Recompute ALL", key="ckw_all"):
             try:
-                eng = get_engine()
                 with eng.begin() as cx:
                     ids = _select_vendor_ids_for_ckw(
                         cx, mode="all", current_ver=CURRENT_VER, override_locks=override
