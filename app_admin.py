@@ -1308,14 +1308,12 @@ with tab_manage:
 
         # Services
         with ss:
-            st.markdown("**Services**")
             try:
                 srvs = list_services(eng)
             except Exception as e:
                 srvs = []
                 st.error(f"Failed to load services: {e}")
 
-            st.markdown("**Add Service**")
             new_srv = st.text_input("New Service", key="add_srv")
             if st.button("Add Service", key="btn_add_srv") and new_srv.strip():
                 try:
