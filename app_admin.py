@@ -538,7 +538,7 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 # === Cached engine + hashable-only data functions =========================
 @st.cache_resource
 def get_engine() -> Engine:
-    # build_engine() must exist somewhere in this file; it's only called when needed.
+    # build_engine() must exist elsewhere in this file
     return build_engine()
 
 def _make_where_and_params(q: str) -> tuple[str, dict[str, str]]:
@@ -580,6 +580,7 @@ def fetch_page(q: str, offset: int = 0, limit: int = PAGE_SIZE, data_ver: int = 
         df = pd.read_sql_query(sa.text(sql), cx, params=params)
     return df
 # === End cached engine + data functions ===================================
+
     
     # ---------------------
 # Browse (Admin)
