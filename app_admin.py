@@ -40,6 +40,20 @@ APP_VER = "admin-2025-10-20.2"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
+# ---- Help content (one-time; safe even if re-run) ----
+try:
+    HELP_MD  # type: ignore[name-defined]
+except NameError:
+    HELP_MD = """
+# Browse Help
+
+Use the **Search** box to filter by name, category, service, notes, phone, or website.
+- **Clear** resets the search.
+- **Download CSV** exports the current **filtered** results; when no filter is applied it exports **all** records.
+- Sorting/filtering is controlled by the Admin app (no per-column filters here).
+
+_Replace this with your long, book-style help content when ready._
+"""
 
 PAGE_SIZE = 200
 MAX_RENDER_ROWS = 1000
