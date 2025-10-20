@@ -1161,13 +1161,18 @@ def main() -> None:
                             st.session_state["DATA_VER"] += 1
                             st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
     # ──────────────────────────────────────────────────────────────────────
-# >>> Delete Provider (checkbox + retype ID gate) — DROP-IN BLOCK
-# Place INSIDE: `with tab_manage:`
+# >>> Delete Provider (dropdown by name + checkbox + retype ID) — DROP-IN
+# Place INSIDE: `with tab_manage:` and indent by 4 spaces
 # ──────────────────────────────────────────────────────────────────────
+
+# Ensure a data version exists for cache busting
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
+
 st.markdown("### Delete Provider")
 st.caption(
-    "Danger zone: This permanently removes one record from **vendors**. "
-    "You must tick the checkbox and re-type the ID to proceed."
+    "Danger zone: Permanently removes one record from **vendors**. "
+    "Select the provider by name, tick the checkbox, and re-type the ID to proceed."
 )
 
 # Local fallback to get an engine if your app doesn't expose get_engine()
@@ -1183,34 +1188,36 @@ def _get_engine_fallback():
 import sqlalchemy as sa
 from sqlalchemy import text as sql_text
 
-c_id, c_load = st.columns([0.6, 0.4])
-raw_id = c_id.text_input("Provider ID", value=st.session_state.get("del_id", ""))
-if c_load.button("Load provider"):
-    st.session_state["del_id"] = raw_id
+@st.cache_data(show_spinner=False)
+def _list_providers_for_delete(data_ver: int):
+    """Return minimal info for delete dropdown; cached by data_ver."""
+    eng = _get_engine_fallback()
+    with eng.connect() as cx:
+        q = sql_text("""
+            SELECT id, business_name, category, service, phone, website
+            FROM vendors
+            ORDER BY business_name COLLATE NOCASE
+        """)
+        rows = [dict(r) for r in cx.execute(q).mappings().all()]
+    # Build display labels and fast lookup maps
+    labels = []
+    by_label = {}
+    for r in rows:
+        label = f'{r["id"]} — {r["business_name"]} ({r["category"]} → {r["service"]})'
+        labels.append(label)
+        by_label[label] = r
+    return labels, by_label
 
-def _digits_only(s: str) -> str:
-    return "".join(ch for ch in s if ch.isdigit())
+labels, by_label = _list_providers_for_delete(st.session_state["DATA_VER"])
 
-row = None
-id_ok = False
-del_id_str = st.session_state.get("del_id", "").strip()
-if del_id_str:
-    if _digits_only(del_id_str) == del_id_str:
-        try:
-            eng = _get_engine_fallback()
-            with eng.connect() as cx:
-                q = sql_text(
-                    "SELECT id, business_name, category, service, phone, website, created_at, updated_at "
-                    "FROM vendors WHERE id = :id"
-                )
-                cur = cx.execute(q, {"id": int(del_id_str)})
-                row = cur.mappings().first()
-                id_ok = row is not None
-        except Exception as e:
-            st.error(f"Lookup failed: {e}")
+sel = st.selectbox(
+    "Select provider to delete",
+    options=labels,
+    index=None,
+    placeholder="Start typing a provider name…",
+)
 
-if del_id_str and not id_ok:
-    st.info("No provider found with that ID.")
+row = by_label.get(sel) if sel else None
 
 if row:
     st.markdown("**Provider to delete**")
@@ -1224,8 +1231,8 @@ if row:
             "website": row["website"],
         }
     )
-
     st.divider()
+
     c1, c2 = st.columns([0.55, 0.45])
     ok_checkbox = c1.checkbox(
         "I understand this action is permanent and cannot be undone.",
@@ -1239,7 +1246,6 @@ if row:
     )
 
     can_delete = ok_checkbox and (confirm_str.strip() == str(row["id"]))
-
     del_btn = st.button(
         "Delete provider",
         type="primary",
@@ -1252,13 +1258,12 @@ if row:
             eng = _get_engine_fallback()
             with eng.begin() as cx:  # transactional
                 dq = sql_text("DELETE FROM vendors WHERE id = :id")
-                res = cx.execute(dq, {"id": row["id"]})
-                # (Optional) res.rowcount check; SQLite returns 0/1 typically
-            # Bump DATA_VER to invalidate any cached datasets
+                cx.execute(dq, {"id": row["id"]})
+
+            # Bump DATA_VER to invalidate caches and refresh dropdown/table
             st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
 
-            # Clear controls so accidental re-clicks don’t re-target
-            st.session_state["del_id"] = ""
+            # Reset controls so accidental re-clicks don’t re-target
             st.session_state["del_perm_ack"] = False
             st.session_state["del_confirm_str"] = ""
 
@@ -1266,8 +1271,9 @@ if row:
         except Exception as e:
             st.error(f"Delete failed: {e}")
 
-# <<< End Delete Provider (checkbox + retype ID gate) — DROP-IN BLOCK
+# <<< End Delete Provider (dropdown + checkbox + retype ID) — DROP-IN
 # ──────────────────────────────────────────────────────────────────────
+
 
     # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
