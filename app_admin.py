@@ -904,21 +904,28 @@ def main() -> None:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # ── Bootstrap (must be above # Tabs): ensure DATA_VER and DB_READY exist ─────────
-# DATA_VER drives cache-busting and list refreshes
+    # ── Bootstrap (must be above # Tabs): safe state + DB readiness ─────────────────
+import pandas as pd  # used in Browse table/export
+import sqlalchemy as sa  # used in Maintenance, queries
+
+# Ensure a data version exists in session state (cache bust / view refresh)
 if "DATA_VER" not in st.session_state:
     st.session_state["DATA_VER"] = 0
-DATA_VER = st.session_state["DATA_VER"]  # convenience alias; safe to pass into functions
 
-# Determine if DB is ready for managed tabs that depend on tables
+# Safe DB readiness probe (no reliance on prior `eng` variable)
 try:
-    eng = get_engine()  # don't assume `eng` already exists
-    with eng.connect() as cx:
-        # lightweight check; will raise if DB unreachable or table missing
-        cx.exec_driver_sql("SELECT 1 FROM vendors LIMIT 1").first()
+    _eng = get_engine()
+    with _eng.connect() as _cx:
+        # Try vendors existence without crashing the app if missing
+        _cx.exec_driver_sql("SELECT 1").first()
     DB_READY = True
 except Exception:
     DB_READY = False
+
+# Tabs
+tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+    ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+)
 
 # ─────────────────────────────────────────────────────────────────────
 # Browse (Admin)
@@ -936,14 +943,17 @@ with tab_browse:
         q = ""
     st.session_state["q"] = q
 
+    # Use a local data_ver (don’t rely on a global alias that might be undefined)
+    data_ver = st.session_state.get("DATA_VER", 0)
+
     # ---- Resolve row IDs (CKW-first search) and load rows ----
     try:
-        ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=DATA_VER)
+        ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=data_ver)
         if not ids:
             st.info("No matches.")
             vdf = pd.DataFrame()
         else:
-            vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
+            vdf = fetch_rows_by_ids(tuple(ids), data_ver)
     except Exception as e:
         st.error(f"Browse failed: {e}")
         vdf = pd.DataFrame()
@@ -1009,21 +1019,17 @@ with tab_manage:
 
             bn = st.text_input("Business Name *", key="bn_add")
 
-            # Category select (lookup-only)
-            category = st.selectbox(
-                "Category *",
-                options=["— Select —"] + cats,
-                key="cat_add_sel",
-            )
-            category = category if category != "— Select —" else ""
+            # Category select or new
+            ccol1, ccol2 = st.columns([1, 1])
+            cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+            cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
+            category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
 
-            # Service select (lookup-only)
-            service = st.selectbox(
-                "Service *",
-                options=["— Select —"] + srvs,
-                key="srv_add_sel",
-            )
-            service = service if service != "— Select —" else ""
+            # Service select or new
+            scol1, scol2 = st.columns([1, 1])
+            srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+            srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
+            service = (srv_new or "").strip() or (srv_choice if cat_choice != "— Select —" else "")
 
             contact_name = st.text_input("Contact Name", key="contact_add")
             phone = st.text_input("Phone", key="phone_add")
@@ -1093,19 +1099,27 @@ with tab_manage:
                     cats = list_categories(eng)
                     srvs = list_services(eng)
 
-                    # Category select (lookup-only)
-                    cat_idx = (cats.index(r["category"]) + 1) if r["category"] in cats else 0
-                    category_e = st.selectbox(
-                        "Category *", options=["— Select —"] + cats, index=cat_idx, key="cat_edit_sel"
+                    e_c1, e_c2 = st.columns([1, 1])
+                    cat_choice_e = e_c1.selectbox(
+                        "Category *", options=["— Select —"] + cats,
+                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                        key="cat_edit_sel",
                     )
-                    category_e = category_e if category_e != "— Select —" else r["category"]
+                    cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
+                    category_e = (cat_new_e or "").strip() or (
+                        cat_choice_e if cat_choice_e != "— Select —" else r["category"]
+                    )
 
-                    # Service select (lookup-only)
-                    srv_idx = (srvs.index(r["service"]) + 1) if r["service"] in srvs else 0
-                    service_e = st.selectbox(
-                        "Service *", options=["— Select —"] + srvs, index=srv_idx, key="srv_edit_sel"
+                    e_s1, e_s2 = st.columns([1, 1])
+                    srv_choice_e = e_s1.selectbox(
+                        "Service *", options=["— Select —"] + srvs,
+                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                        key="srv_edit_sel",
                     )
-                    service_e = service_e if service_e != "— Select —" else r["service"]
+                    srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
+                    service_e = (srv_new_e or "").strip() or (
+                        srv_choice_e if srv_choice_e != "— Select —" else r["service"]
+                    )
 
                     contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
                     phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
@@ -1158,26 +1172,25 @@ with tab_manage:
             db_path = globals().get("DB_PATH", "providers.db")
             return sa.create_engine(f"sqlite:///{db_path}", future=True)
 
-        import sqlalchemy as sa
         from sqlalchemy import text as sql_text
 
         @st.cache_data(show_spinner=False)
         def _list_providers_min(data_ver: int):
             """Minimal list for delete UI; cached by data_ver."""
-            eng = _get_engine_fallback()
-            with eng.connect() as cx:
+            eng2 = _get_engine_fallback()
+            with eng2.connect() as cx2:
                 q = sql_text("""
                     SELECT id, business_name, category, service
                     FROM vendors
                     ORDER BY business_name COLLATE NOCASE
                 """)
-                rows = [dict(r) for r in cx.execute(q).mappings().all()]
-            labels, by_label = [], {}
-            for r in rows:
-                label = f'{r["id"]} — {r["business_name"]} ({r["category"]} → {r["service"]})'
-                labels.append(label)
-                by_label[label] = r
-            return labels, by_label
+                rows2 = [dict(r2) for r2 in cx2.execute(q).mappings().all()]
+            labels2, by_label2 = [], {}
+            for r2 in rows2:
+                label2 = f'{r2["id"]} — {r2["business_name"]} ({r2["category"]} → {r2["service"]})'
+                labels2.append(label2)
+                by_label2[label2] = r2
+            return labels2, by_label2
 
         labels, by_label = _list_providers_min(st.session_state["DATA_VER"])
 
@@ -1221,10 +1234,10 @@ with tab_manage:
 
             if del_btn and ok_checkbox:
                 try:
-                    eng = _get_engine_fallback()
-                    with eng.begin() as cx:  # transactional delete
+                    eng3 = _get_engine_fallback()
+                    with eng3.begin() as cx3:  # transactional delete
                         dq = sql_text("DELETE FROM vendors WHERE id = :id")
-                        cx.execute(dq, {"id": row["id"]})
+                        cx3.execute(dq, {"id": row["id"]})
 
                     # Invalidate caches and clear controls
                     st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
