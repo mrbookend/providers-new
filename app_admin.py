@@ -880,60 +880,80 @@ def main() -> None:
     # Browse (Admin)
     # ──────────────────────────────────────────────────────────────────────
     with tab_browse:
-        c1, c2 = st.columns([1, 0.3])
-        q = c1.text_input(
-            "Search",
-            value=st.session_state.get("q", ""),
-            placeholder="name, category, service, notes, phone, website…",
-            key="browse_search",
-        )
-        if c2.button("Clear", key="browse_clear"):
-            q = ""
-        st.session_state["q"] = q
+    st.subheader("Browse Providers")
 
-        # CKW-first search (no pager; cap)
-        limit = MAX_RENDER_ROWS_ADMIN
-        offset = 0
+    # ---- Search UI -------------------------------------------------------
+    c1, c2, c3 = st.columns([1, 0.25, 0.35])
+    q = c1.text_input(
+        "Search",
+        value=st.session_state.get("q", ""),
+        placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
+        key="browse_search",
+    )
+    if c2.button("Clear", key="browse_clear"):
+        q = ""
+    dbg_ckw = c3.checkbox(
+        "Show computed_keywords",
+        value=False,
+        help="For debugging only; exposes the computed keyword string used for prioritization.",
+        key="browse_dbg_ckw",
+    )
+    st.session_state["q"] = q
+
+    # ---- CKW-first search (no pager; capped) -----------------------------
+    limit = MAX_RENDER_ROWS_ADMIN
+    offset = 0
+    try:
+        ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Search failed: {e}")
+        ids = []
+
+    if not ids:
+        # Lightweight DB diagnostics to help the operator
         try:
-            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
+            eng = get_engine()
+            with eng.connect() as cx:
+                db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            st.info(
+                f"No matches. DB: {db_target} | vendors: {total_cnt}. "
+                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+            )
         except Exception as e:
-            st.error(f"Search failed: {e}")
-            ids = []
+            st.info(f"No matches. (Diagnostics failed: {e})")
 
-        if not ids:
-            try:
-                with eng.connect() as cx:
-                    target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-                st.info(
-                    f"No matches. DB: {target} | vendors: {total_cnt}. "
-                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-                )
-            except Exception as e:
-                st.info(f"No matches. (Diagnostics failed: {e})")
+    if len(ids) == limit and limit > 0:
+        st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-        if len(ids) == limit:
-            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+    # ---- Fetch rows by id list -------------------------------------------
+    try:
+        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+    except Exception as e:
+        st.error(f"Fetch failed: {e}")
+        df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-        try:
-            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-        except Exception as e:
-            st.error(f"Fetch failed: {e}")
-            df = pd.DataFrame(columns=BROWSE_COLUMNS)
+    # Optionally expose computed_keywords for debugging
+    display_cols = list(BROWSE_COLUMNS)
+    if dbg_ckw and "computed_keywords" in getattr(df, "columns", []):
+        # Show CKW at the end without disturbing your configured column widths
+        if "computed_keywords" not in display_cols:
+            display_cols = display_cols + ["computed_keywords"]
 
-        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-        try:
-            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-        except Exception:
-            pass
-        colcfg = _column_config_from_widths(widths)
+    # ---- Column widths / render ------------------------------------------
+    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+    try:
+        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    except Exception:
+        pass
+    colcfg = _column_config_from_widths(widths)
 
-        st.dataframe(
-            df[BROWSE_COLUMNS] if not df.empty else df,
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
+    st.dataframe(
+        df[display_cols] if not df.empty else df,
+        hide_index=True,
+        use_container_width=True,
+        column_config=colcfg,
+    )
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
@@ -1206,6 +1226,24 @@ def main() -> None:
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
         st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for targeted or bulk recomputes.")
+        # ---- CKW sanity probe (optional) ---------------------------------
+        try:
+            eng = get_engine()
+            with eng.begin() as cx:
+                num_ckw = cx.exec_driver_sql(
+                    "SELECT COUNT(*) FROM vendors "
+                    "WHERE computed_keywords IS NOT NULL AND TRIM(computed_keywords) <> ''"
+                ).scalar()
+                sample = cx.exec_driver_sql(
+                    "SELECT id, business_name, category, service, "
+                    "SUBSTR(computed_keywords,1,80) AS ck "
+                    "FROM vendors ORDER BY id LIMIT 3"
+                ).all()
+            st.caption(f"CKW non-empty rows: {int(num_ckw or 0)}")
+            if sample:
+                st.code("\n".join(str(r) for r in sample))
+        except Exception as e:
+            st.info(f"CKW probe: {e}")
 
         # --- CKW seeds diagnostics (SAFE and inside the tab) --------------
         try:
