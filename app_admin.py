@@ -59,30 +59,32 @@ BROWSE_COLUMNS = [
     "business_name",
     "category",
     "service",
+    "keywords",            # human-curated (ckw_manual_extra)
+    "computed_keywords",   # algorithm output
     "contact_name",
     "phone",
     "email",
     "website",
     "address",
     "notes",
-    "keywords",
-    "computed_keywords",
 ]
+
 
 # Fallback widths (px). Secrets may override.
 DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "business_name": 260,
     "category": 160,
-    "service": 220,
-    "contact_name": 180,
+    "service": 200,
+    "keywords": 360,
+    "computed_keywords": 600,   # make this very visible
+    "contact_name": 160,
     "phone": 140,
     "email": 240,
     "website": 240,
-    "address": 280,
-    "notes": 360,
-    "keywords": 300,
-    "computed_keywords": 420,
+    "address": 260,
+    "notes": 320,
 }
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers (string / time)
@@ -945,12 +947,26 @@ def main() -> None:
             pass
         colcfg = _column_config_from_widths(widths)
 
-        st.dataframe(
-            df[BROWSE_COLUMNS] if not df.empty else df,
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
+# Ensure CKW-related columns exist and enforce display order
+for _col in BROWSE_COLUMNS:
+    if _col not in df.columns:
+        df[_col] = ""
+# Tiny probe to make it obvious if CKW is present but empty
+try:
+    non_empty_ckw = int((df["computed_keywords"].str.len() > 0).sum())
+    st.caption(f"Rows with non-empty computed_keywords: {non_empty_ckw}")
+except Exception:
+    pass
+
+df = df[BROWSE_COLUMNS]
+
+st.dataframe(
+    df,
+    hide_index=True,
+    use_container_width=True,
+    column_config=colcfg,
+)
+
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
