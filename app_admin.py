@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-# ---- Streamlit page config MUST be the first Streamlit command ----
+# ── Streamlit page config MUST be the first Streamlit command ─────────────
 import streamlit as st
+
 
 def _safe_page_config() -> None:
     try:
@@ -16,35 +17,32 @@ def _safe_page_config() -> None:
         # Streamlit Cloud can enqueue before this runs; ignore duplicate/ordering error.
         pass
 
+
 _safe_page_config()
 
-# ---- Stdlib ----
+# ── Stdlib ────────────────────────────────────────────────────────────────
 import os
+import csv
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 
-# ---- Third-party ----
+# ── Third-party ───────────────────────────────────────────────────────────
 import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy import text as sql_text
 from sqlalchemy.engine import Engine
 
-
-# (If you had a big triple-quoted docstring or bullet text at the top, move it BELOW this block or delete it.)
-
-
-
-# ---- Globals / constants ----
-APP_VER = "admin-2025-10-19.x"  # keep whatever you use
+# ──────────────────────────────────────────────────────────────────────────
+# Globals / constants
+# ──────────────────────────────────────────────────────────────────────────
+APP_VER = "admin-2025-10-19.8"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
-SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")  # <— re-add this
-PAGE_SIZE = 200
-# MAX_RENDER_ROWS_ADMIN, BROWSE_COLUMNS, etc. as you already have them
-# Caps
-MAX_RENDER_ROWS = 1000
-MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", "1000"))
+SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
+ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
 
+PAGE_SIZE = 200
+MAX_RENDER_ROWS = 1000
+MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", str(MAX_RENDER_ROWS)))
 
 # Columns to display on Browse (Admin). CKW visible here for validation.
 BROWSE_COLUMNS = [
@@ -56,6 +54,9 @@ BROWSE_COLUMNS = [
     "email",
     "website",
     "address",
+    "city",
+    "state",
+    "zip",
     "notes",
     "computed_keywords",
 ]
@@ -70,14 +71,16 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "email": 240,
     "website": 240,
     "address": 280,
+    "city": 110,
+    "state": 80,
+    "zip": 90,
     "notes": 360,
     "computed_keywords": 420,
 }
 
-# =============================
-#   Helpers (string / time)
-# =============================
-
+# ──────────────────────────────────────────────────────────────────────────
+# Helpers (string / time)
+# ──────────────────────────────────────────────────────────────────────────
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -94,7 +97,6 @@ def _host_only(url: str | None) -> str:
     try:
         u = urlparse(url if "://" in url else f"https://{url}")
         host = (u.netloc or u.path or "").lower()
-        # strip common www.
         if host.startswith("www."):
             host = host[4:]
         return host
@@ -111,7 +113,7 @@ def _tokenize_for_ckw(*parts: str) -> List[str]:
             t = raw.strip().lower()
             if t:
                 tokens.append(t)
-    # de-dup but keep stable-ish order
+    # de-dup but keep input order
     seen = set()
     out: List[str] = []
     for t in tokens:
@@ -120,109 +122,12 @@ def _tokenize_for_ckw(*parts: str) -> List[str]:
             out.append(t)
     return out
 
-# ---- CSV bootstrap helper (runs only if table is empty and ALLOW_SEED_IMPORT=1) ----
-def _bootstrap_from_csv_if_needed(engine: Engine, csv_path: str | None = None) -> str:
-    """
-    If vendors is empty, load seed CSV and insert rows.
-    Returns a short status message (or empty string if no-op).
-    """
-    # Resolve path lazily to avoid NameError at import time
-    if not csv_path:
-        csv_path = os.getenv("SEED_CSV", "data/providers_seed.csv")
 
-    try:
-        allow = int(os.getenv("ALLOW_SEED_IMPORT", str(ALLOW_SEED_IMPORT)))
-    except Exception:
-        allow = 1
-    if not allow:
-        return ""
-
-    if not os.path.exists(csv_path):
-        return ""
-
-    # Check table & row count first
-    with engine.connect() as cx:
-        try:
-            cols_meta = cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
-        except Exception:
-            return ""  # ensure_schema() should run first
-
-        table_cols = [r[1] for r in cols_meta]
-        if not table_cols:
-            return ""
-
-        n_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-        if n_rows and int(n_rows) > 0:
-            return ""  # already populated
-
-    # Build rows to insert (intersect CSV headers with actual columns)
-    rows_to_insert: list[dict[str, Any]] = []
-    try:
-        with open(csv_path, "r", newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            if not reader.fieldnames:
-                return ""
-
-            allowed = [h for h in reader.fieldnames if h in table_cols]
-            for raw in reader:
-                row = {k: (raw.get(k) or "").strip() for k in allowed}
-
-                # Normalize phone to digits-only (UI will format)
-                if "phone" in row and row["phone"]:
-                    if "_digits_only" in globals():
-                        row["phone"] = _digits_only(row["phone"])  # type: ignore[name-defined]
-                    else:
-                        row["phone"] = "".join(ch for ch in row["phone"] if ch.isdigit())[:10]
-
-                # Uppercase state if present
-                if "state" in row and row["state"]:
-                    row["state"] = row["state"].upper()
-
-                rows_to_insert.append(row)
-    except Exception as e:
-        return f"Bootstrap skipped (read error): {e}"
-
-    if not rows_to_insert:
-        return ""
-
-    # Bulk insert in one transaction
-    columns_sql = ", ".join(rows_to_insert[0].keys())
-    placeholders = ", ".join([f":{c}" for c in rows_to_insert[0].keys()])
-    sql = f"INSERT INTO vendors ({columns_sql}) VALUES ({placeholders})"
-
-    try:
-        with engine.begin() as cx:
-            cx.exec_driver_sql("PRAGMA foreign_keys = ON")
-            cx.execute(sa.text(sql), rows_to_insert)
-    except Exception as e:
-        return f"Bootstrap failed: {e}"
-
-    return f"Bootstrap inserted {len(rows_to_insert)} rows"
-
-
-    if not rows_to_insert:
-        return ""
-
-    # Bulk insert
-    placeholders = ", ".join([f":{c}" for c in rows_to_insert[0].keys()])
-    columns_sql = ", ".join(rows_to_insert[0].keys())
-    sql = f"INSERT INTO vendors ({columns_sql}) VALUES ({placeholders})"
-
-    try:
-        with engine.begin() as cx:  # transactional
-            cx.exec_driver_sql("PRAGMA foreign_keys = ON")
-            cx.execute(sa.text(sql), rows_to_insert)
-    except Exception as e:
-        return f"Bootstrap failed: {e}"
-
-    return f"Bootstrap inserted {len(rows_to_insert)} rows"
-
-# =============================
-#   Database / schema
-# =============================
-
+# ──────────────────────────────────────────────────────────────────────────
+# Engine (cached)
+# ──────────────────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def build_engine() -> Engine:
+def get_engine() -> Engine:
     # Ensure parent dir exists for local sqlite path
     try:
         d = os.path.dirname(DB_PATH)
@@ -230,93 +135,148 @@ def build_engine() -> Engine:
             os.makedirs(d, exist_ok=True)
     except Exception:
         pass
-    eng = sa.create_engine(f"sqlite:///{DB_PATH}", future=True)
-    return eng
+    return sa.create_engine(f"sqlite:///{DB_PATH}", future=True)
 
 
-def ensure_schema(eng: Engine) -> None:
-    """Create tables/columns/indexes idempotently.
-    - vendors main table
-    - categories/services lookup tables (seeded from vendors)
-    - computed_keywords column + indexes
+# ──────────────────────────────────────────────────────────────────────────
+# SCHEMA: create-if-missing (UNCACHED; safe to call every run)
+# ──────────────────────────────────────────────────────────────────────────
+def ensure_schema_uncached() -> str:
     """
+    Create vendors table/indexes if missing; add missing columns; create lookups.
+    Returns a short status string.
+    """
+    eng = get_engine()
+    altered: List[str] = []
     with eng.begin() as cx:
+        # 1) Create vendors table if missing (includes city/state/zip to match queries)
         cx.exec_driver_sql(
             """
             CREATE TABLE IF NOT EXISTS vendors (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                business_name TEXT NOT NULL,
-                category TEXT NOT NULL,
-                service TEXT NOT NULL,
-                contact_name TEXT,
-                phone TEXT,
-                email TEXT,
-                website TEXT,
-                address TEXT,
-                notes TEXT,
-                created_at TEXT,
-                updated_at TEXT,
-                computed_keywords TEXT,
-                ckw_locked INTEGER DEFAULT 0,
-                ckw_version INTEGER DEFAULT 1
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              business_name TEXT NOT NULL,
+              category TEXT,
+              service TEXT,
+              contact_name TEXT,
+              phone TEXT,
+              email TEXT,
+              website TEXT,
+              address TEXT,
+              city TEXT,
+              state TEXT,
+              zip TEXT,
+              notes TEXT,
+              created_at TEXT,
+              updated_at TEXT,
+              computed_keywords TEXT,
+              ckw_locked INTEGER DEFAULT 0,
+              ckw_version INTEGER DEFAULT 0
             )
             """
         )
-        # Add missing column computed_keywords if old DB
-        try:
-            cx.exec_driver_sql("SELECT computed_keywords FROM vendors LIMIT 1")
-        except Exception:
-            cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT")
-        # Indexes
-        cx.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name COLLATE NOCASE)"
-        )
-        cx.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
-        )
-        # Lookup tables
-        cx.exec_driver_sql(
-            "CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)"
-        )
-        cx.exec_driver_sql(
-            "CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)"
-        )
-        # Seed lookups from existing vendors if empty
-        cnt_cat = cx.exec_driver_sql("SELECT COUNT(*) FROM categories").scalar() or 0
-        if cnt_cat == 0:
+
+        # 2) Add columns idempotently (older DBs may lack some)
+        cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").all()]
+        want_cols = {
+            "city": "ALTER TABLE vendors ADD COLUMN city TEXT",
+            "state": "ALTER TABLE vendors ADD COLUMN state TEXT",
+            "zip": "ALTER TABLE vendors ADD COLUMN zip TEXT",
+            "computed_keywords": "ALTER TABLE vendors ADD COLUMN computed_keywords TEXT",
+            "ckw_locked": "ALTER TABLE vendors ADD COLUMN ckw_locked INTEGER DEFAULT 0",
+            "ckw_version": "ALTER TABLE vendors ADD COLUMN ckw_version INTEGER DEFAULT 0",
+        }
+        for c, stmt in want_cols.items():
+            if c not in cols:
+                cx.exec_driver_sql(stmt)
+                altered.append(c)
+
+        # 3) Indexes
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+
+        # 4) Lookup tables (simple)
+        cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
+        cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
+        # Seed lookups if empty
+        if (cx.exec_driver_sql("SELECT COUNT(*) FROM categories").scalar() or 0) == 0:
             cx.exec_driver_sql(
-                "INSERT OR IGNORE INTO categories(name) SELECT DISTINCT TRIM(category) FROM vendors WHERE IFNULL(TRIM(category),'')<>''"
+                "INSERT OR IGNORE INTO categories(name) "
+                "SELECT DISTINCT TRIM(category) FROM vendors WHERE IFNULL(TRIM(category),'')<>''"
             )
-        cnt_srv = cx.exec_driver_sql("SELECT COUNT(*) FROM services").scalar() or 0
-        if cnt_srv == 0:
+        if (cx.exec_driver_sql("SELECT COUNT(*) FROM services").scalar() or 0) == 0:
             cx.exec_driver_sql(
-                "INSERT OR IGNORE INTO services(name) SELECT DISTINCT TRIM(service) FROM vendors WHERE IFNULL(TRIM(service),'')<>''"
+                "INSERT OR IGNORE INTO services(name) "
+                "SELECT DISTINCT TRIM(service) FROM vendors WHERE IFNULL(TRIM(service),'')<>''"
             )
 
+    if altered:
+        return f"Schema OK (added: {', '.join(altered)})"
+    return "Schema OK"
 
-# =============================
-#   CKW: compute & writebacks
-# =============================
 
+# ──────────────────────────────────────────────────────────────────────────
+# ONE-TIME SEED FROM CSV IF EMPTY (UNCACHED)
+# ──────────────────────────────────────────────────────────────────────────
+def bootstrap_from_csv_if_needed() -> str | None:
+    if not ALLOW_SEED_IMPORT:
+        return None
+    csv_path = SEED_CSV
+    if not os.path.exists(csv_path):
+        return None
+
+    eng = get_engine()
+    with eng.begin() as cx:
+        n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+        if n > 0:
+            return None
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rows: List[dict[str, Any]] = []
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            rdr = csv.DictReader(f)
+            headers = set(rdr.fieldnames or [])
+            # Only insert columns that exist in table
+            table_cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").all()]
+            allowed = [h for h in headers if h in table_cols]
+
+            for r in rdr:
+                row = {k: (r.get(k) or "").strip() for k in allowed}
+                if "phone" in row and row["phone"]:
+                    row["phone"] = _digits_only(row["phone"])
+                if "state" in row and row["state"]:
+                    row["state"] = row["state"].upper()
+                if "created_at" in table_cols and not row.get("created_at"):
+                    row["created_at"] = now
+                if "updated_at" in table_cols and not row.get("updated_at"):
+                    row["updated_at"] = now
+                rows.append(row)
+
+        if not rows:
+            return None
+
+        cols_sql = ", ".join(rows[0].keys())
+        placeholders = ", ".join([f":{c}" for c in rows[0].keys()])
+        cx.exec_driver_sql(f"INSERT INTO vendors ({cols_sql}) VALUES ({placeholders})", rows)
+        return f"Bootstrap inserted {len(rows)} rows"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CKW: compute & writebacks
+# ──────────────────────────────────────────────────────────────────────────
 def compute_ckw(row: Dict[str, Any]) -> str:
-    # Base parts
     parts: List[str] = []
     parts.extend(_tokenize_for_ckw(row.get("category", "")))
     parts.extend(_tokenize_for_ckw(row.get("service", "")))
     parts.extend(_tokenize_for_ckw(row.get("business_name", "")))
-    # Add digits-only phone and host
     pdig = _digits_only(row.get("phone"))
     if pdig:
         parts.append(pdig)
     host = _host_only(row.get("website"))
     if host:
         parts.extend(_tokenize_for_ckw(host))
-    # Address/notes lightly tokenized (cheap safety net)
     parts.extend(_tokenize_for_ckw(row.get("address", "")))
     parts.extend(_tokenize_for_ckw(row.get("notes", "")))
-    # Compose
-    ckw = " ".join(parts).strip()
-    return ckw
+    return " ".join(parts).strip()
 
 
 def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
@@ -326,7 +286,8 @@ def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
     with eng.begin() as cx:
         for vid in ids:
             r = cx.exec_driver_sql(
-                "SELECT business_name,category,service,contact_name,phone,email,website,address,notes FROM vendors WHERE id=:id",
+                "SELECT business_name,category,service,contact_name,phone,email,website,address,notes "
+                "FROM vendors WHERE id=:id",
                 {"id": vid},
             ).mappings().first()
             if not r:
@@ -340,27 +301,11 @@ def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
     return updated
 
 
-def recompute_ckw_for_catserv(eng: Engine, category: str, service: str) -> int:
-    with eng.begin() as cx:
-        ids = [
-            row[0]
-            for row in cx.exec_driver_sql(
-                "SELECT id FROM vendors WHERE category=:c AND service=:s",
-                {"c": category, "s": service},
-            ).all()
-        ]
-    return recompute_ckw_for_ids(eng, ids)
-
-
 def recompute_ckw_all(eng: Engine) -> int:
     with eng.begin() as cx:
         ids = [row[0] for row in cx.exec_driver_sql("SELECT id FROM vendors").all()]
     return recompute_ckw_for_ids(eng, ids)
 
-
-# =============================
-#   Lookup lists (categories / services)
-# =============================
 
 def list_categories(eng: Engine) -> List[str]:
     with eng.begin() as cx:
@@ -381,92 +326,222 @@ def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
         cx.exec_driver_sql(f"INSERT OR IGNORE INTO {table}(name) VALUES (:n)", {"n": name.strip()})
 
 
-# =============================
-#   Search (CKW-first with fallback)
-# =============================
-
-def _build_like_filter(tokens: List[str], columns: List[str]) -> Tuple[str, Dict[str, Any]]:
-    """Return SQL and params for AND of tokens across OR of columns."""
-    clauses: List[str] = []
-    params: Dict[str, Any] = {}
-    for t_idx, tok in enumerate(tokens):
-        or_parts: List[str] = []
-        for c in columns:
-            key = f"t{t_idx}_{c}"
-            or_parts.append(f"{c} LIKE :{key}")
-            params[key] = f"%{tok}%"
-        clauses.append("(" + " OR ".join(or_parts) + ")")
-    where_sql = " AND ".join(clauses) if clauses else "1=1"
-    return where_sql, params
+# ──────────────────────────────────────────────────────────────────────────
+# CKW-first search helpers (hashable-only, no engine param)
+# ──────────────────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _has_ckw_column(data_ver: int) -> bool:
+    eng = get_engine()
+    with eng.connect() as cx:
+        try:
+            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
+            return any((r[1] if isinstance(r, tuple) else r["name"]) == "computed_keywords" for r in rows)
+        except Exception:
+            return False
 
 
-def _tokenize_query(q: str) -> List[str]:
-    return [t.lower().strip() for t in q.split() if t.strip()]
-
-
-def search_ids_ckw_first(eng: Engine, q: str, limit: int) -> List[int]:
-    tokens = _tokenize_query(q)
-    with eng.begin() as cx:
-        if tokens:
-            # 1) Try CKW only
-            w1, p1 = _build_like_filter(tokens, ["computed_keywords"])
-            sql1 = f"SELECT id FROM vendors WHERE {w1} ORDER BY business_name COLLATE NOCASE LIMIT :lim"
-            ids = [r[0] for r in cx.exec_driver_sql(sql1, {**p1, "lim": limit}).all()]
-            if ids:
-                return ids
-            # 2) Fallback fields
-            fields = [
-                "business_name",
-                "category",
-                "service",
-                "notes",
-                "phone",
-                "website",
-                "address",
-            ]
-            w2, p2 = _build_like_filter(tokens, fields)
-            sql2 = f"SELECT id FROM vendors WHERE {w2} ORDER BY business_name COLLATE NOCASE LIMIT :lim"
-            return [r[0] for r in cx.exec_driver_sql(sql2, {**p2, "lim": limit}).all()]
+@st.cache_data(show_spinner=False)
+def count_rows(q: str, data_ver: int) -> int:
+    eng = get_engine()
+    q_norm = (q or "").strip().lower()
+    with eng.connect() as cx:
+        if q_norm:
+            if _has_ckw_column(data_ver):
+                sql = sa.text(
+                    """
+                    SELECT COUNT(*) FROM (
+                      SELECT id FROM vendors WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
+                      UNION
+                      SELECT id FROM vendors
+                      WHERE LOWER(
+                        COALESCE(business_name,'')||' '||
+                        COALESCE(category,'')||' '||
+                        COALESCE(service,'')||' '||
+                        COALESCE(notes,'')||' '||
+                        COALESCE(phone,'')||' '||
+                        COALESCE(website,'')||' '||
+                        COALESCE(address,'')||' '||
+                        COALESCE(city,'')||' '||
+                        COALESCE(state,'')||' '||
+                        COALESCE(zip,'')
+                      ) LIKE :q2
+                    )
+                    """
+                )
+                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%"}
+            else:
+                sql = sa.text(
+                    """
+                    SELECT COUNT(*) FROM vendors
+                    WHERE LOWER(
+                      COALESCE(business_name,'')||' '||
+                      COALESCE(category,'')||' '||
+                      COALESCE(service,'')||' '||
+                      COALESCE(notes,'')||' '||
+                      COALESCE(phone,'')||' '||
+                      COALESCE(website,'')||' '||
+                      COALESCE(address,'')||' '||
+                      COALESCE(city,'')||' '||
+                      COALESCE(state,'')||' '||
+                      COALESCE(zip,'')
+                    ) LIKE :q
+                    """
+                )
+                params = {"q": f"%{q_norm}%"}
         else:
-            sql = "SELECT id FROM vendors ORDER BY business_name COLLATE NOCASE LIMIT :lim"
-            return [r[0] for r in cx.exec_driver_sql(sql, {"lim": limit}).all()]
+            sql = sa.text("SELECT COUNT(*) FROM vendors")
+            params = {}
+        return int(cx.execute(sql, params).scalar() or 0)
 
 
-def fetch_rows_by_ids(eng: Engine, ids: List[int]) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
+    """Return vendor IDs with CKW hits ranked before generic text hits; stable order otherwise."""
+    eng = get_engine()
+    q_norm = (q or "").strip().lower()
+    with eng.connect() as cx:
+        if q_norm:
+            if _has_ckw_column(data_ver):
+                sql = sa.text(
+                    """
+                    WITH m AS (
+                      SELECT id, 1 AS pri
+                      FROM vendors
+                      WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
+                      UNION ALL
+                      SELECT id, 2 AS pri
+                      FROM vendors
+                      WHERE LOWER(
+                        COALESCE(business_name,'')||' '||
+                        COALESCE(category,'')||' '||
+                        COALESCE(service,'')||' '||
+                        COALESCE(notes,'')||' '||
+                        COALESCE(phone,'')||' '||
+                        COALESCE(website,'')||' '||
+                        COALESCE(address,'')||' '||
+                        COALESCE(city,'')||' '||
+                        COALESCE(state,'')||' '||
+                        COALESCE(zip,'')
+                      ) LIKE :q2
+                    ),
+                    r AS (
+                      SELECT id, MIN(pri) AS pri
+                      FROM m
+                      GROUP BY id
+                    )
+                    SELECT id
+                    FROM r
+                    ORDER BY pri ASC, id ASC
+                    LIMIT :limit OFFSET :offset
+                    """
+                )
+                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
+            else:
+                sql = sa.text(
+                    """
+                    SELECT id
+                    FROM vendors
+                    WHERE LOWER(
+                      COALESCE(business_name,'')||' '||
+                      COALESCE(category,'')||' '||
+                      COALESCE(service,'')||' '||
+                      COALESCE(notes,'')||' '||
+                      COALESCE(phone,'')||' '||
+                      COALESCE(website,'')||' '||
+                      COALESCE(address,'')||' '||
+                      COALESCE(city,'')||' '||
+                      COALESCE(state,'')||' '||
+                      COALESCE(zip,'')
+                    ) LIKE :q
+                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
+                    LIMIT :limit OFFSET :offset
+                    """
+                )
+                params = {"q": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
+        else:
+            sql = sa.text(
+                """
+                SELECT id
+                FROM vendors
+                ORDER BY business_name COLLATE NOCASE ASC, id ASC
+                LIMIT :limit OFFSET :offset
+                """
+            )
+            params = {"limit": int(limit), "offset": int(offset)}
+        return [row[0] for row in cx.execute(sql, params).all()]
+
+
+@st.cache_data(show_spinner=False)
+def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
+    """Fetch display columns for a given tuple of IDs. Empty-safe."""
     if not ids:
-        return pd.DataFrame(columns=BROWSE_COLUMNS)
-    id_list = ",".join(str(i) for i in ids)
-    sql = f"""
-        SELECT {', '.join(BROWSE_COLUMNS)}
-        FROM vendors
-        WHERE id IN ({id_list})
-        ORDER BY business_name COLLATE NOCASE
-    """
-    with eng.begin() as cx:
-        df = pd.read_sql_query(sql, cx.connection)
+        return pd.DataFrame(columns=[
+            "id",
+            "business_name",
+            "category",
+            "service",
+            "contact_name",
+            "phone",
+            "email",
+            "website",
+            "address",
+            "city",
+            "state",
+            "zip",
+            "notes",
+            "created_at",
+            "updated_at",
+            "computed_keywords",
+            "ckw_locked",
+            "ckw_version",
+        ])
+    eng = get_engine()
+    placeholders = ",".join([f":id{i}" for i in range(len(ids))])
+    params = {f"id{i}": v for i, v in enumerate(ids)}
+    with eng.connect() as cx:
+        sql = sa.text(
+            f"""
+            SELECT
+              id, business_name, category, service, contact_name, phone, email,
+              website, address, city, state, zip, notes,
+              created_at, updated_at,
+              COALESCE(computed_keywords,'') AS computed_keywords,
+              IFNULL(ckw_locked,0) AS ckw_locked,
+              COALESCE(ckw_version,0) AS ckw_version
+            FROM vendors
+            WHERE id IN ({placeholders})
+            """
+        )
+        df = pd.read_sql(sql, cx, params=params)
+    if "business_name" in df.columns:
+        df = df.sort_values(["business_name", "id"], kind="stable", ignore_index=True)
     return df
 
 
-# =============================
-#   CRUD helpers
-# =============================
-
+# ──────────────────────────────────────────────────────────────────────────
+# CRUD helpers
+# ──────────────────────────────────────────────────────────────────────────
 def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
     row = dict(data)
     row["computed_keywords"] = compute_ckw(row)
     row["created_at"] = row["updated_at"] = _now_iso()
     with eng.begin() as cx:
         res = cx.exec_driver_sql(
-            sql_text(
+            sa.text(
                 """
-                INSERT INTO vendors (business_name,category,service,contact_name,phone,email,website,address,notes,created_at,updated_at,computed_keywords)
-                VALUES (:business_name,:category,:service,:contact_name,:phone,:email,:website,:address,:notes,:created_at,:updated_at,:computed_keywords)
+                INSERT INTO vendors (
+                  business_name,category,service,contact_name,phone,email,website,
+                  address,city,state,zip,notes,created_at,updated_at,computed_keywords
+                )
+                VALUES (
+                  :business_name,:category,:service,:contact_name,:phone,:email,:website,
+                  :address,:city,:state,:zip,:notes,:created_at,:updated_at,:computed_keywords
+                )
                 """
             ),
             row,
         )
         new_id = int(res.lastrowid or 0)
-    # Ensure lookups
     ensure_lookup_value(eng, "categories", row.get("category", ""))
     ensure_lookup_value(eng, "services", row.get("service", ""))
     return new_id
@@ -479,7 +554,7 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
     row["id"] = vid
     with eng.begin() as cx:
         cx.exec_driver_sql(
-            sql_text(
+            sa.text(
                 """
                 UPDATE vendors
                 SET business_name=:business_name,
@@ -490,6 +565,9 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
                     email=:email,
                     website=:website,
                     address=:address,
+                    city=:city,
+                    state=:state,
+                    zip=:zip,
                     notes=:notes,
                     computed_keywords=:computed_keywords,
                     updated_at=:updated_at
@@ -498,7 +576,6 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
             ),
             row,
         )
-    # Ensure lookups
     ensure_lookup_value(eng, "categories", row.get("category", ""))
     ensure_lookup_value(eng, "services", row.get("service", ""))
 
@@ -508,10 +585,9 @@ def delete_vendor(eng: Engine, vid: int) -> None:
         cx.exec_driver_sql("DELETE FROM vendors WHERE id=:id", {"id": vid})
 
 
-# =============================
-#   UI helpers
-# =============================
-
+# ──────────────────────────────────────────────────────────────────────────
+# UI helpers
+# ──────────────────────────────────────────────────────────────────────────
 def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
     cfg: Dict[str, Any] = {}
     for col, w in widths.items():
@@ -520,317 +596,37 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
     return cfg
 
 
-# =============================
-#   Main App
-# =============================
-
-# === Cached engine + hashable-only data functions =========================
-@st.cache_resource
-def get_engine() -> Engine:
-    # build_engine() must exist elsewhere in this file
-    return build_engine()
-
-def _make_where_and_params(q: str) -> tuple[str, dict[str, str]]:
-    q = (q or "").strip()
-    if not q:
-        return "", {}
-    like = f"%{q}%"
-    where = (
-        "WHERE business_name LIKE :q OR "
-        "category LIKE :q OR "
-        "service LIKE :q OR "
-        "notes LIKE :q"
-    )
-    return where, {"q": like}
-
-@st.cache_data(show_spinner=False)
-def count_rows(q: str, data_ver: int = 0) -> int:
-    _engine = get_engine()
-    where, params = _make_where_and_params(q)
-    sql = f"SELECT COUNT(*) AS n FROM vendors {where}"
-    with _engine.connect() as cx:
-        n = cx.execute(sa.text(sql), params).scalar()
-    return int(n or 0)
-
-# ==== REPLACE: fetch_page() (begin) =======================================
-@st.cache_data(show_spinner=False)
-def fetch_page(q: str, offset: int = 0, limit: int | None = None, data_ver: int = 0) -> pd.DataFrame:
-    _engine = get_engine()
-    if limit is None:
-        limit = PAGE_SIZE
-
-    where, params = _make_where_and_params(q)
-
-    sql = (
-        "SELECT id, business_name, category, service, contact_name, phone, "
-        "email, website, address, city, state, zip, notes, created_at, updated_at "
-        "FROM vendors "
-        f"{where} "
-        "ORDER BY business_name COLLATE NOCASE ASC "
-        "LIMIT :limit OFFSET :offset"
-    )
-
-    params = {**params, "limit": int(limit), "offset": int(offset)}
-
-    with _engine.connect() as cx:
-        df = pd.read_sql_query(sa.text(sql), cx, params=params)
-
-    return df
-# ==== REPLACE: fetch_page() (end) =========================================
-
-
-# === End cached engine + data functions ===================================
-
-
+# ──────────────────────────────────────────────────────────────────────────
+# Main App
+# ──────────────────────────────────────────────────────────────────────────
 def main() -> None:
-    # ---- DATA_VER init (cache-buster for @st.cache_data) ----
+    # Cache-buster for @st.cache_data after writes
     if "DATA_VER" not in st.session_state:
         st.session_state["DATA_VER"] = 0
     DATA_VER = st.session_state["DATA_VER"]
 
-    # ---- Build engine for schema/bootstrap (a local eng is fine for writes/DDL) ----
-    eng = build_engine()
-    ensure_schema(eng)
+    # Build engine early (resource-cached)
+    eng = get_engine()
 
-    # One-time CSV bootstrap (safe no-op if vendors already populated)
-    boot_msg = _bootstrap_from_csv_if_needed(eng, SEED_CSV)
-    if os.getenv("SHOW_STATUS") == "1" and boot_msg:
-        st.caption(boot_msg)
+    # ── CRITICAL: ensure schema BEFORE any browse/search code ─────────────
+    msg_schema = ensure_schema_uncached()
+    if os.getenv("SHOW_STATUS") == "1":
+        st.caption(msg_schema)
+
+    # Optional: seed once if empty
+    msg_seed = bootstrap_from_csv_if_needed()
+    if msg_seed and os.getenv("SHOW_STATUS") == "1":
+        st.caption(msg_seed)
 
     # Tabs
-    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs([
-        "Browse",
-        "Add / Edit / Delete",
-        "Category / Service",
-        "Maintenance",
-    ])
-# ---- CKW-first search helpers (hashable-only, no engine param) ----
-@st.cache_data(show_spinner=False)
-def _has_ckw_column(data_ver: int) -> bool:
-    eng = get_engine()
-    with eng.connect() as cx:
-        try:
-            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
-            return any((r[1] if isinstance(r, tuple) else r["name"]) == "computed_keywords" for r in rows)
-        except Exception:
-            return False
+    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+    )
 
-@st.cache_data(show_spinner=False)
-def count_rows(q: str, data_ver: int) -> int:
-    eng = get_engine()
-    q_norm = (q or "").strip().lower()
-    with eng.connect() as cx:
-        if q_norm:
-            if _has_ckw_column(data_ver):
-                sql = sa.text("""
-                    SELECT COUNT(*) FROM (
-                      SELECT id FROM vendors WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
-                      UNION
-                      SELECT id FROM vendors
-                      WHERE LOWER(
-                        COALESCE(business_name,'')||' '||
-                        COALESCE(category,'')||' '||
-                        COALESCE(service,'')||' '||
-                        COALESCE(notes,'')
-                      ) LIKE :q2
-                    )
-                """)
-                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%"}
-            else:
-                sql = sa.text("""
-                    SELECT COUNT(*) FROM vendors
-                    WHERE LOWER(
-                      COALESCE(business_name,'')||' '||
-                      COALESCE(category,'')||' '||
-                      COALESCE(service,'')||' '||
-                      COALESCE(notes,'')
-                    ) LIKE :q
-                """)
-                params = {"q": f"%{q_norm}%"}
-        else:
-            sql = sa.text("SELECT COUNT(*) FROM vendors")
-            params = {}
-        return int(cx.execute(sql, params).scalar() or 0)
-
-@st.cache_data(show_spinner=False)
-def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
-    """Return vendor IDs with CKW hits ranked before generic text hits; stable order otherwise."""
-    eng = get_engine()
-    q_norm = (q or "").strip().lower()
-    with eng.connect() as cx:
-        if q_norm:
-            if _has_ckw_column(data_ver):
-                sql = sa.text("""
-                    WITH m AS (
-                      SELECT id, 1 AS pri
-                      FROM vendors
-                      WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
-                      UNION ALL
-                      SELECT id, 2 AS pri
-                      FROM vendors
-                      WHERE LOWER(
-                        COALESCE(business_name,'')||' '||
-                        COALESCE(category,'')||' '||
-                        COALESCE(service,'')||' '||
-                        COALESCE(notes,'')
-                      ) LIKE :q2
-                    ),
-                    r AS (
-                      SELECT id, MIN(pri) AS pri
-                      FROM m
-                      GROUP BY id
-                    )
-                    SELECT id
-                    FROM r
-                    ORDER BY pri ASC, id ASC
-                    LIMIT :limit OFFSET :offset
-                """)
-                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
-            else:
-                sql = sa.text("""
-                    SELECT id
-                    FROM vendors
-                    WHERE LOWER(
-                      COALESCE(business_name,'')||' '||
-                      COALESCE(category,'')||' '||
-                      COALESCE(service,'')||' '||
-                      COALESCE(notes,'')
-                    ) LIKE :q
-                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
-                    LIMIT :limit OFFSET :offset
-                """)
-                params = {"q": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
-        else:
-            sql = sa.text("""
-                SELECT id
-                FROM vendors
-                ORDER BY business_name COLLATE NOCASE ASC, id ASC
-                LIMIT :limit OFFSET :offset
-            """)
-            params = {"limit": int(limit), "offset": int(offset)}
-        return [row[0] for row in cx.execute(sql, params).all()]
-
-@st.cache_data(show_spinner=False)
-def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
-    """Fetch display columns for a given tuple of IDs. Empty-safe."""
-    if not ids:
-        return pd.DataFrame(columns=[
-            "id","business_name","category","service","contact_name","phone","email",
-            "website","address","city","state","zip","notes","created_at","updated_at",
-            "computed_keywords","ckw_locked","ckw_version",
-        ])
-    eng = get_engine()
-    placeholders = ",".join([f":id{i}" for i in range(len(ids))])
-    params = {f"id{i}": v for i, v in enumerate(ids)}
-    with eng.connect() as cx:
-        sql = sa.text(f"""
-            SELECT
-              id, business_name, category, service, contact_name, phone, email,
-              website, address, city, state, zip, notes,
-              created_at, updated_at,
-              COALESCE(computed_keywords,'') AS computed_keywords,
-              IFNULL(ckw_locked,0) AS ckw_locked,
-              COALESCE(ckw_version,0) AS ckw_version
-            FROM vendors
-            WHERE id IN ({placeholders})
-        """)
-        df = pd.read_sql(sql, cx, params=params)
-    # Optional: sort by business_name for display consistency
-    if "business_name" in df.columns:
-        df = df.sort_values(["business_name","id"], kind="stable", ignore_index=True)
-    return df
-# ---- TEMP DIAGNOSTICS for Browse (place directly under the subheader) ----
-try:
-    # Pull query and paging inputs (adapt if you name them differently)
-    q = st.session_state.get("q", "").strip()
-    DATA_VER = st.session_state.get("DATA_VER", 0)
-    limit = PAGE_SIZE
-    offset = st.session_state.get("browse_offset", 0)
-
-    # 1) Count
-    try:
-        total = count_rows(q, DATA_VER)
-    except NameError:
-        # Fallback: plain count if helper missing
-        eng = get_engine()
-        with eng.connect() as cx:
-            total = int(cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0)
-
-    st.caption(f"[diag] total={total}, limit={limit}, offset={offset!r}, q={q!r}, DATA_VER={DATA_VER}")
-
-    # 2) Page IDs via CKW-first (fallback to simple query if helper missing)
-    try:
-        ids = search_ids_ckw_first(q, limit, offset, DATA_VER)
-    except NameError:
-        eng = get_engine()
-        with eng.connect() as cx:
-            if q:
-                qn = f"%{q.lower()}%"
-                rows = cx.exec_driver_sql("""
-                    SELECT id
-                    FROM vendors
-                    WHERE LOWER(
-                      COALESCE(business_name,'')||' '||
-                      COALESCE(category,'')||' '||
-                      COALESCE(service,'')||' '||
-                      COALESCE(notes,'')
-                    ) LIKE ?
-                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
-                    LIMIT ? OFFSET ?
-                """, (qn, int(limit), int(offset))).all()
-            else:
-                rows = cx.exec_driver_sql("""
-                    SELECT id
-                    FROM vendors
-                    ORDER BY business_name COLLATE NOCASE ASC, id ASC
-                    LIMIT ? OFFSET ?
-                """, (int(limit), int(offset))).all()
-        ids = [r[0] for r in rows]
-
-    st.caption(f"[diag] ids[0:10]={ids[:10]} (n={len(ids)})")
-
-    # 3) Fetch rows for those IDs (fallback to a single query if helper missing)
-    try:
-        vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
-    except NameError:
-        eng = get_engine()
-        if ids:
-            placeholders = ",".join(["?"] * len(ids))
-            with eng.connect() as cx:
-                vdf = pd.read_sql_query(f"""
-                    SELECT id, business_name, category, service, contact_name, phone, email,
-                           website, address, city, state, zip, notes, created_at, updated_at,
-                           COALESCE(computed_keywords,'') AS computed_keywords,
-                           IFNULL(ckw_locked,0) AS ckw_locked,
-                           COALESCE(ckw_version,0) AS ckw_version
-                    FROM vendors
-                    WHERE id IN ({placeholders})
-                """, cx, params=ids)
-            if "business_name" in vdf.columns:
-                vdf = vdf.sort_values(["business_name","id"], kind="stable", ignore_index=True)
-        else:
-            vdf = pd.DataFrame(columns=[
-                "id","business_name","category","service","contact_name","phone","email",
-                "website","address","city","state","zip","notes","created_at","updated_at",
-                "computed_keywords","ckw_locked","ckw_version",
-            ])
-
-    # 4) Render (always render, even if empty)
-    st.dataframe(vdf if len(vdf) <= MAX_RENDER_ROWS else vdf.head(MAX_RENDER_ROWS), use_container_width=True)
-
-except Exception as e:
-    import traceback, textwrap
-    st.error(f"Browse diagnostics failed: {e}")
-    st.code(textwrap.dedent(''.join(traceback.format_exc())))
-# ---- END TEMP DIAGNOSTICS ----
-
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     # Browse (Admin)
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     with tab_browse:
-        # (Per Randy) no page header here; global header only.
-
-        # Search box
         c1, c2 = st.columns([1, 0.3])
         q = c1.text_input(
             "Search",
@@ -841,15 +637,18 @@ except Exception as e:
             q = ""
         st.session_state["q"] = q
 
-        # Search CKW-first, fallback if needed; cap results; no Prev/Next
-        # NOTE: Assumes search_ids_ckw_first is refactored to be hashable-only and uses get_engine() internally.
-        ids = search_ids_ckw_first(q, limit=MAX_RENDER_ROWS_ADMIN, data_ver=DATA_VER)
-        n = len(ids)
+        # CKW-first search (no pager; cap)
+        limit = MAX_RENDER_ROWS_ADMIN
+        offset = 0
+        try:
+            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
+        except Exception as e:
+            st.error(f"Search failed: {e}")
+            ids = []
 
-        # If nothing matched, show DB target + total count so you know if DB is empty or query is too narrow
-        if n == 0:
+        if not ids:
             try:
-                with get_engine().begin() as cx:
+                with eng.connect() as cx:
                     target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
                     total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
                 st.info(
@@ -859,13 +658,11 @@ except Exception as e:
             except Exception as e:
                 st.info(f"No matches. (Diagnostics failed: {e})")
 
-        if n == MAX_RENDER_ROWS_ADMIN:
-            st.info(f"Showing first {MAX_RENDER_ROWS_ADMIN} matches (cap). Refine your search to narrow further.")
+        if len(ids) == limit:
+            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-        # NOTE: Assumes fetch_rows_by_ids is also refactored to be hashable-only and uses get_engine() internally.
-        df = fetch_rows_by_ids(ids, data_ver=DATA_VER)
+        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
 
-        # Column widths (secrets override)
         widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
         try:
             widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
@@ -873,21 +670,20 @@ except Exception as e:
             pass
         colcfg = _column_config_from_widths(widths)
 
-        # Render single-line cells; horizontal scroll via column widths
         st.dataframe(
-            df[BROWSE_COLUMNS],
+            df[BROWSE_COLUMNS] if not df.empty else df,
             hide_index=True,
             use_container_width=True,
             column_config=colcfg,
         )
 
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     with tab_manage:
         lc, rc = st.columns([1, 1], gap="large")
 
-        # ---------- Add (left) ----------
+        # Add
         with lc:
             st.subheader("Add Provider")
             cats = list_categories(eng)
@@ -895,23 +691,25 @@ except Exception as e:
 
             bn = st.text_input("Business Name *")
 
-            # Category select or new
             ccol1, ccol2 = st.columns([1, 1])
             cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats)
             cat_new = ccol2.text_input("New Category (optional)")
-            category = cat_new.strip() if cat_new.strip() else (cat_choice if cat_choice != "— Select —" else "")
+            category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
 
-            # Service select or new
             scol1, scol2 = st.columns([1, 1])
             srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs)
             srv_new = scol2.text_input("New Service (optional)")
-            service = srv_new.strip() if srv_new.strip() else (srv_choice if srv_choice != "— Select —" else "")
+            service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
 
             contact_name = st.text_input("Contact Name")
             phone = st.text_input("Phone")
             email = st.text_input("Email")
             website = st.text_input("Website")
             address = st.text_input("Address")
+            ac1, ac2, ac3 = st.columns([1, 0.5, 0.5])
+            city = ac1.text_input("City")
+            state = ac2.text_input("State")
+            zip_ = ac3.text_input("Zip")
             notes = st.text_area("Notes", height=100)
 
             disabled = not (bn.strip() and category and service)
@@ -925,16 +723,18 @@ except Exception as e:
                     "email": email.strip(),
                     "website": website.strip(),
                     "address": address.strip(),
+                    "city": city.strip(),
+                    "state": state.strip(),
+                    "zip": zip_.strip(),
                     "notes": notes.strip(),
                 }
                 vid = insert_vendor(eng, data)
-                ensure_lookup_value(eng, "categories", category)
-                ensure_lookup_value(eng, "services", service)
-                # Invalidate caches after a write
+                ensure_lookup_value(eng, "categories", data["category"])
+                ensure_lookup_value(eng, "services", data["service"])
                 st.session_state["DATA_VER"] += 1
                 st.success(f"Added provider #{vid}: {data['business_name']}")
 
-            # ---------- Delete (left, under Add) ----------
+            # Delete
             st.divider()
             st.subheader("Delete Provider")
             with eng.begin() as cx:
@@ -956,7 +756,7 @@ except Exception as e:
             else:
                 st.info("No providers to delete.")
 
-        # ---------- Edit (right) ----------
+        # Edit
         with rc:
             st.subheader("Edit Provider")
             with eng.begin() as cx:
@@ -971,30 +771,40 @@ except Exception as e:
                 sel_id = int(rows[labels.index(sel)][0])
                 with eng.begin() as cx:
                     r = cx.exec_driver_sql(
-                        "SELECT business_name,category,service,contact_name,phone,email,website,address,notes FROM vendors WHERE id=:id",
+                        "SELECT business_name,category,service,contact_name,phone,email,website,"
+                        "address,city,state,zip,notes FROM vendors WHERE id=:id",
                         {"id": sel_id},
                     ).mappings().first()
                 if r:
                     bn_e = st.text_input("Business Name *", value=r["business_name"])
-
                     cats = list_categories(eng)
                     srvs = list_services(eng)
 
                     e_c1, e_c2 = st.columns([1, 1])
-                    cat_choice_e = e_c1.selectbox("Category *", options=["— Select —"] + cats, index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0)
+                    cat_choice_e = e_c1.selectbox(
+                        "Category *", options=["— Select —"] + cats,
+                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0
+                    )
                     cat_new_e = e_c2.text_input("New Category (optional)")
-                    category_e = cat_new_e.strip() if cat_new_e.strip() else (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
+                    category_e = (cat_new_e or "").strip() or (cat_choice_e if cat_choice_e != "— Select —" else r["category"])
 
                     e_s1, e_s2 = st.columns([1, 1])
-                    srv_choice_e = e_s1.selectbox("Service *", options=["— Select —"] + srvs, index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0)
+                    srv_choice_e = e_s1.selectbox(
+                        "Service *", options=["— Select —"] + srvs,
+                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0
+                    )
                     srv_new_e = e_s2.text_input("New Service (optional)")
-                    service_e = srv_new_e.strip() if srv_new_e.strip() else (srv_choice_e if srv_choice_e != "— Select —" else r["service"])
+                    service_e = (srv_new_e or "").strip() or (srv_choice_e if srv_choice_e != "— Select —" else r["service"])
 
                     contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "")
                     phone_e = st.text_input("Phone", value=r["phone"] or "")
                     email_e = st.text_input("Email", value=r["email"] or "")
                     website_e = st.text_input("Website", value=r["website"] or "")
                     address_e = st.text_input("Address", value=r["address"] or "")
+                    ac1e, ac2e, ac3e = st.columns([1, 0.5, 0.5])
+                    city_e = ac1e.text_input("City", value=r["city"] or "")
+                    state_e = ac2e.text_input("State", value=r["state"] or "")
+                    zip_e = ac3e.text_input("Zip", value=r["zip"] or "")
                     notes_e = st.text_area("Notes", value=r["notes"] or "", height=100)
 
                     if st.button("Save Changes", type="primary"):
@@ -1007,6 +817,9 @@ except Exception as e:
                             "email": email_e.strip(),
                             "website": website_e.strip(),
                             "address": address_e.strip(),
+                            "city": city_e.strip(),
+                            "state": state_e.strip(),
+                            "zip": zip_e.strip(),
                             "notes": notes_e.strip(),
                         }
                         update_vendor(eng, sel_id, data)
@@ -1015,15 +828,14 @@ except Exception as e:
                         st.session_state["DATA_VER"] += 1
                         st.success(f"Saved changes to provider #{sel_id}.")
 
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     # Category / Service management
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     with tab_catsvc:
         st.subheader("Manage Categories & Services")
-
         cc, ss = st.columns([1, 1], gap="large")
 
-        # ---- Category management (left)
+        # Categories
         with cc:
             st.markdown("**Categories**")
             cats = list_categories(eng)
@@ -1070,9 +882,12 @@ except Exception as e:
                         cx.exec_driver_sql("DELETE FROM categories WHERE name=:n", {"n": from_cat})
                     changed = recompute_ckw_all(eng)
                     st.session_state["DATA_VER"] += 1
-                    st.success(f"Reassigned category '{from_cat}' → '{to_val}'. Recomputed CKW for {changed} provider(s).")
+                    st.success(
+                        f"Reassigned category '{from_cat}' → '{to_val}'. "
+                        f"Recomputed CKW for {changed} provider(s)."
+                    )
 
-        # ---- Service management (right)
+        # Services
         with ss:
             st.markdown("**Services**")
             srvs = list_services(eng)
@@ -1119,11 +934,14 @@ except Exception as e:
                         cx.exec_driver_sql("DELETE FROM services WHERE name=:n", {"n": from_srv})
                     changed = recompute_ckw_all(eng)
                     st.session_state["DATA_VER"] += 1
-                    st.success(f"Reassigned service '{from_srv}' → '{to_val}'. Recomputed CKW for {changed} provider(s).")
+                    st.success(
+                        f"Reassigned service '{from_srv}' → '{to_val}'. "
+                        f"Recomputed CKW for {changed} provider(s)."
+                    )
 
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     # Maintenance
-    # ---------------------
+    # ──────────────────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
         st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for bulk fixes.")
@@ -1155,4 +973,3 @@ except Exception as e:
 
 if __name__ == "__main__":
     main()
-
