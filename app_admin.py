@@ -1015,6 +1015,115 @@ def main() -> None:
         else:
             eng = get_engine()  # ensure local scope
             lc, rc = st.columns([1, 1], gap="large")
+            # ──────────────────────────────────────────────────────────────────────
+# >>> Delete Provider (checkbox + retype ID gate) — DROP-IN BLOCK
+# Place INSIDE: `with tab_manage:`
+# ──────────────────────────────────────────────────────────────────────
+st.markdown("### Delete Provider")
+st.caption(
+    "Danger zone: This permanently removes one record from **vendors**. "
+    "You must tick the checkbox and re-type the ID to proceed."
+)
+
+# Local fallback to get an engine if your app doesn't expose get_engine()
+def _get_engine_fallback():
+    try:
+        return get_engine()  # use your real builder if present
+    except Exception:
+        pass
+    import sqlalchemy as sa
+    db_path = globals().get("DB_PATH", "providers.db")
+    return sa.create_engine(f"sqlite:///{db_path}", future=True)
+
+import sqlalchemy as sa
+from sqlalchemy import text as sql_text
+
+c_id, c_load = st.columns([0.6, 0.4])
+raw_id = c_id.text_input("Provider ID", value=st.session_state.get("del_id", ""))
+if c_load.button("Load provider"):
+    st.session_state["del_id"] = raw_id
+
+def _digits_only(s: str) -> str:
+    return "".join(ch for ch in s if ch.isdigit())
+
+row = None
+id_ok = False
+del_id_str = st.session_state.get("del_id", "").strip()
+if del_id_str:
+    if _digits_only(del_id_str) == del_id_str:
+        try:
+            eng = _get_engine_fallback()
+            with eng.connect() as cx:
+                q = sql_text(
+                    "SELECT id, business_name, category, service, phone, website, created_at, updated_at "
+                    "FROM vendors WHERE id = :id"
+                )
+                cur = cx.execute(q, {"id": int(del_id_str)})
+                row = cur.mappings().first()
+                id_ok = row is not None
+        except Exception as e:
+            st.error(f"Lookup failed: {e}")
+
+if del_id_str and not id_ok:
+    st.info("No provider found with that ID.")
+
+if row:
+    st.markdown("**Provider to delete**")
+    st.write(
+        {
+            "id": row["id"],
+            "business_name": row["business_name"],
+            "category": row["category"],
+            "service": row["service"],
+            "phone": row["phone"],
+            "website": row["website"],
+        }
+    )
+
+    st.divider()
+    c1, c2 = st.columns([0.55, 0.45])
+    ok_checkbox = c1.checkbox(
+        "I understand this action is permanent and cannot be undone.",
+        key="del_perm_ack",
+        value=st.session_state.get("del_perm_ack", False),
+    )
+    confirm_str = c2.text_input(
+        f'Type **{row["id"]}** to confirm',
+        value=st.session_state.get("del_confirm_str", ""),
+        key="del_confirm_str",
+    )
+
+    can_delete = ok_checkbox and (confirm_str.strip() == str(row["id"]))
+
+    del_btn = st.button(
+        "Delete provider",
+        type="primary",
+        disabled=not can_delete,
+        help="Enabled only after you tick the checkbox and type the exact ID.",
+    )
+
+    if del_btn and can_delete:
+        try:
+            eng = _get_engine_fallback()
+            with eng.begin() as cx:  # transactional
+                dq = sql_text("DELETE FROM vendors WHERE id = :id")
+                res = cx.execute(dq, {"id": row["id"]})
+                # (Optional) res.rowcount check; SQLite returns 0/1 typically
+            # Bump DATA_VER to invalidate any cached datasets
+            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+
+            # Clear controls so accidental re-clicks don’t re-target
+            st.session_state["del_id"] = ""
+            st.session_state["del_perm_ack"] = False
+            st.session_state["del_confirm_str"] = ""
+
+            st.success(f"Deleted provider id={row['id']} ({row['business_name']}).")
+        except Exception as e:
+            st.error(f"Delete failed: {e}")
+
+# <<< End Delete Provider (checkbox + retype ID gate) — DROP-IN BLOCK
+# ──────────────────────────────────────────────────────────────────────
+
 
             # ---------- Add (left) ----------
             with lc:
