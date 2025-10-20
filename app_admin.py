@@ -917,7 +917,7 @@ with tab_browse:
         q = ""
     st.session_state["q"] = q
 
-    # ---- Resolve row IDs (CKW-first search) and load rows ----
+        # ---- Resolve row IDs (CKW-first search) and load rows ----
     try:
         ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, data_ver=DATA_VER)
         if not ids:
@@ -928,6 +928,7 @@ with tab_browse:
     except Exception as e:
         st.error(f"Browse failed: {e}")
         vdf = pd.DataFrame()
+
 
     # ---- Ensure desired columns exist; set display order ----
     BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
