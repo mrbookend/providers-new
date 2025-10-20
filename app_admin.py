@@ -35,7 +35,7 @@ from sqlalchemy.engine import Engine
 # ──────────────────────────────────────────────────────────────────────────
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
-APP_VER = "admin-2025-10-20.0"
+APP_VER = "admin-2025-10-20.1"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
@@ -51,7 +51,9 @@ if "DATA_VER" not in st.session_state:
 
 MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", str(MAX_RENDER_ROWS)))
 
-# Columns to display on Browse (Admin). CKW visible here for validation.
+# Columns to display on Browse (Admin)
+# - "keywords" is the human-curated column (ckw_manual_extra)
+# - "computed_keywords" is the algorithm output
 BROWSE_COLUMNS = [
     "business_name",
     "category",
@@ -62,6 +64,7 @@ BROWSE_COLUMNS = [
     "website",
     "address",
     "notes",
+    "keywords",
     "computed_keywords",
 ]
 
@@ -76,6 +79,7 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "website": 240,
     "address": 280,
     "notes": 360,
+    "keywords": 300,
     "computed_keywords": 420,
 }
 
@@ -353,7 +357,6 @@ def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
             ).mappings().first()
             if not r:
                 continue
-            # Minimal inline build (still decent); full batch path below is preferred
             ckw = compute_ckw(dict(r))
             cx.exec_driver_sql(
                 "UPDATE vendors SET computed_keywords=:ckw, ckw_version=:ver, updated_at=:u WHERE id=:id",
@@ -480,42 +483,6 @@ def _load_synonyms_category(category: str | None) -> list[str]:
         return []
     vals = _get_ckw_synonyms_map().get("category", {}).get(name, [])
     return [str(x).strip() for x in vals if str(x).strip()]
-
-
-# ---- CKW Seeds: ensure + existence check ---------------------------------
-def _ckw_seeds_exists(cx) -> bool:
-    try:
-        row = cx.exec_driver_sql(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
-        ).first()
-        return bool(row)
-    except Exception:
-        # libsql/Turso fallback: try probing the table
-        try:
-            cx.exec_driver_sql("SELECT 1 FROM ckw_seeds LIMIT 1")
-            return True
-        except Exception:
-            return False
-
-def ensure_ckw_seeds_table() -> None:
-    """
-    Create ckw_seeds if missing. Schema: one row per (category, service); keywords is JSON or delimited text.
-    """
-    eng = get_engine()
-    with eng.begin() as cx:
-        cx.exec_driver_sql("""
-            CREATE TABLE IF NOT EXISTS ckw_seeds (
-                category TEXT NOT NULL,
-                service  TEXT NOT NULL,
-                keywords TEXT NOT NULL,
-                PRIMARY KEY (category, service)
-            )
-        """)
-        # Optional: an index to help lookups even though PK covers it
-        cx.exec_driver_sql("""
-            CREATE INDEX IF NOT EXISTS idx_ckw_seeds_cat_svc
-            ON ckw_seeds(category, service)
-        """)
 
 
 @st.cache_data(show_spinner=False)
@@ -665,6 +632,7 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
             "notes",
             "created_at",
             "updated_at",
+            "keywords",
             "computed_keywords",
             "ckw_locked",
             "ckw_version",
@@ -679,6 +647,7 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
               id, business_name, category, service, contact_name, phone, email,
               website, address, notes,
               created_at, updated_at,
+              COALESCE(ckw_manual_extra,'') AS keywords,
               COALESCE(computed_keywords,'') AS computed_keywords,
               IFNULL(ckw_locked,0) AS ckw_locked,
               COALESCE(ckw_version,0) AS ckw_version
@@ -882,7 +851,7 @@ def main() -> None:
         st.subheader("Browse Providers")
 
         # ---- Search UI -------------------------------------------------------
-        c1, c2, c3 = st.columns([1, 0.25, 0.35])
+        c1, c2 = st.columns([1, 0.25])
         q = c1.text_input(
             "Search",
             value=st.session_state.get("q", ""),
@@ -891,12 +860,6 @@ def main() -> None:
         )
         if c2.button("Clear", key="browse_clear"):
             q = ""
-        dbg_ckw = c3.checkbox(
-            "Show computed_keywords",
-            value=False,
-            help="For debugging only; exposes the computed keyword string used for prioritization.",
-            key="browse_dbg_ckw",
-        )
         st.session_state["q"] = q
 
         # ---- CKW-first search (no pager; capped) -----------------------------
@@ -930,13 +893,7 @@ def main() -> None:
             df = fetch_rows_by_ids(tuple(ids), DATA_VER)
         except Exception as e:
             st.error(f"Fetch failed: {e}")
-            df = pd.DataFrame(columns=BROWSE_COLUMNS)  # ensure pandas is imported
-
-        # Optionally expose computed_keywords for debugging
-        display_cols = list(BROWSE_COLUMNS)
-        if dbg_ckw and "computed_keywords" in getattr(df, "columns", []):
-            if "computed_keywords" not in display_cols:
-                display_cols = display_cols + ["computed_keywords"]
+            df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
         # ---- Column widths / render ------------------------------------------
         widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
@@ -947,7 +904,7 @@ def main() -> None:
         colcfg = _column_config_from_widths(widths)
 
         st.dataframe(
-            df[display_cols] if not df.empty else df,
+            df[BROWSE_COLUMNS] if not df.empty else df,
             hide_index=True,
             use_container_width=True,
             column_config=colcfg,
@@ -1120,7 +1077,6 @@ def main() -> None:
     # Category / Service management
     # ──────────────────────────────────────────────────────────────────────
     with tab_catsvc:
-        #st.subheader("Manage Categories & Services")
         cc, ss = st.columns([1, 1], gap="large")
 
         # Categories
@@ -1223,172 +1179,32 @@ def main() -> None:
                         f"Recomputed CKW for {changed} provider(s)."
                     )
 
-        # ──────────────────────────────────────────────────────────────────────
-    # Maintenance
+    # ──────────────────────────────────────────────────────────────────────
+    # Maintenance — single-button CKW recompute (override locks always on)
     # ──────────────────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
-        st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for targeted or bulk recomputes.")
-        # ---- CKW sanity probe (optional) ---------------------------------
-        try:
-            eng = get_engine()
-            with eng.begin() as cx:
-                num_ckw = cx.exec_driver_sql(
-                    "SELECT COUNT(*) FROM vendors "
-                    "WHERE computed_keywords IS NOT NULL AND TRIM(computed_keywords) <> ''"
-                ).scalar()
-                sample = cx.exec_driver_sql(
-                    "SELECT id, business_name, category, service, "
-                    "SUBSTR(computed_keywords,1,80) AS ck "
-                    "FROM vendors ORDER BY id LIMIT 3"
-                ).all()
-            st.caption(f"CKW non-empty rows: {int(num_ckw or 0)}")
-            if sample:
-                st.code("\n".join(str(r) for r in sample))
-        except Exception as e:
-            st.info(f"CKW probe: {e}")
+        st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
 
-        # --- CKW seeds diagnostics (SAFE and inside the tab) --------------
+        # Optional display: count of providers (non-verbose)
         try:
-            eng = get_engine()
             with eng.begin() as cx:
-                # Check if ckw_seeds exists (SQLite/libsql-safe)
-                exists_row = cx.exec_driver_sql(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
-                ).first()
-                exists = bool(exists_row)
-
-            if not exists:
-                st.info("ckw_seeds table does not exist yet.")
-                if st.button("Create ckw_seeds table", key="create_ckw_seeds"):
-                    try:
-                        eng = get_engine()
-                        with eng.begin() as cx:
-                            cx.exec_driver_sql("""
-                                CREATE TABLE IF NOT EXISTS ckw_seeds (
-                                    category TEXT NOT NULL,
-                                    service  TEXT NOT NULL,
-                                    keywords TEXT NOT NULL,
-                                    PRIMARY KEY (category, service)
-                                )
-                            """)
-                            cx.exec_driver_sql("""
-                                CREATE INDEX IF NOT EXISTS idx_ckw_seeds_cat_svc
-                                ON ckw_seeds(category, service)
-                            """)
-                        st.success("ckw_seeds table created.")
-                    except Exception as e:
-                        st.error(f"Create table failed: {e}")
-            else:
-                # Show schema + a small sample if present
-                eng = get_engine()
-                with eng.begin() as cx:
-                    cols = cx.exec_driver_sql("PRAGMA table_info(ckw_seeds)").all()
-                    st.caption("ckw_seeds columns (cid, name, type, notnull, dflt, pk):")
-                    st.code("\n".join(str(c) for c in cols))
-                    sample = cx.exec_driver_sql("SELECT * FROM ckw_seeds LIMIT 5").mappings().all()
-                if sample:
-                    st.caption("ckw_seeds sample rows:")
-                    st.code("\n".join(str(dict(r)) for r in sample))
-                else:
-                    st.info("ckw_seeds exists but has no rows yet.")
-        except Exception as e:
-            st.info(f"Seeds diagnostics: {e}")
-
-        # Optional: insert a couple of example JSON seeds to test recompute
-        try:
-            eng = get_engine()
-            with eng.begin() as cx:
-                exists_row = cx.exec_driver_sql(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
-                ).first()
-                seeds_table_exists = bool(exists_row)
+                total_rows = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            st.caption(f"Providers in scope: {int(total_rows)}")
         except Exception:
-            seeds_table_exists = False
+            pass
 
-        if seeds_table_exists and st.button("Insert example CKW seeds (JSON)", key="ckw_seed_examples"):
+        if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
             try:
-                eng = get_engine()
-                with eng.begin() as cx:
-                    cx.exec_driver_sql(
-                        "INSERT OR REPLACE INTO ckw_seeds(category, service, keywords) VALUES (:c,:s,:k)",
-                        [
-                            {"c": "Home Repair & Trades", "s": "Garage Doors",
-                             "k": '["garage door","opener","torsion spring","panel","track","remote"]'},
-                            {"c": "Insurance", "s": "Insurance Agent",
-                             "k": '["insurance","policy","broker","homeowners","auto","umbrella","medicare"]'},
-                        ],
-                    )
-                st.success("Inserted example seeds. Now run STALE or ALL.")
-            except Exception as e:
-                st.error(f"Insert failed: {e}")
-
-        # ---- Single provider recompute -----------------------------------
-        try:
-            eng = get_engine()
-            with eng.begin() as cx:
-                opts = cx.exec_driver_sql(
-                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-                ).all()
-        except Exception as e:
-            opts = []
-            st.error(f"Failed to load providers: {e}")
-
-        if opts:
-            labels = [f"#{pid} — {name}" for (pid, name) in opts]
-            sel_label = st.selectbox("Recompute CKW for one provider", options=["— Select —"] + labels)
-            if sel_label != "— Select —":
-                idx = labels.index(sel_label)
-                vid = int(opts[idx][0])
-
-                if st.button("Recompute keywords for this provider", key="ckw_one"):
-                    try:
-                        n_sel, n_upd = _recompute_ckw_for_ids([vid], override_locks=False)
-                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                        st.success(f"Selected: {n_sel} | Updated: {n_upd} (provider id={vid})")
-                    except Exception as e:
-                        st.error(f"Recompute failed: {e}")
-        else:
-            st.info("No providers found.")
-
-        # ---- Bulk recompute ----------------------------------------------
-        st.divider()
-        st.subheader("Bulk recompute")
-        st.caption("Use STALE for safe, minimal updates. Use ALL for full rebuilds; you can override locks if needed.")
-
-        c1, c2, c3 = st.columns(3)
-        if c1.button("Recompute STALE (unlocked only)", key="ckw_stale"):
-            try:
-                eng = get_engine()
                 with eng.begin() as cx:
                     ids = _select_vendor_ids_for_ckw(
-                        cx, mode="stale", current_ver=CURRENT_VER, override_locks=False
+                        cx, mode="all", current_ver=CURRENT_VER, override_locks=True
                     )
-                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=False)
+                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
                 st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Stale selection: {n_sel} | Updated: {n_upd}")
+                st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
             except Exception as e:
-                st.error(f"Stale recompute failed: {e}")
-
-        override = c2.checkbox(
-            "Override locks for ALL",
-            value=False,
-            help="If checked, locked providers will be recomputed too.",
-        )
-        if c3.button("Recompute ALL", key="ckw_all"):
-            try:
-                eng = get_engine()
-                with eng.begin() as cx:
-                    ids = _select_vendor_ids_for_ckw(
-                        cx, mode="all", current_ver=CURRENT_VER, override_locks=override
-                    )
-                n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=override)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"All selection: {n_sel} | Updated: {n_upd} (override_locks={override})")
-            except Exception as e:
-                st.error(f"ALL recompute failed: {e}")
-
-
+                st.error(f"Recompute ALL failed: {e}")
 
 
 if __name__ == "__main__":
