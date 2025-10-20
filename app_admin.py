@@ -35,12 +35,13 @@ from sqlalchemy.engine import Engine
 
 
 
-# =============================
-#   Global constants / policy
-# =============================
-APP_VER = "admin-2025-10-19.final"
+# ---- Globals / constants ----
+APP_VER = "admin-2025-10-19.x"  # keep whatever you use
 DB_PATH = os.getenv("DB_PATH", "providers.db")
-MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", "500"))
+SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")  # <— re-add this
+PAGE_SIZE = 200
+# MAX_RENDER_ROWS_ADMIN, BROWSE_COLUMNS, etc. as you already have them
+
 
 # Columns to display on Browse (Admin). CKW visible here for validation.
 BROWSE_COLUMNS = [
