@@ -956,7 +956,62 @@ def main() -> None:
         if c_clear.button("Clear", use_container_width=True):
             q = ""
         st.session_state["q"] = q
+        # ---- Ensure `vdf` exists and render table (DROP-IN GUARD) ----
+        try:
+            vdf  # type: ignore[name-defined]
+        except NameError:
+            data_ver = str(st.session_state.get("DATA_VER", "n/a"))
+            if q.strip():
+                # Filtered: use your CKW-first ID search + fetch
+                try:
+                    ids = search_ids_ckw_first(q.strip(), data_ver) or []
+                except Exception as e:
+                    st.error(f"Search failed: {e}")
+                    ids = []
+                if ids:
+                    # TODO: replace 0 with your real paging offset if you have one
+                    page_ids = tuple(ids[:PAGE_SIZE])
+                    try:
+                        vdf = fetch_rows_by_ids(page_ids, data_ver)
+                    except Exception as e:
+                        st.error(f"Fetch by IDs failed: {e}")
+                        vdf = pd.DataFrame()
+                else:
+                    vdf = pd.DataFrame()
+            else:
+                # Unfiltered: take first page of all rows (ordered by business_name)
+                try:
+                    eng = get_engine()
+                    with eng.connect() as cx:
+                        vdf = pd.read_sql(
+                            sa.text("""
+                                SELECT *
+                                FROM vendors
+                                ORDER BY business_name COLLATE NOCASE
+                                LIMIT :limit
+                            """),
+                            cx,
+                            params={"limit": PAGE_SIZE},
+                        )
+                except Exception as e:
+                    st.error(f"Unfiltered load failed: {e}")
+                    vdf = pd.DataFrame()
 
+            # Optional: align columns to your display set if you keep one
+            try:
+                display_cols = list(BROWSE_DISPLAY_COLUMNS)
+                vdf = vdf[[c for c in display_cols if c in vdf.columns]]
+            except Exception:
+                pass
+
+        # Render table (always)
+        if isinstance(vdf, pd.DataFrame) and not vdf.empty:
+            st.dataframe(vdf, use_container_width=True, hide_index=True)
+        else:
+            st.info("No matches.")  # still shows footer so CSV/Help logic can run
+
+
+        
         # ---- YOUR EXISTING FETCH/RENDER GOES HERE ----
         # Example (keep your real code):
         # total = count_rows(q, DATA_VER)
