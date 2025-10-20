@@ -517,6 +517,82 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
         df = df.sort_values(["business_name", "id"], kind="stable", ignore_index=True)
     return df
 
+def _select_vendor_ids_for_ckw(cx, *, mode: str, current_ver: int, override_locks: bool) -> list[int]:
+    """
+    mode: "stale" or "all"
+    - stale: unlocked AND (ckw_version != current_ver OR computed_keywords IS NULL OR computed_keywords = '')
+    - all:   all rows; if not override_locks, exclude ckw_locked=1
+    """
+    if mode == "stale":
+        sql = (
+            "SELECT id FROM vendors "
+            "WHERE COALESCE(ckw_locked,0)=0 "
+            "AND (COALESCE(ckw_version,0) <> :v OR computed_keywords IS NULL OR computed_keywords='')"
+        )
+        rows = cx.exec_driver_sql(sql, {"v": current_ver}).all()
+    elif mode == "all":
+        if override_locks:
+            sql = "SELECT id FROM vendors"
+            rows = cx.exec_driver_sql(sql).all()
+        else:
+            sql = "SELECT id FROM vendors WHERE COALESCE(ckw_locked,0)=0"
+            rows = cx.exec_driver_sql(sql).all()
+    else:
+        return []
+    return [int(r[0]) for r in rows]
+
+def _chunk_iter(seq, n=500):
+    it = iter(seq)
+    while True:
+        chunk = list([x for _, x in zip(range(n), it)])
+        if not chunk:
+            return
+        yield chunk
+
+def _fetch_rows_for_ids(cx, ids: list[int]) -> list[dict]:
+    # Use a dynamic IN list to avoid the "IN :ids" pitfall.
+    placeholders = ",".join([f":id{i}" for i in range(len(ids))])
+    sql = (
+        "SELECT id, business_name, category, service, notes, ckw_locked, ckw_version, updated_at "
+        f"FROM vendors WHERE id IN ({placeholders})"
+    )
+    params = {f"id{i}": v for i, v in enumerate(ids)}
+    return [dict(r) for r in cx.exec_driver_sql(sql, params).mappings().all()]
+def _recompute_ckw_for_ids(ids: list[int], *, override_locks: bool) -> tuple[int, int]:
+    """
+    Returns: (n_selected, n_updated)
+    """
+    if not ids:
+        return (0, 0)
+    eng = get_engine()
+    total_selected = 0
+    total_updated = 0
+    with eng.begin() as cx:
+        for chunk in _chunk_iter(ids, n=500):
+            rows = _fetch_rows_for_ids(cx, chunk)
+            total_selected += len(rows)
+            updates = []
+            for row in rows:
+                if row.get("ckw_locked") and not override_locks:
+                    continue
+                # Load expansions
+                seed = _load_ckw_seed(cx, row.get("category",""), row.get("service",""))
+                syn_svc = _load_synonyms_service(row.get("service",""))
+                syn_cat = _load_synonyms_category(row.get("category",""))
+                new_ckw = _build_ckw(row, seed=seed, syn_service=syn_svc, syn_category=syn_cat)
+                updates.append({
+                    "ckw": new_ckw,
+                    "ver": CURRENT_VER,
+                    "id": row["id"],
+                })
+            if updates:
+                # executemany
+                cx.exec_driver_sql(
+                    "UPDATE vendors SET computed_keywords=:ckw, ckw_version=:ver WHERE id=:id",
+                    updates,
+                )
+                total_updated += len(updates)
+    return (total_selected, total_updated)
 
 # ──────────────────────────────────────────────────────────────────────────
 # CRUD helpers
