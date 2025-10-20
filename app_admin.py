@@ -971,8 +971,8 @@ with tab_browse:
     remaining = [c for c in vdf.columns if c not in preferred]
     display_cols = preferred + remaining
 
-        # ---- Table (horizontal scroll via wide container; index hidden) ----
-    # Hide id/created_at/updated_at and any CKW columns; enforce a visible column order
+            # ---- Table (horizontal scroll via wide container; index hidden) ----
+    # Hide id/created_at/updated_at and any CKW columns; enforce order; force horizontal scroll via column widths
 
     # Start from whatever rows you already loaded into 'vdf'
     _src = vdf.copy()
@@ -995,22 +995,24 @@ with tab_browse:
     _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw(c)]
 
     # Enforced order for the *visible* columns; anything else stays but goes after
-    ORDER = [
-        "business_name",
-        "category",
-        "service",
-        "phone",
-        "website",
-        "notes",
-    ]
+    ORDER = ["business_name", "category", "service", "phone", "website", "notes"]
     _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-    # Render
+    # Build column_config with widths to force horizontal scroll when total width > page
+    _cfg = {}
+    for c in _ordered:
+        # Use your defaults if present; else a sensible width
+        w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
+        _cfg[c] = st.column_config.TextColumn(c.replace("_", " ").title(), width=w)
+
+    # Render: with explicit widths, the table will exceed the page width -> scrollbar appears
     _view = _src.loc[:, _ordered] if not _src.empty else _src
     st.dataframe(
         _view,
-        use_container_width=True,
+        column_config=_cfg,
+        use_container_width=True,  # fills container; overflow handled with horizontal scroll
         hide_index=True,
+        height=520,               # tweak if you want more/less vertical rows visible
     )
 
     # ---- Bottom toolbar (CSV export + help) ----
@@ -1033,8 +1035,6 @@ with tab_browse:
 
     except Exception as e:
         st.warning(f"CSV download/help unavailable: {e}")
-
-
 
 # ─────────────────────────────────────────────────────────────────────
 # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
