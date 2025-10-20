@@ -329,6 +329,42 @@ def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
 # ──────────────────────────────────────────────────────────────────────────
 # CKW-first search helpers (hashable-only, no engine param)
 # ──────────────────────────────────────────────────────────────────────────
+# ---- CKW Seeds: ensure + existence check ---------------------------------
+def _ckw_seeds_exists(cx) -> bool:
+    try:
+        row = cx.exec_driver_sql(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
+        ).first()
+        return bool(row)
+    except Exception:
+        # libsql/Turso fallback: try probing the table
+        try:
+            cx.exec_driver_sql("SELECT 1 FROM ckw_seeds LIMIT 1")
+            return True
+        except Exception:
+            return False
+
+def ensure_ckw_seeds_table() -> None:
+    """
+    Create ckw_seeds if missing. Schema: one row per (category, service); keywords is JSON or delimited text.
+    """
+    eng = get_engine()
+    with eng.begin() as cx:
+        cx.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS ckw_seeds (
+                category TEXT NOT NULL,
+                service  TEXT NOT NULL,
+                keywords TEXT NOT NULL,
+                PRIMARY KEY (category, service)
+            )
+        """)
+        # Optional: an index to help lookups even though PK covers it
+        cx.exec_driver_sql("""
+            CREATE INDEX IF NOT EXISTS idx_ckw_seeds_cat_svc
+            ON ckw_seeds(category, service)
+        """)
+
+
 @st.cache_data(show_spinner=False)
 def _has_ckw_column(data_ver: int) -> bool:
     eng = get_engine()
@@ -1048,7 +1084,7 @@ except Exception as e:
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
         st.caption("CKW is auto-updated on Add/Edit and when you reassign categories/services. Use these for targeted or bulk recomputes.")
-
+       
         # ---- Single provider recompute -----------------------------------
         try:
             eng = get_engine()
