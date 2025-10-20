@@ -884,6 +884,14 @@ def main() -> None:
 
     # Tabs (context)
     # tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"])
+    # --- Guard: ensure tabs exist in this scope before using `tab_browse` ---
+    try:
+        tab_browse  # type: ignore[name-defined]
+    except NameError:
+        # If your project uses different tab names or titles, change them here
+        tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+            ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+        )
 
     # Patch #4: Early DB sanity so later tabs don't silently die on first DB touch
     try:
