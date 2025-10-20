@@ -855,9 +855,7 @@ def main() -> None:
         with cc:
             st.markdown("**Categories**")
             cats = list_categories(eng)
-            st.caption(f"{len(cats)} categories")
-            st.write(", ".join(cats) or "—")
-
+            
             st.markdown("**Add Category**")
             new_cat = st.text_input("New Category", key="add_cat")
             if st.button("Add Category") and new_cat.strip():
@@ -907,9 +905,7 @@ def main() -> None:
         with ss:
             st.markdown("**Services**")
             srvs = list_services(eng)
-            st.caption(f"{len(srvs)} services")
-            st.write(", ".join(srvs) or "—")
-
+            
             st.markdown("**Add Service**")
             new_srv = st.text_input("New Service", key="add_srv")
             if st.button("Add Service") and new_srv.strip():
