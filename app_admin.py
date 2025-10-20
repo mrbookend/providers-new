@@ -971,9 +971,44 @@ with tab_browse:
     remaining = [c for c in vdf.columns if c not in preferred]
     display_cols = preferred + remaining
 
-    # ---- Table (horizontal scroll via wide container; index hidden) ----
+        # ---- Table (horizontal scroll via wide container; index hidden) ----
+    # Hide id/created_at/updated_at and any CKW columns; enforce a visible column order
+
+    # Start from whatever rows you already loaded into 'vdf'
+    _src = vdf.copy()
+
+    # Columns to hide (explicit)
+    _HIDE_EXACT = {
+        "id",
+        "created_at",
+        "updated_at",
+        "computed_keywords",
+        "ckw_locked",
+        "ckw_version",
+    }
+
+    # Hide any column whose name begins with ckw_
+    def _is_ckw(col: str) -> bool:
+        return col.startswith("ckw_")
+
+    # Compute visible set
+    _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw(c)]
+
+    # Enforced order for the *visible* columns; anything else stays but goes after
+    ORDER = [
+        "business_name",
+        "category",
+        "service",
+        "phone",
+        "website",
+        "notes",
+    ]
+    _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
+    # Render
+    _view = _src.loc[:, _ordered] if not _src.empty else _src
     st.dataframe(
-        vdf[display_cols] if not vdf.empty else vdf,
+        _view,
         use_container_width=True,
         hide_index=True,
     )
@@ -982,9 +1017,9 @@ with tab_browse:
     try:
         bt1, bt_sp = st.columns([0.2, 0.8])
 
-        if not vdf.empty:
-            # CSV export (matches current display order)
-            csv_bytes = vdf[display_cols].to_csv(index=False).encode("utf-8")
+        if not _view.empty:
+            # CSV export matches what’s visible (same order)
+            csv_bytes = _view.to_csv(index=False).encode("utf-8")
             bt1.download_button(
                 "Download CSV",
                 data=csv_bytes,
@@ -998,6 +1033,7 @@ with tab_browse:
 
     except Exception as e:
         st.warning(f"CSV download/help unavailable: {e}")
+
 
 
 # ─────────────────────────────────────────────────────────────────────
