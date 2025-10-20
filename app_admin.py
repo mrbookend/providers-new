@@ -880,79 +880,79 @@ def main() -> None:
     # Browse (Admin)
     # ──────────────────────────────────────────────────────────────────────
     with tab_browse:
-    st.subheader("Browse Providers")
+        st.subheader("Browse Providers")
 
-    # ---- Search UI -------------------------------------------------------
-    c1, c2, c3 = st.columns([1, 0.25, 0.35])
-    q = c1.text_input(
-        "Search",
-        value=st.session_state.get("q", ""),
-        placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
-        key="browse_search",
-    )
-    if c2.button("Clear", key="browse_clear"):
-        q = ""
-    dbg_ckw = c3.checkbox(
-        "Show computed_keywords",
-        value=False,
-        help="For debugging only; exposes the computed keyword string used for prioritization.",
-        key="browse_dbg_ckw",
-    )
-    st.session_state["q"] = q
+        # ---- Search UI -------------------------------------------------------
+        c1, c2, c3 = st.columns([1, 0.25, 0.35])
+        q = c1.text_input(
+            "Search",
+            value=st.session_state.get("q", ""),
+            placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
+            key="browse_search",
+        )
+        if c2.button("Clear", key="browse_clear"):
+            q = ""
+        dbg_ckw = c3.checkbox(
+            "Show computed_keywords",
+            value=False,
+            help="For debugging only; exposes the computed keyword string used for prioritization.",
+            key="browse_dbg_ckw",
+        )
+        st.session_state["q"] = q
 
-    # ---- CKW-first search (no pager; capped) -----------------------------
-    limit = MAX_RENDER_ROWS_ADMIN
-    offset = 0
-    try:
-        ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
-    except Exception as e:
-        st.error(f"Search failed: {e}")
-        ids = []
-
-    if not ids:
-        # Lightweight DB diagnostics to help the operator
+        # ---- CKW-first search (no pager; capped) -----------------------------
+        limit = locals().get("MAX_RENDER_ROWS_ADMIN", None) or MAX_RENDER_ROWS
+        offset = 0
         try:
-            eng = get_engine()
-            with eng.connect() as cx:
-                db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            st.info(
-                f"No matches. DB: {db_target} | vendors: {total_cnt}. "
-                "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-            )
+            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
         except Exception as e:
-            st.info(f"No matches. (Diagnostics failed: {e})")
+            st.error(f"Search failed: {e}")
+            ids = []
 
-    if len(ids) == limit and limit > 0:
-        st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+        if not ids:
+            # Lightweight DB diagnostics to help the operator
+            try:
+                eng = get_engine()
+                with eng.connect() as cx:
+                    db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
+                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+                st.info(
+                    f"No matches. DB: {db_target} | vendors: {total_cnt}. "
+                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
+                )
+            except Exception as e:
+                st.info(f"No matches. (Diagnostics failed: {e})")
 
-    # ---- Fetch rows by id list -------------------------------------------
-    try:
-        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-    except Exception as e:
-        st.error(f"Fetch failed: {e}")
-        df = pd.DataFrame(columns=BROWSE_COLUMNS)
+        if len(ids) == limit and limit > 0:
+            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-    # Optionally expose computed_keywords for debugging
-    display_cols = list(BROWSE_COLUMNS)
-    if dbg_ckw and "computed_keywords" in getattr(df, "columns", []):
-        if "computed_keywords" not in display_cols:
-            display_cols = display_cols + ["computed_keywords"]
+        # ---- Fetch rows by id list -------------------------------------------
+        try:
+            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+        except Exception as e:
+            st.error(f"Fetch failed: {e}")
+            df = pd.DataFrame(columns=BROWSE_COLUMNS)  # ensure pandas is imported
 
-    # ---- Column widths / render ------------------------------------------
-    widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-    try:
-        widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    except Exception:
-        pass
-    colcfg = _column_config_from_widths(widths)
+        # Optionally expose computed_keywords for debugging
+        display_cols = list(BROWSE_COLUMNS)
+        if dbg_ckw and "computed_keywords" in getattr(df, "columns", []):
+            if "computed_keywords" not in display_cols:
+                display_cols = display_cols + ["computed_keywords"]
 
-    st.dataframe(
-        df[display_cols] if not df.empty else df,
-        hide_index=True,
-        use_container_width=True,
-        column_config=colcfg,
-    )
+        # ---- Column widths / render ------------------------------------------
+        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+        try:
+            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        except Exception:
+            pass
+        colcfg = _column_config_from_widths(widths)
+
+        st.dataframe(
+            df[display_cols] if not df.empty else df,
+            hide_index=True,
+            use_container_width=True,
+            column_config=colcfg,
+        )
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
