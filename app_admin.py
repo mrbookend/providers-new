@@ -860,10 +860,6 @@ def main() -> None:
         st.session_state["DATA_VER"] = 0
     DATA_VER = st.session_state["DATA_VER"]
 
-    # ── Initialize search widget state (single source of truth) ───────────
-    if "browse_search" not in st.session_state:
-        st.session_state["browse_search"] = ""
-
     # ---- Build engine early and ensure schema BEFORE any queries ----
     eng = get_engine()
     try:
@@ -900,20 +896,24 @@ def main() -> None:
         DATA_VER = st.session_state.get("DATA_VER", 0)
         st.subheader("Browse Providers")
 
-        # ---- Search UI ---------------------------------------------------
+        # --- handlers (defined before widgets that use these keys) ---
+        def _clear_browse_search():
+            st.session_state["browse_search"] = ""
+
+        # ---- Search UI -------------------------------------------------------
         c1, c2 = st.columns([1, 0.25])
         c1.text_input(
             "Search",
+            value=st.session_state.get("browse_search", ""),
             placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
             key="browse_search",
         )
-        if c2.button("Clear", key="browse_clear"):
-            st.session_state["browse_search"] = ""
-            st.experimental_rerun()
+        c2.button("Clear", key="browse_clear", on_click=_clear_browse_search)
 
+        # Use the canonical query value from session state
         q = st.session_state.get("browse_search", "")
 
-        # ---- CKW-first search (no pager; capped) -------------------------
+        # ---- CKW-first search (no pager; capped) -----------------------------
         limit = MAX_RENDER_ROWS_ADMIN
         offset = 0
         try:
@@ -938,14 +938,14 @@ def main() -> None:
         if len(ids) == limit and limit > 0:
             st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
 
-        # ---- Fetch rows by id list ---------------------------------------
+        # ---- Fetch rows by id list -------------------------------------------
         try:
             df = fetch_rows_by_ids(tuple(ids), DATA_VER)
         except Exception as e:
             st.error(f"Fetch failed: {e}")
             df = pd.DataFrame(columns=BROWSE_COLUMNS)
 
-        # ---- Column widths / render --------------------------------------
+        # ---- Column widths / render ------------------------------------------
         widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
         try:
             widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
@@ -957,7 +957,6 @@ def main() -> None:
         for _col in BROWSE_COLUMNS:
             if _col not in df.columns:
                 df[_col] = ""
-
         df = df[BROWSE_COLUMNS]
 
         st.dataframe(
@@ -1269,10 +1268,7 @@ def main() -> None:
             st.error(f"Maintenance init failed: {e}")
             st.stop()
 
-        st.caption(
-            "Rebuilds computed_keywords for every provider, ignoring CKW locks. "
-            "Use after changing keywords, seeds, or algorithm."
-        )
+        st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
 
         # Ensure seeds table exists (non-fatal)
         try:
@@ -1280,7 +1276,7 @@ def main() -> None:
         except Exception as e:
             st.warning(f"Could not verify ckw_seeds table (continuing without seeds): {e}")
 
-        # Button with surfaced exceptions and post-success refresh
+        # Button with surfaced exceptions + hard refresh on success
         if st.button("Recompute ALL now (override locks ON)", type="primary", key="ckw_all_onebutton"):
             try:
                 with eng.begin() as cx:
@@ -1289,13 +1285,11 @@ def main() -> None:
                     )
                 n_sel, n_upd = _recompute_ckw_for_ids(ids, override_locks=True)
                 st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                # Reset search so CKW shows right away on Browse
-                st.session_state["browse_search"] = ""
                 st.success(f"Processed: {n_sel} | Updated: {n_upd} (override_locks=True)")
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"Recompute ALL failed: {e}")
-                st.exception(e)  # ensures the tab is not blank; shows traceback
+                st.exception(e)
 
 
 if __name__ == "__main__":
