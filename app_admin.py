@@ -868,7 +868,15 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
 # ──────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────
-    def main() -> None:
+def _has_table(eng: Engine, name: str) -> bool:
+    try:
+        with eng.connect() as cx:
+            rows = cx.exec_driver_sql(f"PRAGMA table_info({name})").all()
+        return bool(rows)
+    except Exception:
+        return False
+
+def main() -> None:
     # ---- DATA_VER init (cache-buster for @st.cache_data) ----
     if "DATA_VER" not in st.session_state:
         st.session_state["DATA_VER"] = 0
@@ -896,266 +904,266 @@ def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # Tabs (recreate to avoid undefined names)
-tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-    ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
-)
-
-# ──────────────────────────────────────────────────────────────────────
-# Browse (Admin)
-# ──────────────────────────────────────────────────────────────────────
-with tab_browse:
-    # ---- Compact search row (50% width; label collapsed; inline Clear) ----
-    c1, c2, c3 = st.columns([0.5, 0.12, 0.38])
-    q = c1.text_input(
-        label="Search",  # label intentionally hidden
-        value=st.session_state.get("q", ""),
-        placeholder="Search name, category, service, notes, phone, website…",
-        label_visibility="collapsed",
-    )
-    if c2.button("Clear", use_container_width=True):
-        q = ""
-    st.session_state["q"] = q
-
-    # ---- Resolve row IDs (CKW-first search) and load rows ----
+    # Determine if DB is ready for managed tabs that depend on tables
     try:
-        ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, data_ver=DATA_VER)
-        if not ids:
-            st.info("No matches.")
+        with eng.connect() as cx:
+            cx.exec_driver_sql("SELECT 1 FROM vendors LIMIT 1").first()
+        DB_READY = True
+    except Exception:
+        DB_READY = False
+
+    # Tabs
+    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
+        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+    )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Browse (Admin)
+    # ─────────────────────────────────────────────────────────────────────
+    with tab_browse:
+        # ---- Compact search row (50% width; label collapsed; inline Clear) ----
+        c1, c2, c3 = st.columns([0.5, 0.12, 0.38])
+        q = c1.text_input(
+            label="Search",  # label intentionally hidden
+            value=st.session_state.get("q", ""),
+            placeholder="Search name, category, service, notes, phone, website…",
+            label_visibility="collapsed",
+        )
+        if c2.button("Clear", use_container_width=True):
+            q = ""
+        st.session_state["q"] = q
+
+        # ---- Resolve row IDs (CKW-first search) and load rows ----
+        try:
+            ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=DATA_VER)
+            if not ids:
+                st.info("No matches.")
+                vdf = pd.DataFrame()
+            else:
+                vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
+        except Exception as e:
+            st.error(f"Browse failed: {e}")
             vdf = pd.DataFrame()
-        else:
-            vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
-    except Exception as e:
-        st.error(f"Browse failed: {e}")
-        vdf = pd.DataFrame()
 
-    # ---- Ensure desired columns exist; set display order ----
-    BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
-    CKW_COLS  = ["keywords", "computed_keywords"]  # adjust if schema differs
-    META_COLS = ["created_at", "updated_at"]
+        # ---- Ensure desired columns exist; set display order ----
+        BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
+        CKW_COLS  = ["keywords", "computed_keywords"]  # adjust if schema differs
+        META_COLS = ["created_at", "updated_at"]
 
-    for col in CKW_COLS + META_COLS:
-        if col not in vdf.columns:
-            vdf[col] = ""
+        for col in CKW_COLS + META_COLS:
+            if col not in vdf.columns:
+                vdf[col] = ""
 
-    preferred = [c for c in BASE_COLS + CKW_COLS + META_COLS if c in vdf.columns]
-    remaining = [c for c in vdf.columns if c not in preferred]
-    display_cols = preferred + remaining
+        preferred = [c for c in BASE_COLS + CKW_COLS + META_COLS if c in vdf.columns]
+        remaining = [c for c in vdf.columns if c not in preferred]
+        display_cols = preferred + remaining
 
-    # ---- Table (horizontal scroll via wide container; index hidden) ----
-    st.dataframe(
-        vdf[display_cols] if not vdf.empty else vdf,
-        use_container_width=True,
-        hide_index=True,
-    )
+        # ---- Table (horizontal scroll via wide container; index hidden) ----
+        st.dataframe(
+            vdf[display_cols] if not vdf.empty else vdf,
+            use_container_width=True,
+            hide_index=True,
+        )
 
-        # ---- Bottom toolbar (exports + CKW visibility control) ----
-    try:
-        bt1, bt2, bt3, bt_sp = st.columns([0.18, 0.18, 0.20, 0.44])
+        # ---- Bottom toolbar (exports + CKW visibility control + help) ----
+        try:
+            bt1, bt2, bt3, bt_sp = st.columns([0.18, 0.18, 0.20, 0.44])
 
-        if not vdf.empty:
-            # CSV export (matches current display order)
-            csv_bytes = vdf[display_cols].to_csv(index=False).encode("utf-8")
-            bt1.download_button(
-                "Download CSV",
-                data=csv_bytes,
-                file_name="providers.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-
-            # XLSX export (optional but included)
-            from io import BytesIO
-            b = BytesIO()
-            with pd.ExcelWriter(b, engine="xlsxwriter") as xw:
-                vdf[display_cols].to_excel(xw, index=False, sheet_name="Providers")
-            bt2.download_button(
-                "Download XLSX",
-                data=b.getvalue(),
-                file_name="providers.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-        # Show/Hide CKW columns control at the bottom (per your request)
-        if "show_ckw" not in st.session_state:
-            st.session_state["show_ckw"] = True
-        label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
-        if bt3.button(label, use_container_width=True):
-            st.session_state["show_ckw"] = not st.session_state["show_ckw"]
-
-        with st.expander("Help — How to use Browse (click to open)", expanded=False):
-            st.markdown(HELP_MD)
-
-    except Exception as e:
-        st.warning(f"CSV download/help unavailable: {e}")
-
-
-# ──────────────────────────────────────────────────────────────────────
-# Add / Edit / Delete  (guarded to avoid crashes when tables missing)
-# ──────────────────────────────────────────────────────────────────────
-with tab_manage:
-    if not DB_READY:
-        st.info("Database not ready — skipping Add/Edit UI because required tables are missing.")
-    else:
-        # ---------- Your existing Add/Edit/Delete code starts here ----------
-        eng = get_engine()  # ensure local scope
-        lc, rc = st.columns([1, 1], gap="large")
-
-        # ---------- Add (left) ----------
-        with lc:
-            st.subheader("Add Provider")
-
-            # Safely fetch categories/services; avoid crashing if tables absent
-            cats = list_categories(eng) if _has_table(eng, "categories") else []
-            srvs = list_services(eng) if _has_table(eng, "services") else []
-
-            bn = st.text_input("Business Name *", key="bn_add")
-
-            # Category select or new
-            ccol1, ccol2 = st.columns([1, 1])
-            cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-            cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
-            category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
-
-            # Service select or new
-            scol1, scol2 = st.columns([1, 1])
-            srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
-            srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
-            service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
-
-            contact_name = st.text_input("Contact Name", key="contact_add")
-            phone = st.text_input("Phone", key="phone_add")
-            email = st.text_input("Email", key="email_add")
-            website = st.text_input("Website", key="website_add")
-            address = st.text_input("Address", key="address_add")
-            notes = st.text_area("Notes", height=100, key="notes_add")
-
-            keywords_manual = st.text_area(
-                "Keywords",
-                value="",
-                help=(
-                    "Optional, comma/pipe/semicolon-separated phrases to always include. "
-                    "Example: garage door, torsion spring, opener repair"
-                ),
-                height=80,
-                key="kw_add",
-            )
-        # ---------- Your existing Add/Edit/Delete code continues below ----------
-
-        
-        # ---------- Your existing Add/Edit/Delete code continues below ----------
-
-
-            disabled = not (bn.strip() and category and service)
-            if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
-                data = {
-                    "business_name": bn.strip(),
-                    "category": category.strip(),
-                    "service": service.strip(),
-                    "contact_name": contact_name.strip(),
-                    "phone": phone.strip(),
-                    "email": email.strip(),
-                    "website": website.strip(),
-                    "address": address.strip(),
-                    "notes": notes.strip(),
-                    "ckw_manual_extra": (keywords_manual or "").strip(),
-                }
-                vid = insert_vendor(eng, data)
-                ensure_lookup_value(eng, "categories", data["category"])
-                ensure_lookup_value(eng, "services", data["service"])
-                st.session_state["DATA_VER"] += 1
-                st.success(
-                    f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords."
+            if not vdf.empty:
+                # CSV export (matches current display order)
+                csv_bytes = vdf[display_cols].to_csv(index=False).encode("utf-8")
+                bt1.download_button(
+                    "Download CSV",
+                    data=csv_bytes,
+                    file_name="providers.csv",
+                    mime="text/csv",
+                    use_container_width=True,
                 )
 
-        # ---------- Edit (right) ----------
-        with rc:
-            st.subheader("Edit Provider")
-            with eng.begin() as cx:
-                rows = cx.exec_driver_sql(
-                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-                ).all()
+                # XLSX export (optional but included)
+                from io import BytesIO
+                b = BytesIO()
+                with pd.ExcelWriter(b, engine="xlsxwriter") as xw:
+                    vdf[display_cols].to_excel(xw, index=False, sheet_name="Providers")
+                bt2.download_button(
+                    "Download XLSX",
+                    data=b.getvalue(),
+                    file_name="providers.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
 
-            if not rows:
-                st.info("No providers yet.")
-            else:
-                labels = [f"#{i} — {n}" for (i, n) in rows]
-                sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
-                sel_id = int(rows[labels.index(sel)][0])
+            # Show/Hide CKW columns control at the bottom (per your request)
+            if "show_ckw" not in st.session_state:
+                st.session_state["show_ckw"] = True
+            label = "Hide CKW Columns" if st.session_state["show_ckw"] else "Show CKW Columns"
+            if bt3.button(label, use_container_width=True):
+                st.session_state["show_ckw"] = not st.session_state["show_ckw"]
 
+            with st.expander("Help — How to use Browse (click to open)", expanded=False):
+                st.markdown(HELP_MD)
+
+        except Exception as e:
+            st.warning(f"CSV download/help unavailable: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
+    # ─────────────────────────────────────────────────────────────────────
+    with tab_manage:
+        if not DB_READY:
+            st.info("Database not ready — skipping Add/Edit UI because required tables are missing.")
+        else:
+            eng = get_engine()  # ensure local scope
+            lc, rc = st.columns([1, 1], gap="large")
+
+            # ---------- Add (left) ----------
+            with lc:
+                st.subheader("Add Provider")
+
+                cats = list_categories(eng) if _has_table(eng, "categories") else []
+                srvs = list_services(eng) if _has_table(eng, "services") else []
+
+                bn = st.text_input("Business Name *", key="bn_add")
+
+                # Category select or new
+                ccol1, ccol2 = st.columns([1, 1])
+                cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+                cat_new = ccol2.text_input("New Category (optional)", key="cat_add_new")
+                category = (cat_new or "").strip() or (cat_choice if cat_choice != "— Select —" else "")
+
+                # Service select or new
+                scol1, scol2 = st.columns([1, 1])
+                srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+                srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
+                service = (srv_new or "").strip() or (srv_choice if cat_choice != "— Select —" else "")
+
+                contact_name = st.text_input("Contact Name", key="contact_add")
+                phone = st.text_input("Phone", key="phone_add")
+                email = st.text_input("Email", key="email_add")
+                website = st.text_input("Website", key="website_add")
+                address = st.text_input("Address", key="address_add")
+                notes = st.text_area("Notes", height=100, key="notes_add")
+
+                keywords_manual = st.text_area(
+                    "Keywords",
+                    value="",
+                    help=(
+                        "Optional, comma/pipe/semicolon-separated phrases to always include. "
+                        "Example: garage door, torsion spring, opener repair"
+                    ),
+                    height=80,
+                    key="kw_add",
+                )
+
+                disabled = not (bn.strip() and category and service)
+                if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
+                    data = {
+                        "business_name": bn.strip(),
+                        "category": category.strip(),
+                        "service": service.strip(),
+                        "contact_name": contact_name.strip(),
+                        "phone": phone.strip(),
+                        "email": email.strip(),
+                        "website": website.strip(),
+                        "address": address.strip(),
+                        "notes": notes.strip(),
+                        "ckw_manual_extra": (keywords_manual or "").strip(),
+                    }
+                    vid = insert_vendor(eng, data)
+                    ensure_lookup_value(eng, "categories", data["category"])
+                    ensure_lookup_value(eng, "services", data["service"])
+                    st.session_state["DATA_VER"] += 1
+                    st.success(
+                        f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords."
+                    )
+
+            # ---------- Edit (right) ----------
+            with rc:
+                st.subheader("Edit Provider")
                 with eng.begin() as cx:
-                    r = cx.exec_driver_sql(
-                        "SELECT business_name,category,service,contact_name,phone,email,website,"
-                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
-                        {"id": sel_id},
-                    ).mappings().first()
+                    rows = cx.exec_driver_sql(
+                        "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                    ).all()
 
-                if r:
-                    bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
+                if not rows:
+                    st.info("No providers yet.")
+                else:
+                    labels = [f"#{i} — {n}" for (i, n) in rows]
+                    sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+                    sel_id = int(rows[labels.index(sel)][0])
 
-                    cats = list_categories(eng)
-                    srvs = list_services(eng)
+                    with eng.begin() as cx:
+                        r = cx.exec_driver_sql(
+                            "SELECT business_name,category,service,contact_name,phone,email,website,"
+                            "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
+                            {"id": sel_id},
+                        ).mappings().first()
 
-                    e_c1, e_c2 = st.columns([1, 1])
-                    cat_choice_e = e_c1.selectbox(
-                        "Category *", options=["— Select —"] + cats,
-                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
-                        key="cat_edit_sel",
-                    )
-                    cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
-                    category_e = (cat_new_e or "").strip() or (
-                        cat_choice_e if cat_choice_e != "— Select —" else r["category"]
-                    )
+                    if r:
+                        bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
 
-                    e_s1, e_s2 = st.columns([1, 1])
-                    srv_choice_e = e_s1.selectbox(
-                        "Service *", options=["— Select —"] + srvs,
-                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
-                        key="srv_edit_sel",
-                    )
-                    srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
-                    service_e = (srv_new_e or "").strip() or (
-                        srv_choice_e if srv_choice_e != "— Select —" else r["service"]
-                    )
+                        cats = list_categories(eng)
+                        srvs = list_services(eng)
 
-                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                    phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
-                    email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
-                    website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
-                    address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
-                    notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+                        e_c1, e_c2 = st.columns([1, 1])
+                        cat_choice_e = e_c1.selectbox(
+                            "Category *", options=["— Select —"] + cats,
+                            index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                            key="cat_edit_sel",
+                        )
+                        cat_new_e = e_c2.text_input("New Category (optional)", key="cat_edit_new")
+                        category_e = (cat_new_e or "").strip() or (
+                            cat_choice_e if cat_choice_e != "— Select —" else r["category"]
+                        )
 
-                    keywords_manual_e = st.text_area(
-                        "Keywords",
-                        value=(r.get("ckw_manual_extra") or ""),
-                        help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
-                        height=80,
-                        key="kw_edit",
-                    )
+                        e_s1, e_s2 = st.columns([1, 1])
+                        srv_choice_e = e_s1.selectbox(
+                            "Service *", options=["— Select —"] + srvs,
+                            index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                            key="srv_edit_sel",
+                        )
+                        srv_new_e = e_s2.text_input("New Service (optional)", key="srv_edit_new")
+                        service_e = (srv_new_e or "").strip() or (
+                            srv_choice_e if srv_choice_e != "— Select —" else r["service"]
+                        )
 
-                    if st.button("Save Changes", type="primary", key="save_changes_btn"):
-                        data = {
-                            "business_name": bn_e.strip(),
-                            "category": category_e.strip(),
-                            "service": service_e.strip(),
-                            "contact_name": contact_name_e.strip(),
-                            "phone": phone_e.strip(),
-                            "email": email_e.strip(),
-                            "website": website_e.strip(),
-                            "address": address_e.strip(),
-                            "notes": notes_e.strip(),
-                            "ckw_manual_extra": (keywords_manual_e or "").strip(),
-                        }
-                        update_vendor(eng, sel_id, data)
-                        ensure_lookup_value(eng, "categories", data["category"])
-                        ensure_lookup_value(eng, "services", data["service"])
-                        st.session_state["DATA_VER"] += 1
-                        st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
+                        contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+                        phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
+                        email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
+                        website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
+                        address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
+                        notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
 
-    # ──────────────────────────────────────────────────────────────────────
+                        keywords_manual_e = st.text_area(
+                            "Keywords",
+                            value=(r.get("ckw_manual_extra") or ""),
+                            help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
+                            height=80,
+                            key="kw_edit",
+                        )
+
+                        if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                            data = {
+                                "business_name": bn_e.strip(),
+                                "category": category_e.strip(),
+                                "service": service_e.strip(),
+                                "contact_name": contact_name_e.strip(),
+                                "phone": phone_e.strip(),
+                                "email": email_e.strip(),
+                                "website": website_e.strip(),
+                                "address": address_e.strip(),
+                                "notes": notes_e.strip(),
+                                "ckw_manual_extra": (keywords_manual_e or "").strip(),
+                            }
+                            update_vendor(eng, sel_id, data)
+                            ensure_lookup_value(eng, "categories", data["category"])
+                            ensure_lookup_value(eng, "services", data["service"])
+                            st.session_state["DATA_VER"] += 1
+                            st.success(f"Saved changes to provider #{sel_id}.  — run “Recompute ALL” to apply keywords.")
+
+    # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
-    # ──────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
     with tab_catsvc:
         eng = get_engine()  # ensure local scope
         cc, ss = st.columns([1, 1], gap="large")
@@ -1212,7 +1220,6 @@ with tab_manage:
                         ensure_lookup_value(eng, "categories", to_val)
                         with eng.begin() as cx:
                             cx.exec_driver_sql("DELETE FROM categories WHERE name=:n", {"n": from_cat})
-                        # Quick all-rows recompute via helper
                         changed = recompute_ckw_all(eng)
                         st.session_state["DATA_VER"] += 1
                         st.success(
@@ -1283,9 +1290,10 @@ with tab_manage:
                     except Exception as e:
                         st.error(f"Reassign failed: {e}")
 
-            # ==== MAINTENANCE TAB (FULL, INDENTED 4 SPACES INSIDE main()) ====
+    # ─────────────────────────────────────────────────────────────────────
+    # Maintenance
+    # ─────────────────────────────────────────────────────────────────────
     with tab_maint:
-        # ── Maintenance — Computed Keywords (CKW): Force Recompute ALL (override locks)
         st.subheader("Maintenance — Computed Keywords (CKW)")
         try:
             eng = get_engine()
@@ -1300,7 +1308,6 @@ with tab_manage:
             "Use after changing keywords, seeds, or algorithm."
         )
 
-        # WARNING before risky operation
         st.warning(
             "WARNING: This overwrites computed_keywords on **ALL** rows and updates ckw_version. "
             "Locked rows will be updated as well (override locks).",
@@ -1313,22 +1320,20 @@ with tab_manage:
         with c2:
             if st.button("Force Recompute ALL (override locks)", disabled=not _confirm, type="primary"):
                 try:
-                    # Prefer calling your existing recompute helper if it exists:
                     called = False
                     for fn_name in (
-                        "recompute_ckw_all_override",    # common name in your baseline
-                        "force_recompute_all_ckw",       # alt naming
-                        "recompute_ckw_force_all",       # alt naming
-                        "recompute_ckw_all",             # alt (may respect locks)
+                        "recompute_ckw_all_override",
+                        "force_recompute_all_ckw",
+                        "recompute_ckw_force_all",
+                        "recompute_ckw_all",
                     ):
                         fn = globals().get(fn_name)
                         if callable(fn):
-                            fn()  # function should do its own commit
+                            fn()
                             called = True
                             break
 
                     if not called:
-                        # Fallback: minimal SQL-side rebuild that ignores locks.
                         with eng.begin() as tx:
                             new_ver = tx.exec_driver_sql(
                                 "SELECT COALESCE(MAX(ckw_version), 0) + 1 FROM vendors"
@@ -1345,8 +1350,6 @@ with tab_manage:
                                 """,
                                 {"v": int(new_ver)},
                             )
-
-                    # Cache-bust so Browse/export refresh
                     st.session_state["DATA_VER"] = f"{st.session_state.get('DATA_VER','0')}-ckw-{datetime.now(timezone.utc).strftime('%H%M%S')}"
                     st.success("CKW force recompute complete. Refreshing views…")
                 except Exception as e:
@@ -1354,7 +1357,6 @@ with tab_manage:
 
         st.divider()
 
-        # ── Local cached helpers (scoped to this tab)
         @st.cache_data
         def _backup_csv_bytes(df: pd.DataFrame, data_ver: str) -> tuple[bytes, str]:
             ts = datetime.now(timezone.utc).strftime("%Y%m%d")
@@ -1402,7 +1404,6 @@ with tab_manage:
 
         @st.cache_data
         def _ckw_current_version() -> int:
-            # Prefer a defined constant if present; otherwise derive from data.
             try:
                 return int(CKW_VER)  # type: ignore[name-defined]
             except Exception:
@@ -1453,13 +1454,11 @@ with tab_manage:
                     params={"cur": cur},
                 )
 
-        # Quick header with count
         try:
             st.caption(f"Providers in scope: {_count_providers()}")
         except Exception as e:
             st.warning(f"Count unavailable: {e}")
 
-        # ── 1) Quick Engine Probe
         with st.expander("Quick Engine Probe", expanded=False):
             try:
                 with get_engine().connect() as cx:
@@ -1468,7 +1467,6 @@ with tab_manage:
             except Exception as e:
                 st.error(f"Engine/DB check failed: {e}")
 
-        # ── 2) Integrity Self-Test (safe checks only)
         with st.expander("Run Integrity Self-Test", expanded=False):
             if st.button("Run self-test now", key="btn_integrity"):
                 try:
@@ -1487,7 +1485,6 @@ with tab_manage:
                 except Exception as e:
                     st.error(f"Self-test failed: {e}")
 
-        # ── 3) CKW Seed Coverage (shows stored seeds by (category, service) if table exists)
         with st.expander("CKW Seed Coverage", expanded=False):
             if st.button("Show seed coverage", key="btn_seed_cov"):
                 try:
@@ -1505,7 +1502,6 @@ with tab_manage:
                 except Exception as e:
                     st.warning(f"No seed table or query failed: {e}")
 
-        # ── 4) CKW Stale Audit (compare to current CKW version)
         with st.expander("CKW Stale Audit", expanded=False):
             cur = _ckw_current_version()
             st.caption(f"Current CKW version: {cur}")
@@ -1518,7 +1514,6 @@ with tab_manage:
                     st.warning(f"{total} provider(s) have stale CKW.")
                     if not preview.empty:
                         st.dataframe(preview, use_container_width=True, hide_index=True)
-                    # Download full stale list as CSV
                     stale_full = _ckw_stale_all_ids()
                     csv_bytes, csv_name = _backup_csv_bytes(stale_full, str(st.session_state.get("DATA_VER", "n/a")))
                     st.download_button(
@@ -1531,7 +1526,6 @@ with tab_manage:
             except Exception as e:
                 st.error(f"CKW audit failed: {e}")
 
-        # ── 5) Full CSV Backup (entire table; aligns with your normal export order)
         with st.expander("Download Full CSV Backup", expanded=False):
             try:
                 data_ver = str(st.session_state.get("DATA_VER", "n/a"))
@@ -1550,7 +1544,6 @@ with tab_manage:
                     st.caption(f"Rows: {len(df_all)}  |  DATA_VER={data_ver}")
             except Exception as e:
                 st.error(f"Backup export failed: {e}")
-
 
 if __name__ == "__main__":
     main()
