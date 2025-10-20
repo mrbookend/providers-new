@@ -971,9 +971,9 @@ with tab_browse:
     remaining = [c for c in vdf.columns if c not in preferred]
     display_cols = preferred + remaining
 
-                    # ---- Table (horizontal scroll via wide container; index hidden) ----
-    # Show Keywords (ckw_manual_extra) and CKW (computed_keywords), hide id/created/updated & CKW control fields.
-    # Enforce column order and horizontal scroll via explicit widths. Cast to strings to avoid Arrow ValueError.
+                        # ---- Table (horizontal scroll via wide container; index hidden) ----
+    # Show Keywords and CKW; hide id/created/updated & CKW control fields.
+    # Enforce order + widths for horizontal scroll, and cast cells to strings to avoid Arrow ValueError.
 
     _src = vdf.copy()
 
@@ -983,20 +983,14 @@ with tab_browse:
     if "ckw_manual_extra" not in _src.columns:
         _src["ckw_manual_extra"] = ""
 
-    # Provide a friendly alias 'keywords' for display while keeping original data
+    # Friendlier label for manual extras
     _src = _src.rename(columns={"ckw_manual_extra": "keywords"})
 
-    # Columns to hide (note: keep 'computed_keywords' and 'keywords' visible)
-    _HIDE_EXACT = {
-        "id",
-        "created_at",
-        "updated_at",
-        "ckw_locked",
-        "ckw_version",
-    }
+    # Columns to hide (keep 'keywords' and 'computed_keywords' visible)
+    _HIDE_EXACT = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
 
     def _is_ckw_control(col: str) -> bool:
-        # Hide internal CKW control/metadata columns (any ckw_*), but keep computed_keywords visible
+        # Hide internal CKW control/metadata columns (any ckw_*), but we've already renamed ckw_manual_extra
         return col.startswith("ckw_")
 
     # Compute visible set
@@ -1007,7 +1001,7 @@ with tab_browse:
         "business_name",
         "category",
         "service",
-        "keywords",             # human-curated
+        "keywords",             # human-curated extras (was ckw_manual_extra)
         "computed_keywords",    # CKW
         "phone",
         "website",
@@ -1015,20 +1009,53 @@ with tab_browse:
     ]
     _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-    # Column widths + friendly labels (forces horizontal scroll if total width > page)
+    # Column widths + friendly labels (forces horizontal scroll if total width exceeds page)
     _cfg = {}
     for c in _ordered:
         w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
-        label = (
-            "Keywords" if c == "keywords"
-            else ("CKW" if c == "computed_keywords" else c.replace("_", " ").title())
-        )
+        label = "Keywords" if c == "keywords" else ("CKW" if c == "computed_keywords" else c.replace("_", " ").title())
         _cfg[c] = st.column_config.TextColumn(label, width=w)
 
-    # Render (ordered) and cast to strings to avoid Arrow ValueError on mixed types
-    _view = _src.loc[:, _ordered] if not _src.empty else _src
-    _view_safe = _view.fillna("").astype(str)
+    # ---- Build a string-safe view to satisfy PyArrow ----
+    from datetime import datetime as _dt
+    import json as _json
 
+    def _to_str_safe(x):
+        # Fast-path None/NaN
+        if x is None:
+            return ""
+        # Datetime-like
+        try:
+            if isinstance(x, (_dt,)):
+                return x.isoformat(sep=" ", timespec="seconds")
+        except Exception:
+            pass
+        # Bytes
+        if isinstance(x, (bytes, bytearray)):
+            try:
+                return x.decode("utf-8", errors="replace")
+            except Exception:
+                return str(x)
+        # Dict → JSON (stable, unambiguous)
+        if isinstance(x, dict):
+            try:
+                return _json.dumps(x, ensure_ascii=False)
+            except Exception:
+                return str(x)
+        # List/tuple/set → comma-joined
+        if isinstance(x, (list, tuple, set)):
+            return ", ".join("" if (v is None) else str(v) for v in x)
+        # Everything else
+        try:
+            return "" if pd.isna(x) else str(x)
+        except Exception:
+            return str(x)
+
+    _view = _src.loc[:, _ordered] if not _src.empty else _src
+    # Apply safe conversion per cell
+    _view_safe = _view.applymap(_to_str_safe)
+
+    # Render
     st.dataframe(
         _view_safe,
         column_config=_cfg,
@@ -1042,7 +1069,7 @@ with tab_browse:
         bt1, bt_sp = st.columns([0.2, 0.8])
 
         if not _view_safe.empty:
-            # CSV export matches what’s visible (same columns, same order, string-safe)
+            # CSV export matches the visible table (same columns, same order, string-safe)
             csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
             bt1.download_button(
                 "Download CSV",
