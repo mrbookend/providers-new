@@ -882,14 +882,14 @@ def main() -> None:
     def _mark_clear_browse():
         st.session_state["_clear_browse"] = True
 
-    # Tabs (all tab blocks must remain inside main())
-    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
-    )
+    # Tabs (context)
+    # tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"])
 
     # Patch #4: Early DB sanity so later tabs don't silently die on first DB touch
     try:
-        _ = get_engine().connect().close()
+        # Prefer a context manager; avoids leaving a dangling connection on exceptions
+        with get_engine().connect() as _cx:
+            pass
     except Exception as e:
         st.error(f"Database unavailable: {e}")
 
@@ -897,79 +897,94 @@ def main() -> None:
     # Browse (Admin)
     # ──────────────────────────────────────────────────────────────────────
     with tab_browse:
-        eng = get_engine()  # ensure local scope
-        DATA_VER = st.session_state.get("DATA_VER", 0)
-        st.subheader("Browse Providers")
+        # ---- Local cached helpers (inside tab to avoid module-level cache collisions) ----
+        @st.cache_data
+        def _csv_bytes_for_df(df: pd.DataFrame, data_ver: str, q: str, ids_fingerprint: str) -> tuple[bytes, str]:
+            """Cache CSV export bytes. Fingerprint prevents recompute for same visible data."""
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d")
+            name = f"providers-{('filtered-' if q.strip() else 'all-')}{ts}.csv"
+            return df.to_csv(index=False).encode("utf-8"), name
 
-        # --- CLEAR HANDLER (must run BEFORE text_input renders) -------------
-        if st.session_state.get("_clear_browse", False):
-            st.session_state["_clear_browse"] = False
-            # Clear the actual query value BEFORE the widget is created this run
-            st.session_state["browse_q"] = ""
+        @st.cache_data
+        def _load_all_rows_df(data_ver: str) -> pd.DataFrame:
+            """Load ALL provider rows for unfiltered export."""
+            eng = get_engine()
+            with eng.connect() as cx:
+                return pd.read_sql(sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE"), cx)
 
-        # ---- Search UI -----------------------------------------------------
-        c1, c2 = st.columns([1, 0.25])
-        q = c1.text_input(
+        @st.cache_data
+        def _load_filtered_rows_df(q: str, data_ver: str) -> pd.DataFrame:
+            """
+            Load ALL filtered rows (not just current page).
+            Uses your CKW-first search + fetch to match real ordering.
+            """
+            ids = search_ids_ckw_first(q, data_ver)
+            if not ids:
+                return pd.DataFrame()
+            return fetch_rows_by_ids(tuple(ids), data_ver)
+
+        # ---- One-row Search + Clear (50% width), compact header (no subheader) ----
+        c_search, c_clear, _sp = st.columns([0.50, 0.12, 0.38])
+        q = c_search.text_input(
             "Search",
-            value=st.session_state.get("browse_q", ""),
-            placeholder="name, category, service, notes, phone, website… (CKW prioritized)",
-            key="browse_q",  # Never assign to this key later in the same run
+            value=st.session_state.get("q", ""),
+            placeholder="Search name, category, service, notes, phone, website…",
+            label_visibility="collapsed",
         )
-        # Clear only sets a flag so we don't mutate 'browse_q' after widget creation
-        c2.button("Clear", key="browse_clear", on_click=_mark_clear_browse)
+        if c_clear.button("Clear", use_container_width=True):
+            q = ""
+        st.session_state["q"] = q
 
-        # ---- CKW-first search (no pager; capped) ---------------------------
-        limit = MAX_RENDER_ROWS_ADMIN
-        offset = 0
+        # ---- YOUR EXISTING FETCH/RENDER GOES HERE ----
+        # Example (keep your real code):
+        # total = count_rows(q, DATA_VER)
+        # vdf = fetch_page(q=q, offset=offset, limit=PAGE_SIZE, data_ver=DATA_VER)
+        # st.dataframe(vdf, use_container_width=True, hide_index=True)
+
+        # ---- Footer: CSV-only download (filtered = ALL filtered rows; unfiltered = ALL records) + Help expander ----
         try:
-            ids = search_ids_ckw_first(q, limit=limit, offset=offset, data_ver=DATA_VER)
-        except Exception as e:
-            st.error(f"Search failed: {e}")
-            ids = []
+            data_ver = str(st.session_state.get("DATA_VER", "n/a"))
+            if q.strip():
+                try:
+                    df_for_export = _load_filtered_rows_df(q.strip(), data_ver)
+                    if df_for_export.empty:
+                        df_for_export = vdf.copy() if isinstance(vdf, pd.DataFrame) else pd.DataFrame()
+                except Exception:
+                    df_for_export = vdf.copy() if isinstance(vdf, pd.DataFrame) else pd.DataFrame()
+            else:
+                df_for_export = _load_all_rows_df(data_ver)
 
-        if not ids:
-            # Lightweight DB diagnostics to help the operator
+            # Optional: align exported columns to your display list if you have one
             try:
-                with eng.connect() as cx:
-                    db_target = cx.exec_driver_sql("PRAGMA database_list").fetchone()[2]
-                    total_cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-                st.info(
-                    f"No matches. DB: {db_target} | vendors: {total_cnt}. "
-                    "Tip: click **Clear** to reset search, or set DB_PATH in secrets."
-                )
-            except Exception as e:
-                st.info(f"No matches. (Diagnostics failed: {e})")
+                display_cols = list(BROWSE_DISPLAY_COLUMNS)
+                df_for_export = df_for_export[[c for c in display_cols if c in df_for_export.columns]]
+            except Exception:
+                pass
 
-        if len(ids) == limit and limit > 0:
-            st.caption(f"Showing first {limit} matches (cap). Refine your search to narrow further.")
+            # Stable fingerprint for caching
+            if "id" in df_for_export.columns:
+                ids_fp = f"{len(df_for_export)}:{tuple(df_for_export['id'].tolist()[:5])}:{tuple(df_for_export['id'].tolist()[-5:])}"
+            else:
+                ids_fp = f"shape:{df_for_export.shape}"
 
-        # ---- Fetch rows by id list -----------------------------------------
-        try:
-            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+            csv_bytes, csv_name = _csv_bytes_for_df(df_for_export, data_ver, q, ids_fp)
+
+            c_dl, _pad = st.columns([0.25, 0.75])
+            c_dl.download_button(
+                "Download CSV",
+                data=csv_bytes,
+                file_name=csv_name,
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+            # Full-width help expander (long, printable)
+            with st.expander("Help — How to use Browse (click to open)", expanded=False):
+                st.markdown(HELP_MD)
+
         except Exception as e:
-            st.error(f"Fetch failed: {e}")
-            df = pd.DataFrame(columns=BROWSE_COLUMNS)
+            st.warning(f"CSV download/help unavailable: {e}")
 
-        # ---- Column widths / render ----------------------------------------
-        widths = dict(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
-        try:
-            widths.update(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-        except Exception:
-            pass
-        colcfg = _column_config_from_widths(widths)
-
-        # Safety fill to guarantee columns exist and order is correct
-        for _col in BROWSE_COLUMNS:
-            if _col not in df.columns:
-                df[_col] = ""
-        df = df[BROWSE_COLUMNS]
-
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True,
-            column_config=colcfg,
-        )
 
     # ──────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
