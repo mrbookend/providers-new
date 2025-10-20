@@ -936,7 +936,6 @@ def main() -> None:
     # Optionally expose computed_keywords for debugging
     display_cols = list(BROWSE_COLUMNS)
     if dbg_ckw and "computed_keywords" in getattr(df, "columns", []):
-        # Show CKW at the end without disturbing your configured column widths
         if "computed_keywords" not in display_cols:
             display_cols = display_cols + ["computed_keywords"]
 
