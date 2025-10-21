@@ -13,3 +13,7 @@ app_admin.py.CONFLICT.BAK
 
 # local patches
 *.patch
+
+# local backups
+app_admin.py.bak-*
+.github/workflows/ci.yml.bak-*
