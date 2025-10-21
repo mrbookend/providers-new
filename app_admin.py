@@ -1003,29 +1003,40 @@ with tab_browse:
     if c2.button("Clear", use_container_width=True):
         q = ""
     st.session_state["q"] = q
-# [BEGIN ANCHOR — keep this line above]
-st.session_state["q"] = q
 
-try:
-    # Acquire engine (uses your local fallback defined earlier in this tab)
-    engine = _get_engine_fallback()
+    # ---- Local helper to get an engine with a safe fallback ----
+    def _get_engine_fallback():
+        # Prefer your real builder if it exists
+        try:
+            return get_engine()  # or build_engine() if that's your function name
+        except Exception:
+            pass
+        # Fallback to local SQLite file defined by DB_PATH (or providers.db)
+        import sqlalchemy as sa
+        db_path = globals().get("DB_PATH", "providers.db")
+        return sa.create_engine(f"sqlite:///{db_path}", future=True)
 
-    # Count and fetch
-    total = count_rows(_engine=engine, q=q)
-    st.caption(f"{total} matching provider(s)")
+    # [BEGIN ANCHOR — keep this line above]
+    try:
+        # Acquire engine (uses your local fallback defined earlier in this tab)
+        engine = _get_engine_fallback()
 
-    df = fetch_page(_engine=engine, q=q, offset=0, limit=PAGE_SIZE)
+        # Count and fetch
+        total = count_rows(_engine=engine, q=q)
+        st.caption(f"{total} matching provider(s)")
 
-    # Render table (guard empty)
-    if df is None or len(df) == 0:
-        st.info("No matches.")
-    else:
-        st.dataframe(df, use_container_width=True)
+        df = fetch_page(_engine=engine, q=q, offset=0, limit=PAGE_SIZE)
 
-except Exception as e:
-    st.error(f"Browse failed: {e}")
-    st.stop()
-# [END ANCHOR — keep this line below]
+        # Render table (guard empty)
+        if df is None or len(df) == 0:
+            st.info("No matches.")
+        else:
+            st.dataframe(df, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Browse failed: {e}")
+        st.stop()
+    # [END ANCHOR — keep this line below]
 
 
     # Use a local data_ver (don’t rely on a global alias that might be undefined)
