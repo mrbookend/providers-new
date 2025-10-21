@@ -271,7 +271,6 @@ cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(c
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
 # 4) Lookup tables (simple)
-
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
         # Seed lookups if empty
@@ -809,6 +808,7 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
     row["created_at"] = row["updated_at"] = _now_iso()
     with eng.begin() as cx:
 
+
         res = cx.exec_driver_sql(
             sa.text(
                 """
@@ -983,7 +983,8 @@ with tab_browse:
     st.warning("Database not initialized yet (no 'vendors' table).
 See Maintenance → Quick Engine Probe / Seed.")
     st.stop()
-    else:
+else:
+
         try:
             ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=data_ver)
             if not ids:
@@ -1317,7 +1318,6 @@ with tab_manage:
             return cx.exec_driver_sql(q, {"n": name}).first() is not None
     except Exception:
         return False
-
 
         def _strip_ctrl(s: str) -> str:
             if not isinstance(s, str):
