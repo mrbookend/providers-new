@@ -767,18 +767,18 @@ def main() -> None:
         q = c1.text_input(
             label="Search",
             key="q",  # bind input directly to session state
-            value=st.session_state.get("q", ""),
+            # IMPORTANT: no 'value=' when using key= to avoid state clashes
             placeholder="Search name, category, service, notes, phone, website…",
             label_visibility="collapsed",
         )
         if c2.button("Clear", use_container_width=True):
-            # Atomic reset: clear session value and rerun so both the filter and box reset in one click
-            st.session_state["q"] = ""
+            # Robust clear: remove the widget-backed key, then rerun
+            if "q" in st.session_state:
+                del st.session_state["q"]
             st.experimental_rerun()
 
-        # After a clear-rerun, q reflects the session value (empty)
+        # After a clear-rerun, q reflects the (now empty) session state
         q = st.session_state.get("q", "")
-
 
 
         # Count matching rows
