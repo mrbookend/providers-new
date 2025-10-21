@@ -831,31 +831,61 @@ def main() -> None:
                 df[col] = ""
         df = df.reindex(columns=BROWSE_COLUMNS, fill_value="")
 
-        # Hide heavy/internal columns if ever present downstream
-        _HIDE_EXACT = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
+        # Hide heavy/internal columns and originals we’ll replace with friendly aliases
+_HIDE_EXACT = {
+    "id", "created_at", "updated_at",
+    "ckw_locked", "ckw_version",
+    "contact_name", "email", "computed_keywords",  # originals hidden
+    "address",  # not desired on Browse per spec
+}
 
-        # Prepare view (rename already handled in fetch_rows_by_ids)
-        _src = df.copy()
+# Prepare view (rename already handled in fetch_rows_by_ids)
+_src = df.copy()
 
-        # Visible columns (keep keywords & computed_keywords visible)
-        def _is_ckw_control(col: str) -> bool:
-            return col.startswith("ckw_")
-        _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
+# Ensure friendly display columns exist (derive from canonical names if needed)
+if not _src.empty:
+    if "contact name" not in _src.columns and "contact_name" in _src.columns:
+        _src["contact name"] = _src["contact_name"].fillna("")
+    if "email address" not in _src.columns and "email" in _src.columns:
+        _src["email address"] = _src["email"].fillna("")
+    if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
+        _src["keywords"] = _src["ckw_manual_extra"].fillna("")
+    if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
+        _src["ckw"] = _src["computed_keywords"].fillna("")
 
-        ORDER = [
-            "business_name", "category", "service",
-            "keywords", "computed_keywords",
-            "phone", "website", "notes",
-            "contact_name", "email", "address",
-        ]
-        _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+# Visible columns (drop hidden and ckw_* controls)
+def _is_ckw_control(col: str) -> bool:
+    return col.startswith("ckw_")
 
-        # Column widths + labels
-        _cfg = {}
-        for c in _ordered:
-            w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
-            label = "Keywords" if c == "keywords" else ("CKW" if c == "computed_keywords" else c.replace("_", " ").title())
-            _cfg[c] = st.column_config.TextColumn(label, width=w)
+_visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
+
+# *** Fixed Browse order (as requested) ***
+ORDER = [
+    "business_name",
+    "category",
+    "service",
+    "phone",
+    "contact name",
+    "website",
+    "email address",
+    "notes",
+    "keywords",
+    "ckw",
+]
+_ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
+# Column widths + labels (map aliases cleanly; keep CKW label)
+_cfg = {}
+for c in _ordered:
+    w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
+    if c in ("ckw", "computed_keywords"):
+        label = "CKW"
+    elif c == "keywords":
+        label = "Keywords"
+    else:
+        label = c.replace("_", " ").title()
+    _cfg[c] = st.column_config.TextColumn(label, width=w)
+
 
         # -------- Hidden/control-char scanning + sanitization --------
         import re, json
