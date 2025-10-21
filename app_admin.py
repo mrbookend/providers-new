@@ -45,7 +45,7 @@ from sqlalchemy import text as sql_text
 # ──────────────────────────────────────────────────────────────────────────
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
-APP_VER = "admin-2025-10-21.0"
+APP_VER = "admin-2025-10-21.1"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
@@ -863,7 +863,6 @@ def main() -> None:
         from datetime import datetime as _dt
         _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
 
-
         def _to_str_safe(x):
             if x is None:
                 return ""
@@ -911,12 +910,10 @@ def main() -> None:
             else:
                 st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
-        # Normalize → strings + strip hidden chars
-        _view_safe = _view.map(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+        # Normalize → strings + strip hidden chars (DataFrame-safe)
+        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
-
-
-                        # Ensure friendly display columns exist (derive from canonical names if needed)
+        # Ensure friendly display columns exist (derive from canonical names if needed)
         if not _view_safe.empty:
             if "contact name" not in _view_safe.columns and "contact_name" in _view_safe.columns:
                 _view_safe["contact name"] = _view_safe["contact_name"].fillna("")
@@ -947,7 +944,7 @@ def main() -> None:
         )
 
         # ---- Bottom toolbar (CSV export + help) ----
-        from datetime import datetime
+        from datetime import datetime as _tsdt
 
         _export = _view_safe.copy() if not _view_safe.empty else _view_safe
         if _export is not None and not _export.empty:
@@ -957,7 +954,7 @@ def main() -> None:
                 if not pd.api.types.is_numeric_dtype(_export[c]):
                     _export[c] = _export[c].astype(str)
 
-        _ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        _ts = _tsdt.now().strftime("%Y-%m-%d_%H%M%S")
         _csv_name = f"providers_browse_{_ts}.csv"
 
         c_dl, c_help = st.columns([0.35, 0.65])
@@ -994,22 +991,6 @@ def main() -> None:
 - If no rows appear, verify DB connectivity and that the `vendors` table has records.
                 """.strip()
             )
-
-        # ---- Bottom toolbar (CSV export + help) ----
-
-        bt1, _ = st.columns([0.2, 0.8])
-        if not _view_safe.empty:
-            csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
-            bt1.download_button(
-                "Download CSV",
-                data=csv_bytes,
-                file_name="providers.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-
-        with st.expander("Help — How to use Browse (click to open)", expanded=False):
-            st.markdown(HELP_MD)
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
