@@ -294,11 +294,7 @@ cx.exec_driver_sql("""
     WHERE COALESCE(TRIM(service),'') <> ''
 """)
 
-
-    if altered:
-        return f"Schema OK (added: {', '.join(altered)})"
     return "Schema OK"
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # ONE-TIME SEED FROM CSV IF EMPTY (UNCACHED)
