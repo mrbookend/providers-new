@@ -1718,6 +1718,151 @@ def main() -> None:
 
         st.divider()
 
+                # ---------- CKW Seeds Admin (curated baseline) ----------
+        with st.expander("CKW Seeds Admin (curated baseline)", expanded=False):
+            try:
+                msg = ensure_ckw_seeds_table()
+                st.caption(msg)
+            except Exception as e:
+                st.error(f"Seeds table not available: {e}")
+
+            combos: list[tuple[str, str]] = []
+            try:
+                with eng.connect() as cx:
+                    rows = cx.exec_driver_sql(
+                        """
+                        SELECT DISTINCT COALESCE(category,''), COALESCE(service,'')
+                        FROM vendors
+                        WHERE COALESCE(category,'') <> '' AND COALESCE(service,'') <> ''
+                        ORDER BY 1, 2
+                        """
+                    ).all()
+                combos = [(r[0], r[1]) for r in rows]
+            except Exception as e:
+                st.warning(f"Unable to load category/service combos: {e}")
+
+            if combos:
+                c1, c2 = st.columns([0.55, 0.45])
+                with c1:
+                    sel = st.selectbox(
+                        "Choose Category / Service",
+                        options=combos,
+                        format_func=lambda cs: f"{cs[0]} — {cs[1]}",
+                        key="ckw_seed_combo",
+                    )
+                with c2:
+                    try:
+                        with eng.connect() as cx:
+                            cov = cx.exec_driver_sql("SELECT COUNT(*) FROM ckw_seeds").scalar_one()
+                        st.caption(f"Seed coverage: {cov} combo(s) defined")
+                    except Exception:
+                        st.caption("Seed coverage: n/a")
+
+                apply_category_wide = st.checkbox(
+                    "Apply to ALL services in this category (category-wide seed)",
+                    value=False,
+                    key="ckw_seed_catwide",
+                )
+                target_cat = sel[0]
+                target_svc = "" if apply_category_wide else sel[1]
+
+                existing_seed = ""
+                try:
+                    with eng.connect() as cx:
+                        row = cx.exec_driver_sql(
+                            """
+                            SELECT seed FROM ckw_seeds
+                            WHERE category = :c AND service = :s
+                            """,
+                            {"c": target_cat, "s": target_svc},
+                        ).first()
+                        existing_seed = row[0] if row else ""
+                except Exception:
+                    pass
+
+                seed_text = st.text_area(
+                    "Seed terms (comma-separated; concise, search-friendly)",
+                    value=existing_seed,
+                    height=120,
+                    key="ckw_seed_text",
+                )
+
+                b1, b2, b3 = st.columns([0.3, 0.35, 0.35])
+                with b1:
+                    if st.button("Save / Update Seed", use_container_width=True, key="btn_ckw_save_seed"):
+                        try:
+                            with eng.begin() as cx:
+                                cx.exec_driver_sql(
+                                    """
+                                    INSERT INTO ckw_seeds(category, service, seed)
+                                    VALUES (:c, :s, :seed)
+                                    ON CONFLICT(category, service) DO UPDATE SET
+                                        seed = excluded.seed,
+                                        updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+                                    """,
+                                    {"c": target_cat, "s": target_svc, "seed": seed_text.strip()},
+                                )
+                            st.success(
+                                "Seed saved for "
+                                + (f"category '{target_cat}' (all services)" if target_svc == "" else f"'{target_cat} / {target_svc}'")
+                            )
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Save failed: {e}")
+
+                with b2:
+                    if st.button("Load curated seeds ➜ by Service", use_container_width=True, key="btn_ckw_load_curated"):
+                        try:
+                            svc = sel[1]
+                            curated = CURATED_SEEDS_BY_SERVICE.get(svc)
+                            if not curated:
+                                st.info(f"No curated baseline found for service: {svc}")
+                            else:
+                                with eng.begin() as cx:
+                                    rows = cx.exec_driver_sql(
+                                        """
+                                        SELECT DISTINCT category, service
+                                        FROM vendors
+                                        WHERE service = :s
+                                        """,
+                                        {"s": svc},
+                                    ).mappings().all()
+                                    params = [
+                                        {"c": r["category"], "s": r["service"], "seed": curated}
+                                        for r in rows
+                                    ]
+                                    if params:
+                                        cx.exec_driver_sql(
+                                            """
+                                            INSERT INTO ckw_seeds(category, service, seed)
+                                            VALUES (:c, :s, :seed)
+                                            ON CONFLICT(category, service) DO UPDATE SET
+                                                seed = excluded.seed,
+                                                updated_at = strftime('%Y-%m-%dT%H:%M:%S','now')
+                                            """,
+                                            params,
+                                        )
+                                st.success(f"Loaded curated seed for service '{svc}' across matching categories.")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Curated load failed: {e}")
+
+                with b3:
+                    if st.button("Clear This Seed", use_container_width=True, key="btn_ckw_clear_seed"):
+                        try:
+                            with eng.begin() as cx:
+                                cx.exec_driver_sql(
+                                    "DELETE FROM ckw_seeds WHERE category = :c AND service = :s",
+                                    {"c": target_cat, "s": target_svc},
+                                )
+                            st.success("Seed removed for this scope.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
+            else:
+                st.info("No (category, service) combos found in vendors yet.")
+
+
         # ---------- Diagnostics (collapsed by default) ----------
         # Wrap your existing diagnostic sections so they’re retracted until expanded.
         with st.expander("Table & Row Counts", expanded=False):
