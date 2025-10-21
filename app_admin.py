@@ -863,6 +863,7 @@ def main() -> None:
         from datetime import datetime as _dt
         _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
 
+
         def _to_str_safe(x):
             if x is None:
                 return ""
@@ -914,7 +915,8 @@ def main() -> None:
         _view_safe = _view.map(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
 
-        # Ensure friendly display columns exist (derive from canonical names if needed)
+
+                        # Ensure friendly display columns exist (derive from canonical names if needed)
         if not _view_safe.empty:
             if "contact name" not in _view_safe.columns and "contact_name" in _view_safe.columns:
                 _view_safe["contact name"] = _view_safe["contact_name"].fillna("")
@@ -925,22 +927,76 @@ def main() -> None:
             if "ckw" not in _view_safe.columns and "computed_keywords" in _view_safe.columns:
                 _view_safe["ckw"] = _view_safe["computed_keywords"].fillna("")
 
-                # Final enforced Browse order (use module-level constant; do NOT reassign here)
+        # Final enforced Browse order (use module-level constant; do NOT reassign here)
         _order = [c for c in BROWSE_COLUMNS if c in _view_safe.columns]
         if not _view_safe.empty:
-            _view_safe = _view_safe[_order]
+            # If BROWSE_COLUMNS filters out everything (edge case), fall back to current cols
+            if _order:
+                _view_safe = _view_safe[_order]
+            else:
+                _order = list(_view_safe.columns)
 
         # Render
         st.dataframe(
             _view_safe,  # data must be first (positional OK)
             column_config=_cfg,
-            column_order=["business_name","category","service","phone","contact name","website","email address","notes","keywords","ckw"],
+            column_order=_order,  # or the explicit list if you prefer
             use_container_width=True,
             hide_index=True,
             height=520,
         )
 
         # ---- Bottom toolbar (CSV export + help) ----
+        from datetime import datetime
+
+        _export = _view_safe.copy() if not _view_safe.empty else _view_safe
+        if _export is not None and not _export.empty:
+            _export = _export.fillna("")
+            for c in _export.columns:
+                # Keep obvious numerics as-is; stringify everything else to avoid Excel type weirdness
+                if not pd.api.types.is_numeric_dtype(_export[c]):
+                    _export[c] = _export[c].astype(str)
+
+        _ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        _csv_name = f"providers_browse_{_ts}.csv"
+
+        c_dl, c_help = st.columns([0.35, 0.65])
+
+        if _export is not None and not _export.empty:
+            _csv_bytes = _export.to_csv(index=False).encode("utf-8-sig")
+            c_dl.download_button(
+                "Download CSV",
+                data=_csv_bytes,
+                file_name=_csv_name,
+                mime="text/csv",
+                use_container_width=True,
+            )
+        else:
+            c_dl.button("Download CSV", disabled=True, use_container_width=True)
+
+        with c_help.expander("Help — How to use Browse", expanded=False):
+            st.markdown(
+                """
+**Browse basics**
+- The table shows the **exact columns** defined by `BROWSE_COLUMNS` that also exist in the data.
+- **Contact name / email address / keywords / ckw** are auto-derived for display when present.
+
+**Search & order**
+- Use the search above to filter by name, category, service, notes, phone, or website (implementation-specific).
+- Rows are ordered by your server-side query (e.g., business_name, then id).
+
+**Downloads**
+- **CSV** export reflects **exactly what you see** (visible columns, current order).
+- Values are normalized to plain text for safe opening in Excel/Sheets.
+
+**Troubleshooting**
+- If a column is missing, ensure it’s in `BROWSE_COLUMNS` and selected in the DB query.
+- If no rows appear, verify DB connectivity and that the `vendors` table has records.
+                """.strip()
+            )
+
+        # ---- Bottom toolbar (CSV export + help) ----
+
         bt1, _ = st.columns([0.2, 0.8])
         if not _view_safe.empty:
             csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
