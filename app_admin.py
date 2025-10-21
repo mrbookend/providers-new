@@ -946,17 +946,22 @@ with tab_browse:
     # Use a local data_ver (don’t rely on a global alias that might be undefined)
     data_ver = st.session_state.get("DATA_VER", 0)
 
-    # ---- Resolve row IDs (CKW-first search) and load rows ----
-    try:
-        ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=data_ver)
-        if not ids:
-            st.info("No matches.")
-            vdf = pd.DataFrame()
-        else:
-            vdf = fetch_rows_by_ids(tuple(ids), data_ver)
-    except Exception as e:
-        st.error(f"Browse failed: {e}")
+        # ---- Resolve row IDs (CKW-first search) and load rows ----
+    if not _has_table(get_engine(), "vendors"):
+        st.warning("Database not initialized yet (no 'vendors' table). See Maintenance → Quick Engine Probe / Seed.")
         vdf = pd.DataFrame()
+    else:
+        try:
+            ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=data_ver)
+            if not ids:
+                st.info("No matches.")
+                vdf = pd.DataFrame()
+            else:
+                vdf = fetch_rows_by_ids(tuple(ids), data_ver)
+        except Exception as e:
+            st.error(f"Browse failed: {e}")
+            vdf = pd.DataFrame()
+
 
     # ---- Ensure desired columns exist; set display order ----
     BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
