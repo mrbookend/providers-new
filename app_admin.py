@@ -930,15 +930,13 @@ def main() -> None:
 
         # Render
         st.dataframe(
-            _view_safe,
+            _view_safe,  # data must be first (positional OK)
             column_config=_cfg,
-            column_order=_order,  # reinforce order at render time
+            column_order=["business_name","category","service","phone","contact name","website","email address","notes","keywords","ckw"],
             use_container_width=True,
             hide_index=True,
             height=520,
         )
-
-
 
         # ---- Bottom toolbar (CSV export + help) ----
         bt1, _ = st.columns([0.2, 0.8])
