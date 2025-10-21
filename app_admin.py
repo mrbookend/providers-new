@@ -265,32 +265,34 @@ def ensure_schema_uncached() -> str:
                 altered.append(c)
 
                 # 3) Indexes
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
+# Keep the original indexes (fine), and add NOCASE variants to accelerate ORDER BY ... COLLATE NOCASE and case-insensitive lookups
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service ON vendors(service)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name_nocase ON vendors(business_name COLLATE NOCASE)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category_nocase ON vendors(category COLLATE NOCASE)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service_nocase ON vendors(service COLLATE NOCASE)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc_nocase ON vendors(category COLLATE NOCASE, service COLLATE NOCASE)")
 
-        # 4) Lookup tables (simple)
-        cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
-        cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
+# 4) Lookup tables (simple)
+cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
+cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
 
-        # Seed lookups if empty (only non-empty trimmed names)
-        if (cx.exec_driver_sql("SELECT COUNT(*) FROM categories").scalar() or 0) == 0:
-            cx.exec_driver_sql("""
-                INSERT OR IGNORE INTO categories(name)
-                SELECT DISTINCT COALESCE(TRIM(category),'')
-                FROM vendors
-                WHERE COALESCE(TRIM(category),'') <> ''
-            """)
-        if (cx.exec_driver_sql("SELECT COUNT(*) FROM services").scalar() or 0) == 0:
-            cx.exec_driver_sql("""
-                INSERT OR IGNORE INTO services(name)
-                SELECT DISTINCT COALESCE(TRIM(service),'')
-                FROM vendors
-                WHERE COALESCE(TRIM(service),'') <> ''
-            """)
-
+# Seed/refresh lookups on every run (idempotent; IGNORE prevents dupes; only non-empty trimmed names)
+cx.exec_driver_sql("""
+    INSERT OR IGNORE INTO categories(name)
+    SELECT DISTINCT COALESCE(TRIM(category),'')
+    FROM vendors
+    WHERE COALESCE(TRIM(category),'') <> ''
+""")
+cx.exec_driver_sql("""
+    INSERT OR IGNORE INTO services(name)
+    SELECT DISTINCT COALESCE(TRIM(service),'')
+    FROM vendors
+    WHERE COALESCE(TRIM(service),'') <> ''
+""")
 
     if altered:
         return f"Schema OK (added: {', '.join(altered)})"
@@ -422,6 +424,37 @@ def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
         return
     with eng.begin() as cx:
         cx.exec_driver_sql(f"INSERT OR IGNORE INTO {table}(name) VALUES (:n)", {"n": name.strip()})
+def refresh_lookups(eng: Engine) -> None:
+    """Idempotently upsert categories/services from vendors."""
+    with eng.begin() as cx:
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO categories(name)
+            SELECT DISTINCT COALESCE(TRIM(category),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(category),'') <> ''
+        """)
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO services(name)
+            SELECT DISTINCT COALESCE(TRIM(service),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(service),'') <> ''
+        """)
+        
+def refresh_lookups(eng: Engine) -> None:
+    """Idempotent refresh of categories/services from vendors."""
+    with eng.begin() as cx:
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO categories(name)
+            SELECT DISTINCT COALESCE(TRIM(category),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(category),'') <> ''
+        """)
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO services(name)
+            SELECT DISTINCT COALESCE(TRIM(service),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(service),'') <> ''
+        """)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1215,6 +1248,7 @@ with tab_manage:
                 ensure_lookup_value(eng, "categories", data["category"])
                 ensure_lookup_value(eng, "services", data["service"])
                 st.session_state["DATA_VER"] += 1
+                refresh_lookups(get_engine())
                 st.success(
                     f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords."
                 )
