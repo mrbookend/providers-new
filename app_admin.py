@@ -976,8 +976,8 @@ with tab_browse:
     remaining = [c for c in vdf.columns if c not in preferred]
     display_cols = preferred + remaining
 
-                            # ---- Table (horizontal scroll via wide container; index hidden) ----
-    # Show Keywords and CKW; scan & sanitize for Arrow safety; enforce order & widths (horizontal scroll).
+                                # ---- Table (horizontal scroll via wide container; index hidden) ----
+    # Show Keywords & CKW; scan & sanitize for Arrow safety; enforce order & widths (horizontal scroll).
 
     _src = vdf.copy()
 
@@ -994,18 +994,15 @@ with tab_browse:
     _HIDE_EXACT = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
 
     def _is_ckw_control(col: str) -> bool:
-        # Hide internal CKW control/metadata columns (any ckw_*), but we've already renamed ckw_manual_extra
-        return col.startswith("ckw_")
+        return col.startswith("ckw_")  # hide internal CKW controls/metadata
 
-    # Compute visible set
     _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
 
-    # Enforced order; curated 'keywords' before CKW for readability
     ORDER = [
         "business_name",
         "category",
         "service",
-        "keywords",             # human-curated extras
+        "keywords",             # curated extras
         "computed_keywords",    # CKW
         "phone",
         "website",
@@ -1013,7 +1010,7 @@ with tab_browse:
     ]
     _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-    # Column widths + friendly labels (forces horizontal scroll if total width exceeds page)
+    # Column widths + labels (force horizontal scroll when total width > page)
     _cfg = {}
     for c in _ordered:
         w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
@@ -1030,71 +1027,52 @@ with tab_browse:
     def _to_str_safe(x):
         if x is None:
             return ""
-        # Datetime
         if isinstance(x, _dt):
             return x.isoformat(sep=" ", timespec="seconds")
-        # Bytes
         if isinstance(x, (bytes, bytearray)):
             try:
                 x = x.decode("utf-8", errors="replace")
             except Exception:
                 return str(x)
-        # Dict → JSON
         if isinstance(x, dict):
             try:
                 return json.dumps(x, ensure_ascii=False)
             except Exception:
                 return str(x)
-        # List/tuple/set → comma-joined
         if isinstance(x, (list, tuple, set)):
             return ", ".join("" if (v is None) else str(v) for v in x)
-        # Fallback
         try:
-            import pandas as _pd
-            if _pd.isna(x):
-                return ""
+            return "" if pd.isna(x) else str(x)
         except Exception:
-            pass
-        return str(x)
+            return str(x)
 
     def _strip_hidden(s: str) -> str:
-        # remove hidden/control characters (keep tab/newline)
-        return _HIDDEN_RX.sub("", s)
+        return _HIDDEN_RX.sub("", s)  # remove hidden/control chars (keep tab/newline)
 
     _view = _src.loc[:, _ordered] if not _src.empty else _src
 
-    # Diagnostics: find columns with risky types or hidden chars
+    # Diagnostics (first 300 rows) — optional but helpful
     _issues: dict[str, dict[str, list]] = {}
     if not _view.empty:
         for col in _ordered:
-            risky = []
-            hidden = []
-            series = _view[col]
-            # Sample up to first 300 rows for speed
-            sample = series.head(300)
-            for idx, val in sample.items():
-                # non-primitive?
+            risky, hidden = [], []
+            for idx, val in _view[col].head(300).items():
                 if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
                     risky.append((int(idx), type(val).__name__))
-                # hidden chars in strings?
                 if isinstance(val, str) and _HIDDEN_RX.search(val):
                     hidden.append(int(idx))
-                # NaN/None are fine (become "")
             if risky or hidden:
                 _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
 
     with st.expander("Browse diagnostics (click to open)", expanded=False):
         if _issues:
             st.write({"columns_with_issues": _issues})
-            st.caption("Shown: first 5 examples per column. All values will be normalized for safe rendering/export.")
+            st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
         else:
             st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
     # Normalize → strings + strip hidden chars
-    if not _view.empty:
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v)))
-    else:
-        _view_safe = _view
+    _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
     # Render
     st.dataframe(
@@ -1110,8 +1088,7 @@ with tab_browse:
         bt1, bt_sp = st.columns([0.2, 0.8])
 
         if not _view_safe.empty:
-            # CSV export matches the visible table (same columns/order; string-safe)
-            csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
+            csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")  # exports visible columns/order
             bt1.download_button(
                 "Download CSV",
                 data=csv_bytes,
