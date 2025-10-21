@@ -917,6 +917,30 @@ def _has_table(eng: Engine, name: str) -> bool:
         return bool(rows)
     except Exception:
         return False
+from pathlib import Path
+import hashlib
+
+def main() -> None:
+    # ---- DATA_VER init (cache-buster for @st.cache_data) ----
+    if "DATA_VER" not in st.session_state:
+        st.session_state["DATA_VER"] = 0
+    DATA_VER = st.session_state["DATA_VER"]
+
+    # ---- Build engine early and ensure schema BEFORE any queries ----
+    eng = get_engine()
+    try:
+        msg_schema = ensure_schema_uncached()
+        if os.getenv("SHOW_STATUS") == "1":
+            st.caption(msg_schema)
+    except Exception as e:
+        st.warning(f"Schema check failed: {e}")
+
+    # >>> Add these *three* lines here <<<
+    this_file = Path(__file__).resolve()
+    sha = hashlib.sha256(this_file.read_bytes()).hexdigest()[:12]
+    st.caption(f"Admin file: {this_file} · sha256: {sha}")
+
+    # (rest of main() continues...)
 
 def main() -> None:
     # ---- DATA_VER init (cache-buster for @st.cache_data) ----
