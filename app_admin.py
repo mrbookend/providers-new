@@ -1003,6 +1003,22 @@ with tab_browse:
     if c2.button("Clear", use_container_width=True):
         q = ""
     st.session_state["q"] = q
+# [BEGIN ANCHOR — keep this line above]
+st.session_state["q"] = q
+
+try:
+    # Acquire engine (uses your local fallback defined earlier in this tab)
+    engine = _get_engine_fallback()
+
+    # Count and fetch
+    total = count_rows(_engine=engine, q=q)
+    st.caption(f"{total} matching provider(s)")
+
+    df = fetch_page(_engine=engine, q=q, offset=0, limit=PAGE_SIZE)
+except Exception as e:
+    st.error(f"Browse failed: {e}")
+    st.stop()
+# [END ANCHOR — keep this line below]
 
     # Use a local data_ver (don’t rely on a global alias that might be undefined)
     data_ver = st.session_state.get("DATA_VER", 0)
