@@ -887,71 +887,72 @@ for c in _ordered:
     _cfg[c] = st.column_config.TextColumn(label, width=w)
 
 
-        # -------- Hidden/control-char scanning + sanitization --------
-        import re, json
-        from datetime import datetime as _dt
-        _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+    # -------- Hidden/control-char scanning + sanitization --------
+    import re
+    import json
+    from datetime import datetime as _dt
 
-        def _to_str_safe(x):
-            if x is None:
-                return ""
-            if isinstance(x, _dt):
-                return x.isoformat(sep=" ", timespec="seconds")
-            if isinstance(x, (bytes, bytearray)):
-                try:
-                    x = x.decode("utf-8", errors="replace")
-                except Exception:
-                    return str(x)
-            if isinstance(x, dict):
-                try:
-                    return json.dumps(x, ensure_ascii=False)
-                except Exception:
-                    return str(x)
-            if isinstance(x, (list, tuple, set)):
-                return ", ".join("" if (v is None) else str(v) for v in x)
+    _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+
+    def _to_str_safe(x):
+        if x is None:
+            return ""
+        if isinstance(x, _dt):
+            return x.isoformat(sep=" ", timespec="seconds")
+        if isinstance(x, (bytes, bytearray)):
             try:
-                return "" if pd.isna(x) else str(x)
+                x = x.decode("utf-8", errors="replace")
             except Exception:
                 return str(x)
+        if isinstance(x, dict):
+            try:
+                return json.dumps(x, ensure_ascii=False)
+            except Exception:
+                return str(x)
+        if isinstance(x, (list, tuple, set)):
+            return ", ".join("" if (v is None) else str(v) for v in x)
+        try:
+            return "" if pd.isna(x) else str(x)
+        except Exception:
+            return str(x)
 
-        def _strip_hidden(s: str) -> str:
-            return _HIDDEN_RX.sub("", s)
+    def _strip_hidden(s: str) -> str:
+        return _HIDDEN_RX.sub("", s)
 
-        _view = _src.loc[:, _ordered] if not _src.empty else _src
+    _view = _src.loc[:, _ordered] if not _src.empty else _src
 
-        # Diagnostics (first 300 rows)
-        _issues: dict[str, dict[str, list]] = {}
-        if not _view.empty:
-            for col in _ordered:
-                risky, hidden = [], []
-                for idx, val in _view[col].head(300).items():
-                    if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
-                        risky.append((int(idx), type(val).__name__))
-                    if isinstance(val, str) and _HIDDEN_RX.search(val):
-                        hidden.append(int(idx))
-                if risky or hidden:
-                    _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
+    # Diagnostics (first 300 rows)
+    _issues: dict[str, dict[str, list]] = {}
+    if not _view.empty:
+        for col in _ordered:
+            risky, hidden = [], []
+            for idx, val in _view[col].head(300).items():
+                if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
+                    risky.append((int(idx), type(val).__name__))
+                if isinstance(val, str) and _HIDDEN_RX.search(val):
+                    hidden.append(int(idx))
+            if risky or hidden:
+                _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
 
-        with st.expander("Browse diagnostics (click to open)", expanded=False):
-            if _issues:
-                st.write({"columns_with_issues": _issues})
-                st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
-            else:
-                st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
+    with st.expander("Browse diagnostics (click to open)", expanded=False):
+        if _issues:
+            st.write({"columns_with_issues": _issues})
+            st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
+        else:
+            st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
-        # Normalize → strings + strip hidden chars
-_view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+    # Normalize → strings + strip hidden chars
+    _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
-# Render
-st.dataframe(
-    _view_safe,               # positional FIRST
-    column_config=_cfg,
-    column_order=_order,      # keep as keyword
-    use_container_width=True,
-    hide_index=True,
-    height=520,
-)
-
+    # Render
+    st.dataframe(
+        _view_safe,               # positional FIRST
+        column_config=_cfg,
+        column_order=_ordered,    # <-- FIXED (was _order)
+        use_container_width=True,
+        hide_index=True,
+        height=520,
+    )
 
 
         # ---- Bottom toolbar (CSV export + help) ----
