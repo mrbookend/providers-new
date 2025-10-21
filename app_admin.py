@@ -758,7 +758,7 @@ def main() -> None:
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
 
-        # ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
     # Browse (Admin) — single, CKW-first implementation
     # ─────────────────────────────────────────────────────────────────────
     with tab_browse:
@@ -775,7 +775,7 @@ def main() -> None:
             # Robust clear: remove the widget-backed key, then rerun
             if "q" in st.session_state:
                 del st.session_state["q"]
-            st.experimental_rerun()
+            st.rerun()  # <-- modern API (replaces experimental_rerun)
 
         # After a clear-rerun, q reflects the (now empty) session state
         q = st.session_state.get("q", "")
