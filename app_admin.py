@@ -955,20 +955,56 @@ for c in _ordered:
     )
 
 
-        # ---- Bottom toolbar (CSV export + help) ----
-        bt1, _ = st.columns([0.2, 0.8])
-        if not _view_safe.empty:
-            csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
-            bt1.download_button(
-                "Download CSV",
-                data=csv_bytes,
-                file_name="providers.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
+# ---- Bottom toolbar (CSV export + help) ----
+# Must be aligned with st.dataframe(...) — not nested under expander/loops
 
-        with st.expander("Help — How to use Browse (click to open)", expanded=False):
-            st.markdown(HELP_MD)
+bt1, bt2, bt3 = st.columns([0.22, 0.22, 0.56])
+
+# CSV download (matches the visible order)
+if not _view_safe.empty:
+    _export_df = _view_safe
+    try:
+        if "_ordered" in locals() and _ordered:
+            _export_df = _view_safe.loc[:, [c for c in _ordered if c in _view_safe.columns]]
+    except Exception:
+        # Fallback: keep current columns
+        pass
+
+    with bt1:
+        st.download_button(
+            "Download CSV",
+            data=_export_df.to_csv(index=False),
+            file_name="providers.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with bt2:
+        # Optional XLSX export (lightweight, no colors/styles)
+        import io
+        import pandas as pd  # already imported above; safe if repeated
+        _buf = io.BytesIO()
+        with pd.ExcelWriter(_buf, engine="xlsxwriter") as _xlw:
+            _export_df.to_excel(_xlw, index=False, sheet_name="Providers")
+        st.download_button(
+            "Download XLSX",
+            data=_buf.getvalue(),
+            file_name="providers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+with st.expander("Help — How to use Browse (click to open)", expanded=False):
+    st.markdown(
+        """
+- **Search**: type part of a name, category, service, phone, website, notes, or keywords.
+- **Clear**: resets the search box and reloads all rows.
+- **Column order** (locked): `business_name, category, service, phone, contact name, website, email address, notes, keywords, ckw`.
+- **Downloads**: CSV/XLSX reflect exactly what you see (same column order).
+- **CKW** = Computed Keywords (algorithm output). **Keywords** = human-curated extras.
+        """.strip()
+    )
+# ---- /Bottom toolbar ----
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
