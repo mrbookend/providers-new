@@ -44,7 +44,7 @@ from sqlalchemy.engine import Engine
 # ──────────────────────────────────────────────────────────────────────────
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
-APP_VER = "admin-2025-10-21.1"
+APP_VER = "admin-2025-10-21.2"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
@@ -58,7 +58,7 @@ except NameError:
 
 Use the **Search** box to filter by name, category, service, notes, phone, or website.
 - **Clear** resets the search.
-- **Download CSV/XLSX** export the current **filtered** results; when no filter is applied they export **all** records.
+- **Download CSV** exports the current **filtered** results; when no filter is applied it exports **all** records.
 - Sorting/filtering is controlled by the Admin app (no per-column filters here).
 
 _Replace this with your long, book-style help content when ready._
@@ -1382,30 +1382,33 @@ def main() -> None:
         # ---------- CKW Maintenance ----------
         st.markdown("**Computed Keywords (CKW)**")
         c1, c2 = st.columns([0.5, 0.5])
-        with c1:
-            if st.button("Recompute CKW — Stale & Unlocked only", key="ckw_recompute_stale"):
-                try:
-                    ids: list[int] = []
-                    with eng.connect() as cx:
-                        rows = cx.exec_driver_sql(
-                            "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
-                            {"v": CURRENT_VER},
-                        ).mappings().all()
-                        ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
-                    changed = recompute_ckw_for_ids(eng, ids)
-                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                    st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
-                except Exception as e:
-                    st.error(f"Stale recompute failed: {e}")
 
-        with c2:
-            if st.button("Recompute CKW — ALL (override locks)", type="primary", key="ckw_recompute_all"):
-                try:
-                    changed = recompute_ckw_all(eng)
-                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                    st.success(f"Recomputed CKW for {changed} provider(s).")
-                except Exception as e:
-                    st.error(f"ALL recompute failed: {e}")
+        # Buttons always render; actions run inside try/except
+        click_stale = c1.button("Recompute CKW — Stale & Unlocked only", key="ckw_recompute_stale")
+        click_all   = c2.button("Recompute CKW — ALL (override locks)", type="primary", key="ckw_recompute_all")
+
+        if click_stale:
+            try:
+                ids: list[int] = []
+                with eng.connect() as cx:
+                    rows = cx.exec_driver_sql(
+                        "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
+                        {"v": CURRENT_VER},
+                    ).mappings().all()
+                    ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
+                changed = recompute_ckw_for_ids(eng, ids)
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
+            except Exception as e:
+                st.error(f"Stale recompute failed: {e}")
+
+        if click_all:
+            try:
+                changed = recompute_ckw_all(eng)
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.success(f"Recomputed CKW for {changed} provider(s).")
+            except Exception as e:
+                st.error(f"ALL recompute failed: {e}")
 
         st.divider()
 
