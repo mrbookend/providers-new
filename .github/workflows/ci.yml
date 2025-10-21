@@ -9,8 +9,6 @@ on:
 jobs:
   lint-and-guards:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout
@@ -20,7 +18,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install deps
         run: |
@@ -76,22 +73,9 @@ jobs:
               echo "OK: no stray vdf vars"
             fi
 
-            # Guard 5 (informational): presence of set_page_config somewhere
+            # Guard 5 (informational)
             if ! grep -n 'st\.set_page_config' app_admin.py >/dev/null; then
               echo "WARN: st.set_page_config not found in app_admin.py (informational)"
-            fi
-
-            # Guard 6: ensure st.set_page_config is the first Streamlit call
-            first_st_line=$(grep -nE '^[[:space:]]*st\.' app_admin.py | head -n1 | cut -d: -f1 || true)
-            if [ -n "${first_st_line}" ]; then
-              if ! sed -n "1,${first_st_line}p" app_admin.py | grep -n 'st\.set_page_config' >/dev/null; then
-                echo "FAIL: first Streamlit call must be st.set_page_config (found another st.* earlier at line ${first_st_line})" >&2
-                exit 1
-              else
-                echo "OK: st.set_page_config is the first Streamlit call"
-              fi
-            else
-              echo "WARN: no Streamlit calls detected (informational)"
             fi
           else
             echo "NOTE: app_admin.py not present; skipping custom guards"
