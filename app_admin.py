@@ -20,6 +20,13 @@ def _safe_page_config() -> None:
 
 _safe_page_config()
 
+# ---- Session defaults (must run before any UI uses these) ----
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
+if "q" not in st.session_state:
+    st.session_state["q"] = ""
+
+
 # ── Stdlib ────────────────────────────────────────────────────────────────
 import os
 import csv
