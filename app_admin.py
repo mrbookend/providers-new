@@ -481,26 +481,166 @@ def compute_ckw(row: Dict[str, Any]) -> str:
             out.append(t)
     return " ".join(out).strip()
 
-def recompute_ckw_for_ids(eng: Engine, ids: List[int]) -> int:
+# >>> CKW recompute (optimized) BEGIN ------------------------------------------
+
+def _ckw_merge(seed: str, manual: str, business_name: str, notes: str) -> str:
+    def _parts(s: str | None) -> list[str]:
+        if not s:
+            return []
+        items = []
+        for chunk in s.split(","):
+            t = chunk.strip().lower()
+            if t:
+                items.append(t)
+        return items
+
+    base = _parts(seed) + _parts(manual)
+
+    import re
+    word_re = re.compile(r"[a-z0-9]+", re.IGNORECASE)
+    for blob in (business_name or "", notes or ""):
+        for w in word_re.findall(blob):
+            w = w.lower()
+            if len(w) >= 3:
+                base.append(w)
+
+    seen = set()
+    deduped = []
+    for x in base:
+        if x not in seen:
+            seen.add(x)
+            deduped.append(x)
+
+    if len(deduped) > 200:
+        deduped = deduped[:200]
+
+    return ", ".join(deduped)
+
+
+def _preload_seed_map(eng) -> dict[tuple[str, str], str]:
+    seed_map: dict[tuple[str, str], str] = {}
+    try:
+        with eng.connect() as cx:
+            rows = cx.exec_driver_sql(
+                "SELECT category, service, seed FROM ckw_seeds"
+            ).mappings().all()
+            for r in rows:
+                cat = (r["category"] or "").strip()
+                svc = (r["service"] or "").strip()
+                seed = (r["seed"] or "").strip()
+                seed_map[(cat, svc)] = seed
+    except Exception:
+        pass
+    return seed_map
+
+
+def _resolve_seed(seed_map: dict[tuple[str, str], str], category: str | None, service: str | None) -> str:
+    cat = (category or "").strip()
+    svc = (service or "").strip()
+    if cat and svc and (cat, svc) in seed_map:
+        return seed_map[(cat, svc)]
+    if cat and (cat, "") in seed_map:
+        return seed_map[(cat, "")]
+    return ""
+
+
+def recompute_ckw_for_ids(eng, ids: list[int]) -> int:
     if not ids:
         return 0
-    updated = 0
+
+    seed_map = _preload_seed_map(eng)
+
+    placeholders = ",".join([":id" + str(i) for i in range(len(ids))])
+    id_params = {("id" + str(i)): int(v) for i, v in enumerate(ids)}
+
+    with eng.connect() as cx:
+        rows = cx.exec_driver_sql(
+            f"""
+            SELECT id, category, service, business_name, notes,
+                   COALESCE(ckw_manual_extra,'') AS ckw_manual_extra,
+                   COALESCE(computed_keywords,'') AS computed_keywords
+            FROM vendors
+            WHERE id IN ({placeholders})
+            """,
+            id_params,
+        ).mappings().all()
+
+    updates = []
+    for r in rows:
+        row_id = int(r["id"])
+        seed = _resolve_seed(seed_map, r.get("category"), r.get("service"))
+        new_ckw = _ckw_merge(
+            seed=seed,
+            manual=r.get("ckw_manual_extra") or "",
+            business_name=r.get("business_name") or "",
+            notes=r.get("notes") or "",
+        )
+        old_ckw = r.get("computed_keywords") or ""
+        if new_ckw != old_ckw:
+            updates.append({"id": row_id, "ckw": new_ckw})
+
+    if not updates:
+        return 0
+
     with eng.begin() as cx:
-        for vid in ids:
-            r = cx.exec_driver_sql(
-                "SELECT business_name,category,service,contact_name,phone,email,website,address,notes,ckw_manual_extra "
-                "FROM vendors WHERE id=:id",
-                {"id": vid},
-            ).mappings().first()
-            if not r:
-                continue
-            ckw = compute_ckw(dict(r))
-            cx.exec_driver_sql(
-                "UPDATE vendors SET computed_keywords=:ckw, ckw_version=:ver, updated_at=:u WHERE id=:id",
-                {"ckw": ckw, "ver": CURRENT_VER, "u": _now_iso(), "id": vid},
-            )
-            updated += 1
-    return updated
+        cx.exec_driver_sql(
+            """
+            UPDATE vendors
+            SET computed_keywords = :ckw,
+                ckw_version      = :ver
+            WHERE id = :id
+            """,
+            [{"ckw": u["ckw"], "id": u["id"], "ver": CURRENT_VER} for u in updates],
+        )
+
+    return len(updates)
+
+
+def recompute_ckw_all(eng) -> int:
+    seed_map = _preload_seed_map(eng)
+
+    with eng.connect() as cx:
+        rows = cx.exec_driver_sql(
+            """
+            SELECT id, category, service, business_name, notes,
+                   COALESCE(ckw_manual_extra,'') AS ckw_manual_extra,
+                   COALESCE(computed_keywords,'') AS computed_keywords
+            FROM vendors
+            """
+        ).mappings().all()
+
+    updates = []
+    for r in rows:
+        row_id = int(r["id"])
+        seed = _resolve_seed(seed_map, r.get("category"), r.get("service"))
+        new_ckw = _ckw_merge(
+            seed=seed,
+            manual=r.get("ckw_manual_extra") or "",
+            business_name=r.get("business_name") or "",
+            notes=r.get("notes") or "",
+        )
+        old_ckw = r.get("computed_keywords") or ""
+        if new_ckw != old_ckw:
+            updates.append({"id": row_id, "ckw": new_ckw})
+
+    if not updates:
+        return 0
+
+    with eng.begin() as cx:
+        cx.exec_driver_sql(
+            """
+            UPDATE vendors
+            SET computed_keywords = :ckw,
+                ckw_version      = :ver
+            WHERE id = :id
+            """,
+            [{"ckw": u["ckw"], "id": u["id"], "ver": CURRENT_VER} for u in updates],
+        )
+
+    return len(updates)
+
+# <<< CKW recompute (optimized) END --------------------------------------------
+
 
 def recompute_ckw_all(eng: Engine) -> int:
     with eng.begin() as cx:
