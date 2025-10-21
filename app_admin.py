@@ -1434,15 +1434,20 @@ def main() -> None:
 
         st.divider()
 
-        # ---------- Cache Clear ----------
+                # ---------- Cache Clear ----------
         st.markdown("**Caches**")
-        if st.button("Clear @st.cache_data (force Browse refresh)", key="clear_cache_data"):
+        clicked_clear_cache = st.button(
+            "Clear @st.cache_data (force Browse refresh)",
+            key="clear_cache_data",
+        )
+
+        if clicked_clear_cache:
             try:
-                st.cache_data.clear()
+                # Do the thing; avoid bare expression side-effects by not leaving it “naked”
+                _ = st.cache_data.clear()  # assignment prevents magic-write from trying to render it
                 st.success("Cleared cache_data.")
             except Exception as e:
-                st.error(f"Clear cache_data failed: {e}")
-
-
+                st.error(f"Clear cache_data failed: {str(e)}")
+                
 if __name__ == "__main__":
     main()
