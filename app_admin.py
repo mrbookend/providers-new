@@ -1059,13 +1059,6 @@ with tab_browse:
     _HIDE = {"created_at", "updated_at", "computed_keywords", "ckw_locked", "ckw_version"}
     show_cols = [c for c in df.columns if c not in _HIDE]
 
-
-    try:
-        # Ensure DATA_VER exists (cache-buster used by your cached funcs)
-        if "DATA_VER" not in st.session_state:
-            st.session_state["DATA_VER"] = 0
-        DATA_VER = st.session_state["DATA_VER"]
-
         # Count (no _engine param; fetch_page no longer used)
         total = count_rows(q=q, data_ver=DATA_VER)
         st.caption(f"{total} matching provider(s)")
