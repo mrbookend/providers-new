@@ -788,170 +788,170 @@ def main() -> None:
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
 
-# ─────────────────────────────────────────────────────────────────────
-# Browse (Admin) — single, CKW-first implementation
-# ─────────────────────────────────────────────────────────────────────
-with tab_browse:
-    c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-    q = c1.text_input(
-        label="Search",
-        value=st.session_state.get("q", ""),
-        placeholder="Search name, category, service, notes, phone, website…",
-        label_visibility="collapsed",
-    )
-    if c2.button("Clear", use_container_width=True):
-        q = ""
-    st.session_state["q"] = q
+    # ─────────────────────────────────────────────────────────────────────
+    # Browse (Admin) — single, CKW-first implementation
+    # ─────────────────────────────────────────────────────────────────────
+    with tab_browse:
+        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
+        q = c1.text_input(
+            label="Search",
+            value=st.session_state.get("q", ""),
+            placeholder="Search name, category, service, notes, phone, website…",
+            label_visibility="collapsed",
+        )
+        if c2.button("Clear", use_container_width=True):
+            q = ""
+        st.session_state["q"] = q
 
-    # Cache-buster default
-    DATA_VER = st.session_state.get("DATA_VER", 0)
+        # Cache-buster default
+        DATA_VER = st.session_state.get("DATA_VER", 0)
 
-    # Count matching rows
-    try:
-        total = count_rows(q=q, data_ver=DATA_VER)
-    except Exception as e:
-        st.error(f"Browse failed (count): {e}")
-        st.stop()
-    st.caption(f"{total:,} matching provider(s)")
-
-    # Resolve IDs (CKW-first) and load the rows
-    try:
-        ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
-        if not ids:
-            df = pd.DataFrame(columns=BROWSE_COLUMNS)  # keep schema for downstream
-        else:
-            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-    except Exception as e:
-        st.error(f"Browse failed (load): {e}")
-        st.stop()
-
-    # Ensure expected columns exist; reindex to policy order
-    for col in BROWSE_COLUMNS:
-        if col not in df.columns:
-            df[col] = ""
-    df = df.reindex(columns=BROWSE_COLUMNS, fill_value="")
-
-    # Hide heavy/internal columns and originals we’ll replace with friendly aliases
-    _HIDE_EXACT = {
-        "id", "created_at", "updated_at",
-        "ckw_locked", "ckw_version",
-        "contact_name", "email", "computed_keywords",  # originals hidden
-        "address",  # not desired on Browse per spec
-    }
-
-    # Prepare view (rename already handled in fetch_rows_by_ids)
-    _src = df.copy()
-
-    # Ensure friendly display columns exist (derive from canonical names if needed)
-    if not _src.empty:
-        if "contact name" not in _src.columns and "contact_name" in _src.columns:
-            _src["contact name"] = _src["contact_name"].fillna("")
-        if "email address" not in _src.columns and "email" in _src.columns:
-            _src["email address"] = _src["email"].fillna("")
-        if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
-            _src["keywords"] = _src["ckw_manual_extra"].fillna("")
-        if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
-            _src["ckw"] = _src["computed_keywords"].fillna("")
-
-    # Visible columns (drop hidden and ckw_* controls)
-    def _is_ckw_control(col: str) -> bool:
-        return col.startswith("ckw_")
-
-    _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
-
-    # *** Fixed Browse order (as requested) ***
-    ORDER = [
-        "business_name",
-        "category",
-        "service",
-        "phone",
-        "contact name",
-        "website",
-        "email address",
-        "notes",
-        "keywords",
-        "ckw",
-    ]
-    _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
-
-    # Column widths + labels (map aliases cleanly; keep CKW label)
-    _cfg = {}
-    for c in _ordered:
-        w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
-        if c in ("ckw", "computed_keywords"):
-            label = "CKW"
-        elif c == "keywords":
-            label = "Keywords"
-        else:
-            label = c.replace("_", " ").title()
-        _cfg[c] = st.column_config.TextColumn(label, width=w)
-
-    # -------- Hidden/control-char scanning + sanitization --------
-    import re
-    import json
-    from datetime import datetime as _dt
-
-    _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
-
-    def _to_str_safe(x):
-        if x is None:
-            return ""
-        if isinstance(x, _dt):
-            return x.isoformat(sep=" ", timespec="seconds")
-        if isinstance(x, (bytes, bytearray)):
-            try:
-                x = x.decode("utf-8", errors="replace")
-            except Exception:
-                return str(x)
-        if isinstance(x, dict):
-            try:
-                return json.dumps(x, ensure_ascii=False)
-            except Exception:
-                return str(x)
-        if isinstance(x, (list, tuple, set)):
-            return ", ".join("" if (v is None) else str(v) for v in x)
+        # Count matching rows
         try:
-            return "" if pd.isna(x) else str(x)
-        except Exception:
-            return str(x)
+            total = count_rows(q=q, data_ver=DATA_VER)
+        except Exception as e:
+            st.error(f"Browse failed (count): {e}")
+            st.stop()
+        st.caption(f"{total:,} matching provider(s)")
 
-    def _strip_hidden(s: str) -> str:
-        return _HIDDEN_RX.sub("", s)
+        # Resolve IDs (CKW-first) and load the rows
+        try:
+            ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
+            if not ids:
+                df = pd.DataFrame(columns=BROWSE_COLUMNS)  # keep schema for downstream
+            else:
+                df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+        except Exception as e:
+            st.error(f"Browse failed (load): {e}")
+            st.stop()
 
-    _view = _src.loc[:, _ordered] if not _src.empty else _src
+        # Ensure expected columns exist; reindex to policy order
+        for col in BROWSE_COLUMNS:
+            if col not in df.columns:
+                df[col] = ""
+        df = df.reindex(columns=BROWSE_COLUMNS, fill_value="")
 
-    # Diagnostics (first 300 rows)
-    _issues: dict[str, dict[str, list]] = {}
-    if not _view.empty:
-        for col in _ordered:
-            risky, hidden = [], []
-            for idx, val in _view[col].head(300).items():
-                if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
-                    risky.append((int(idx), type(val).__name__))
-                if isinstance(val, str) and _HIDDEN_RX.search(val):
-                    hidden.append(int(idx))
-            if risky or hidden:
-                _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
+        # Hide heavy/internal columns and originals we’ll replace with friendly aliases
+        _HIDE_EXACT = {
+            "id", "created_at", "updated_at",
+            "ckw_locked", "ckw_version",
+            "contact_name", "email", "computed_keywords",  # originals hidden
+            "address",  # not desired on Browse per spec
+        }
 
-    with st.expander("Browse diagnostics (click to open)", expanded=False):
-        if _issues:
-            st.write({"columns_with_issues": _issues})
-            st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
-        else:
-            st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
+        # Prepare view (rename already handled in fetch_rows_by_ids)
+        _src = df.copy()
 
-    # Normalize → strings + strip hidden chars
-    _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+        # Ensure friendly display columns exist (derive from canonical names if needed)
+        if not _src.empty:
+            if "contact name" not in _src.columns and "contact_name" in _src.columns:
+                _src["contact name"] = _src["contact_name"].fillna("")
+            if "email address" not in _src.columns and "email" in _src.columns:
+                _src["email address"] = _src["email"].fillna("")
+            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
+                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
+            if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
+                _src["ckw"] = _src["computed_keywords"].fillna("")
 
-    # Render
-    st.dataframe(
-        _view_safe,               # positional FIRST
-        column_config=_cfg,
-        column_order=_ordered,
-        use_container_width=True,
-        hide_index=True,
-        height=520,
-    )
+        # Visible columns (drop hidden and ckw_* controls)
+        def _is_ckw_control(col: str) -> bool:
+            return col.startswith("ckw_")
+
+        _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
+
+        # *** Fixed Browse order (as requested) ***
+        ORDER = [
+            "business_name",
+            "category",
+            "service",
+            "phone",
+            "contact name",
+            "website",
+            "email address",
+            "notes",
+            "keywords",
+            "ckw",
+        ]
+        _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
+        # Column widths + labels (map aliases cleanly; keep CKW label)
+        _cfg = {}
+        for c in _ordered:
+            w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
+            if c in ("ckw", "computed_keywords"):
+                label = "CKW"
+            elif c == "keywords":
+                label = "Keywords"
+            else:
+                label = c.replace("_", " ").title()
+            _cfg[c] = st.column_config.TextColumn(label, width=w)
+
+        # -------- Hidden/control-char scanning + sanitization --------
+        import re
+        import json
+        from datetime import datetime as _dt
+
+        _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+
+        def _to_str_safe(x):
+            if x is None:
+                return ""
+            if isinstance(x, _dt):
+                return x.isoformat(sep=" ", timespec="seconds")
+            if isinstance(x, (bytes, bytearray)):
+                try:
+                    x = x.decode("utf-8", errors="replace")
+                except Exception:
+                    return str(x)
+            if isinstance(x, dict):
+                try:
+                    return json.dumps(x, ensure_ascii=False)
+                except Exception:
+                    return str(x)
+            if isinstance(x, (list, tuple, set)):
+                return ", ".join("" if (v is None) else str(v) for v in x)
+            try:
+                return "" if pd.isna(x) else str(x)
+            except Exception:
+                return str(x)
+
+        def _strip_hidden(s: str) -> str:
+            return _HIDDEN_RX.sub("", s)
+
+        _view = _src.loc[:, _ordered] if not _src.empty else _src
+
+        # Diagnostics (first 300 rows)
+        _issues: dict[str, dict[str, list]] = {}
+        if not _view.empty:
+            for col in _ordered:
+                risky, hidden = [], []
+                for idx, val in _view[col].head(300).items():
+                    if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
+                        risky.append((int(idx), type(val).__name__))
+                    if isinstance(val, str) and _HIDDEN_RX.search(val):
+                        hidden.append(int(idx))
+                if risky or hidden:
+                    _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
+
+        with st.expander("Browse diagnostics (click to open)", expanded=False):
+            if _issues:
+                st.write({"columns_with_issues": _issues})
+                st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
+            else:
+                st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
+
+        # Normalize → strings + strip hidden chars
+        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+
+        # Render
+        st.dataframe(
+            _view_safe,               # positional FIRST
+            column_config=_cfg,
+            column_order=_ordered,
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+        )
 
 
 # ---- Bottom toolbar (CSV export + help) ----
