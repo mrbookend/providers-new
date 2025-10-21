@@ -625,12 +625,6 @@ def recompute_ckw_all(eng) -> int:
 
 # <<< CKW recompute (optimized) END --------------------------------------------
 
-
-def recompute_ckw_all(eng: Engine) -> int:
-    with eng.begin() as cx:
-        ids = [row[0] for row in cx.exec_driver_sql("SELECT id FROM vendors").all()]
-    return recompute_ckw_for_ids(eng, ids)
-
 def list_categories(eng: Engine) -> List[str]:
     with eng.begin() as cx:
         rows = cx.exec_driver_sql("SELECT name FROM categories ORDER BY name COLLATE NOCASE").all()
