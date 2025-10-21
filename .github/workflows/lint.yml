@@ -1,23 +1,98 @@
-name: Lint
+name: ci
 
 on:
-  pull_request:
   push:
-    branches: [main]
+    branches: [ main, fix/*, chore/*, feature/* ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  lint:
+  lint-and-guards:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - run: python -m pip install --upgrade pip
-      - run: pip install ruff black
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install "ruff==0.6.9"
+
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+
       - name: Ruff format (check only)
         run: ruff format --check .
-      - name: Ruff lint
-        run: ruff .
-      - name: Black (check only)
-        run: black --check .
+
+      - name: Legacy guards
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -f app_admin.py ]; then
+            # Guard 1: no engine/_engine params on cached data functions
+            if awk '
+              /@st\.cache_data/ { cached=1; next }
+              cached && /^def / {
+                if ($0 ~ /\(_?engine[[:space:]=,)]/ ) { print "FAIL: engine param in @st.cache_data function -> " NR ":" $0; exit 1 }
+                cached=0
+              }
+            ' app_admin.py; then
+              echo "OK: no engine params in cached data functions"
+            fi
+
+            # Guard 2: no call sites passing engine/_engine=
+            if grep -nE '\w+\([^)]*\b(_?engine)\s*=' app_admin.py; then
+              echo "FAIL: call sites still pass engine/_engine=" >&2
+              exit 1
+            else
+              echo "OK: no engine/_engine call-site args"
+            fi
+
+            # Guard 3: no deprecated fetch_page
+            if grep -n 'fetch_page' app_admin.py; then
+              echo "FAIL: deprecated fetch_page() reference(s) present" >&2
+              exit 1
+            else
+              echo "OK: no deprecated fetch_page()"
+            fi
+
+            # Guard 4: ban stray 'vdf'
+            if grep -nE '\bvdf\b' app_admin.py; then
+              echo "FAIL: stray variable name 'vdf' found; rename to df" >&2
+              exit 1
+            else
+              echo "OK: no stray vdf vars"
+            fi
+
+            # Guard 5 (informational): presence of set_page_config somewhere
+            if ! grep -n 'st\.set_page_config' app_admin.py >/dev/null; then
+              echo "WARN: st.set_page_config not found in app_admin.py (informational)"
+            fi
+
+            # Guard 6: ensure st.set_page_config is the first Streamlit call
+            first_st_line=$(grep -nE '^[[:space:]]*st\.' app_admin.py | head -n1 | cut -d: -f1 || true)
+            if [ -n "${first_st_line}" ]; then
+              if ! sed -n "1,${first_st_line}p" app_admin.py | grep -n 'st\.set_page_config' >/dev/null; then
+                echo "FAIL: first Streamlit call must be st.set_page_config (found another st.* earlier at line ${first_st_line})" >&2
+                exit 1
+              else
+                echo "OK: st.set_page_config is the first Streamlit call"
+              fi
+            else
+              echo "WARN: no Streamlit calls detected (informational)"
+            fi
+          else
+            echo "NOTE: app_admin.py not present; skipping custom guards"
+          fi
