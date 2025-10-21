@@ -37,9 +37,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Guard 1: No engine/_engine params in @st.cache_data functions
-          # (looks at the 'def' line immediately following any @st.cache_data line)
           if [ -f app_admin.py ]; then
+            # Guard 1: no engine/_engine params on cached data functions
             if awk '
               /@st\.cache_data/ { cached=1; next }
               cached && /^def / {
@@ -50,7 +49,7 @@ jobs:
               echo "OK: no engine params in cached data functions"
             fi
 
-            # Guard 2: No call sites still passing _engine=/engine=
+            # Guard 2: no call sites passing engine/_engine=
             if grep -nE '\w+\([^)]*\b(_?engine)\s*=' app_admin.py; then
               echo "FAIL: call sites still pass engine/_engine=" >&2
               exit 1
@@ -58,7 +57,7 @@ jobs:
               echo "OK: no engine/_engine call-site args"
             fi
 
-            # Guard 3: fetch_page is deprecated
+            # Guard 3: no deprecated fetch_page
             if grep -n 'fetch_page' app_admin.py; then
               echo "FAIL: deprecated fetch_page() reference(s) present" >&2
               exit 1
@@ -66,7 +65,7 @@ jobs:
               echo "OK: no deprecated fetch_page()"
             fi
 
-            # Guard 4: ban stray 'vdf' temp var (we standardize on df)
+            # Guard 4: ban stray 'vdf'
             if grep -nE '\bvdf\b' app_admin.py; then
               echo "FAIL: stray variable name 'vdf' found; rename to df" >&2
               exit 1
@@ -74,7 +73,7 @@ jobs:
               echo "OK: no stray vdf vars"
             fi
 
-            # Guard 5 (informational): confirm set_page_config exists somewhere
+            # Guard 5 (informational)
             if ! grep -n 'st\.set_page_config' app_admin.py >/dev/null; then
               echo "WARN: st.set_page_config not found in app_admin.py (informational)"
             fi
