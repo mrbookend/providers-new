@@ -815,8 +815,9 @@ def main() -> None:
                 _src["contact name"] = _src["contact_name"].fillna("")
             if "email address" not in _src.columns and "email" in _src.columns:
                 _src["email address"] = _src["email"].fillna("")
-            if "keywords" not in _src.columns and "keywords" in _src.columns:
-                _src["keywords"] = _src["keywords"].fillna("")
+            # derive human-curated keywords from ckw_manual_extra
+            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
+                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
             if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
                 _src["ckw"] = _src["computed_keywords"].fillna("")
 
@@ -912,7 +913,6 @@ def main() -> None:
 
         with st.expander("Help — How to use Browse (click to open)", expanded=False):
             st.markdown(HELP_MD)
-
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
@@ -1254,187 +1254,187 @@ def main() -> None:
                         st.error(f"Reassign failed: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
-    # Maintenance (CKW button + count)
+    # Maintenance (Diagnostics & CKW)
     # ─────────────────────────────────────────────────────────────────────
-with tab_maint:
-    st.subheader("Maintenance — Diagnostics & CKW")
+    with tab_maint:
+        st.subheader("Maintenance — Diagnostics & CKW")
 
-    eng = get_engine()
+        eng = get_engine()
 
-    # ---------- Quick Engine Probe ----------
-    c_probe, c_counts = st.columns([0.45, 0.55], gap="large")
-    with c_probe:
-        st.markdown("**Quick Engine Probe**")
-        try:
-            from pathlib import Path as _Path
-            _dbp = _Path(DB_PATH).resolve()
-        except Exception:
-            _dbp = DB_PATH
-        ok = False
-        err = None
-        try:
-            with eng.connect() as cx:
-                cx.exec_driver_sql("SELECT 1").first()
-            ok = True
-        except Exception as e:
-            err = e
-        st.caption(f"DB path: `{_dbp}`")
-        st.caption(f"Engine: sqlite:///{DB_PATH}")
-        st.success("Engine OK") if ok else st.error(f"Engine connect failed: {err}")
-
-    # ---------- Table & Row Counts ----------
-    with c_counts:
-        st.markdown("**Table & Row Counts**")
-        try:
-            with eng.connect() as cx:
-                tables = [r[0] for r in cx.exec_driver_sql(
-                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-                ).all()]
-                counts = {}
-                for t in tables:
-                    try:
-                        counts[t] = int(cx.exec_driver_sql(f"SELECT COUNT(*) FROM {t}").scalar() or 0)
-                    except Exception:
-                        counts[t] = "n/a"
-            if tables:
-                st.write({"tables": counts})
-            else:
-                st.info("No tables found yet. Use the app or bootstrap to create schema.")
-        except Exception as e:
-            st.error(f"Counts failed: {e}")
-
-    st.divider()
-
-    # ---------- Integrity Self-Test ----------
-    st.markdown("**Integrity Self-Test (read-only)**")
-    try:
-        issues = {}
-        with eng.connect() as cx:
-            # 1) Duplicate IDs
-            dups = cx.exec_driver_sql(
-                "SELECT id, COUNT(*) c FROM vendors GROUP BY id HAVING c>1"
-            ).all()
-            if dups:
-                issues["duplicate_ids"] = [int(r[0]) for r in dups[:20]]
-
-            # 2) Blank business names
-            blanks = cx.exec_driver_sql(
-                "SELECT id FROM vendors WHERE TRIM(COALESCE(business_name,'')) = '' LIMIT 50"
-            ).all()
-            if blanks:
-                issues["blank_business_name"] = [int(r[0]) for r in blanks]
-
-            # 3) Phone quick sniff (length)
-            bad_phones = cx.exec_driver_sql(
-                "SELECT id, phone FROM vendors "
-                "WHERE phone IS NOT NULL AND LENGTH(REPLACE(phone,' ','')) NOT BETWEEN 7 AND 20 "
-                "LIMIT 50"
-            ).mappings().all()
-            if bad_phones:
-                issues["phones_suspect"] = [{"id": int(r["id"]), "phone": r["phone"]} for r in bad_phones]
-
-        if issues:
-            st.write({"integrity_issues": issues})
-        else:
-            st.caption("No obvious integrity issues detected.")
-    except Exception as e:
-        st.error(f"Integrity test failed: {e}")
-
-    st.divider()
-
-    # ---------- CKW Seed Coverage ----------
-    st.markdown("**CKW Seed Coverage**")
-    try:
-        with eng.connect() as cx:
-            exists = cx.exec_driver_sql(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
-            ).first() is not None
-            if not exists:
-                st.caption("ckw_seeds table not found (coverage = 0%).")
-            else:
-                combos = cx.exec_driver_sql(
-                    "SELECT DISTINCT COALESCE(TRIM(category),''), COALESCE(TRIM(service),'') FROM vendors"
-                ).all()
-                seeded = cx.exec_driver_sql(
-                    "SELECT COUNT(*) FROM ckw_seeds"
-                ).scalar() or 0
-                total = len([1 for a,b in combos if (a or b)])
-                pct = (seeded / total * 100.0) if total else 0.0
-                st.caption(f"Seeds: {seeded} / Combos: {total} → Coverage: {pct:.1f}%")
-    except Exception as e:
-        st.error(f"Seed coverage check failed: {e}")
-
-    # ---------- CKW Stale Audit ----------
-    st.markdown("**CKW Stale Audit**")
-    try:
-        with eng.connect() as cx:
-            stale = cx.exec_driver_sql(
-                "SELECT COUNT(*) FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
-                {"v": CURRENT_VER},
-            ).scalar() or 0
-            total = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-        st.caption(f"Stale vendors (ckw_version != {CURRENT_VER}): {stale} / {total}")
-    except Exception as e:
-        st.error(f"Stale audit failed: {e}")
-
-    st.divider()
-
-    # ---------- CKW Maintenance ----------
-    st.markdown("**Computed Keywords (CKW)**")
-    c1, c2 = st.columns([0.5, 0.5])
-    with c1:
-        if st.button("Recompute CKW — Stale & Unlocked only", key="ckw_recompute_stale"):
+        # ---------- Quick Engine Probe ----------
+        c_probe, c_counts = st.columns([0.45, 0.55], gap="large")
+        with c_probe:
+            st.markdown("**Quick Engine Probe**")
             try:
-                ids: list[int] = []
+                from pathlib import Path as _Path
+                _dbp = _Path(DB_PATH).resolve()
+            except Exception:
+                _dbp = DB_PATH
+            ok = False
+            err = None
+            try:
                 with eng.connect() as cx:
-                    rows = cx.exec_driver_sql(
-                        "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
-                        {"v": CURRENT_VER},
-                    ).mappings().all()
-                    ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
-                changed = recompute_ckw_for_ids(eng, ids)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
+                    cx.exec_driver_sql("SELECT 1").first()
+                ok = True
             except Exception as e:
-                st.error(f"Stale recompute failed: {e}")
+                err = e
+            st.caption(f"DB path: `{_dbp}`")
+            st.caption(f"Engine: sqlite:///{DB_PATH}")
+            st.success("Engine OK") if ok else st.error(f"Engine connect failed: {err}")
 
-    with c2:
-        if st.button("Recompute CKW — ALL (override locks)", type="primary", key="ckw_recompute_all"):
+        # ---------- Table & Row Counts ----------
+        with c_counts:
+            st.markdown("**Table & Row Counts**")
             try:
-                changed = recompute_ckw_all(eng)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Recomputed CKW for {changed} provider(s).")
+                with eng.connect() as cx:
+                    tables = [r[0] for r in cx.exec_driver_sql(
+                        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                    ).all()]
+                    counts = {}
+                    for t in tables:
+                        try:
+                            counts[t] = int(cx.exec_driver_sql(f"SELECT COUNT(*) FROM {t}").scalar() or 0)
+                        except Exception:
+                            counts[t] = "n/a"
+                if tables:
+                    st.write({"tables": counts})
+                else:
+                    st.info("No tables found yet. Use the app or bootstrap to create schema.")
             except Exception as e:
-                st.error(f"ALL recompute failed: {e}")
+                st.error(f"Counts failed: {e}")
 
-    st.divider()
+        st.divider()
 
-    # ---------- Full CSV Backup ----------
-    st.markdown("**Full CSV Backup**")
-    try:
-        with eng.connect() as cx:
-            df_all = pd.read_sql(sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE, id"), cx)
-        _csv = df_all.to_csv(index=False)
-        st.download_button(
-            "Download providers_full.csv",
-            data=_csv,
-            file_name="providers_full.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-    except Exception as e:
-        st.error(f"CSV export failed: {e}")
-
-    st.divider()
-
-    # ---------- Cache Clear ----------
-    st.markdown("**Caches**")
-    if st.button("Clear @st.cache_data (force Browse refresh)", key="clear_cache_data"):
+        # ---------- Integrity Self-Test ----------
+        st.markdown("**Integrity Self-Test (read-only)**")
         try:
-            st.cache_data.clear()
-            st.success("Cleared cache_data.")
+            issues = {}
+            with eng.connect() as cx:
+                # 1) Duplicate IDs
+                dups = cx.exec_driver_sql(
+                    "SELECT id, COUNT(*) c FROM vendors GROUP BY id HAVING c>1"
+                ).all()
+                if dups:
+                    issues["duplicate_ids"] = [int(r[0]) for r in dups[:20]]
+
+                # 2) Blank business names
+                blanks = cx.exec_driver_sql(
+                    "SELECT id FROM vendors WHERE TRIM(COALESCE(business_name,'')) = '' LIMIT 50"
+                ).all()
+                if blanks:
+                    issues["blank_business_name"] = [int(r[0]) for r in blanks]
+
+                # 3) Phone quick sniff (length)
+                bad_phones = cx.exec_driver_sql(
+                    "SELECT id, phone FROM vendors "
+                    "WHERE phone IS NOT NULL AND LENGTH(REPLACE(phone,' ','')) NOT BETWEEN 7 AND 20 "
+                    "LIMIT 50"
+                ).mappings().all()
+                if bad_phones:
+                    issues["phones_suspect"] = [{"id": int(r["id"]), "phone": r["phone"]} for r in bad_phones]
+
+            if issues:
+                st.write({"integrity_issues": issues})
+            else:
+                st.caption("No obvious integrity issues detected.")
         except Exception as e:
-            st.error(f"Clear cache_data failed: {e}")
+            st.error(f"Integrity test failed: {e}")
+
+        st.divider()
+
+        # ---------- CKW Seed Coverage ----------
+        st.markdown("**CKW Seed Coverage**")
+        try:
+            with eng.connect() as cx:
+                exists = cx.exec_driver_sql(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
+                ).first() is not None
+                if not exists:
+                    st.caption("ckw_seeds table not found (coverage = 0%).")
+                else:
+                    combos = cx.exec_driver_sql(
+                        "SELECT DISTINCT COALESCE(TRIM(category),''), COALESCE(TRIM(service),'') FROM vendors"
+                    ).all()
+                    seeded = cx.exec_driver_sql(
+                        "SELECT COUNT(*) FROM ckw_seeds"
+                    ).scalar() or 0
+                    total = len([1 for a,b in combos if (a or b)])
+                    pct = (seeded / total * 100.0) if total else 0.0
+                    st.caption(f"Seeds: {seeded} / Combos: {total} → Coverage: {pct:.1f}%")
+        except Exception as e:
+            st.error(f"Seed coverage check failed: {e}")
+
+        # ---------- CKW Stale Audit ----------
+        st.markdown("**CKW Stale Audit**")
+        try:
+            with eng.connect() as cx:
+                stale = cx.exec_driver_sql(
+                    "SELECT COUNT(*) FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
+                    {"v": CURRENT_VER},
+                ).scalar() or 0
+                total = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            st.caption(f"Stale vendors (ckw_version != {CURRENT_VER}): {stale} / {total}")
+        except Exception as e:
+            st.error(f"Stale audit failed: {e}")
+
+        st.divider()
+
+        # ---------- CKW Maintenance ----------
+        st.markdown("**Computed Keywords (CKW)**")
+        c1, c2 = st.columns([0.5, 0.5])
+        with c1:
+            if st.button("Recompute CKW — Stale & Unlocked only", key="ckw_recompute_stale"):
+                try:
+                    ids: list[int] = []
+                    with eng.connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
+                            {"v": CURRENT_VER},
+                        ).mappings().all()
+                        ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
+                    changed = recompute_ckw_for_ids(eng, ids)
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
+                except Exception as e:
+                    st.error(f"Stale recompute failed: {e}")
+
+        with c2:
+            if st.button("Recompute CKW — ALL (override locks)", type="primary", key="ckw_recompute_all"):
+                try:
+                    changed = recompute_ckw_all(eng)
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    st.success(f"Recomputed CKW for {changed} provider(s).")
+                except Exception as e:
+                    st.error(f"ALL recompute failed: {e}")
+
+        st.divider()
+
+        # ---------- Full CSV Backup ----------
+        st.markdown("**Full CSV Backup**")
+        try:
+            with eng.connect() as cx:
+                df_all = pd.read_sql(sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE, id"), cx)
+            _csv = df_all.to_csv(index=False)
+            st.download_button(
+                "Download providers_full.csv",
+                data=_csv,
+                file_name="providers_full.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"CSV export failed: {e}")
+
+        st.divider()
+
+        # ---------- Cache Clear ----------
+        st.markdown("**Caches**")
+        if st.button("Clear @st.cache_data (force Browse refresh)", key="clear_cache_data"):
+            try:
+                st.cache_data.clear()
+                st.success("Cleared cache_data.")
+            except Exception as e:
+                st.error(f"Clear cache_data failed: {e}")
 
 
 if __name__ == "__main__":
