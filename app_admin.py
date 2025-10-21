@@ -1016,16 +1016,18 @@ with tab_browse:
         db_path = globals().get("DB_PATH", "providers.db")
         return sa.create_engine(f"sqlite:///{db_path}", future=True)
 
-    # [BEGIN ANCHOR — keep this line above]
+        # [BEGIN ANCHOR — keep this line above]
     try:
-        # Acquire engine (uses your local fallback defined earlier in this tab)
-        engine = _get_engine_fallback()
+        # Ensure DATA_VER exists (cache-buster used by your cached funcs)
+        if "DATA_VER" not in st.session_state:
+            st.session_state["DATA_VER"] = 0
+        DATA_VER = st.session_state["DATA_VER"]
 
-        # Count and fetch
-        total = count_rows(_engine=engine, q=q)
+        # Count and fetch (no _engine param)
+        total = count_rows(q=q, data_ver=DATA_VER)
         st.caption(f"{total} matching provider(s)")
 
-        df = fetch_page(_engine=engine, q=q, offset=0, limit=PAGE_SIZE)
+        df = fetch_page(q=q, offset=0, limit=PAGE_SIZE, data_ver=DATA_VER)
 
         # Render table (guard empty)
         if df is None or len(df) == 0:
@@ -1037,6 +1039,7 @@ with tab_browse:
         st.error(f"Browse failed: {e}")
         st.stop()
     # [END ANCHOR — keep this line below]
+
 
 
     # Use a local data_ver (don’t rely on a global alias that might be undefined)
