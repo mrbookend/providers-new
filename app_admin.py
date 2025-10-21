@@ -858,7 +858,8 @@ def main() -> None:
             _cfg[c] = st.column_config.TextColumn(label, width=w)
 
         # -------- Hidden/control-char scanning + sanitization --------
-        import re, json
+        import re
+        import json
         from datetime import datetime as _dt
         _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
 
@@ -909,8 +910,9 @@ def main() -> None:
             else:
                 st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
-                # Normalize → strings + strip hidden chars
+        # Normalize → strings + strip hidden chars
         _view_safe = _view.map(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+
 
         # Ensure friendly display columns exist (derive from canonical names if needed)
         if not _view_safe.empty:
