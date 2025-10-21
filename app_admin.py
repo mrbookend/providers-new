@@ -1002,41 +1002,159 @@ with tab_browse:
         q = ""
     st.session_state["q"] = q
 
-    # ---- Local helper to get an engine with a safe fallback ----
-    def _get_engine_fallback():
-        # Prefer your real builder if it exists
-        try:
-            return get_engine()  # or build_engine() if that's your function name
-        except Exception:
-            pass
-        # Fallback to local SQLite file defined by DB_PATH (or providers.db)
-        import sqlalchemy as sa
-        db_path = globals().get("DB_PATH", "providers.db")
-        return sa.create_engine(f"sqlite:///{db_path}", future=True)
-
-        # [BEGIN ANCHOR — keep this line above]
+    # [BEGIN ANCHOR — keep this line above]
     try:
         # Ensure DATA_VER exists (cache-buster used by your cached funcs)
         if "DATA_VER" not in st.session_state:
             st.session_state["DATA_VER"] = 0
         DATA_VER = st.session_state["DATA_VER"]
 
-        # Count and fetch (no _engine param)
+        # Count (no _engine param; fetch_page no longer used)
         total = count_rows(q=q, data_ver=DATA_VER)
         st.caption(f"{total} matching provider(s)")
 
-        df = fetch_page(q=q, offset=0, limit=PAGE_SIZE, data_ver=DATA_VER)
-
-        # Render table (guard empty)
-        if df is None or len(df) == 0:
-            st.info("No matches.")
+        # Resolve row IDs (CKW-first search) and load rows
+        if not _has_table(get_engine(), "vendors"):
+            st.warning(
+                "Database not initialized yet (no 'vendors' table). "
+                "See Maintenance → Quick Engine Probe / Seed."
+            )
+            st.stop()
         else:
-            st.dataframe(df, use_container_width=True)
+            ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=DATA_VER)
+            if not ids:
+                vdf = pd.DataFrame()
+            else:
+                vdf = fetch_rows_by_ids(tuple(ids), DATA_VER)
+
+        # ---- Ensure desired columns exist; set display order ----
+        BASE_COLS = ["business_name", "category", "service", "phone", "website", "notes"]
+        CKW_COLS  = ["keywords", "computed_keywords"]
+        META_COLS = ["created_at", "updated_at"]
+
+        if vdf.empty:
+            st.info("No matches.")
+            st.stop()
+
+        for col in CKW_COLS + META_COLS:
+            if col not in vdf.columns:
+                vdf[col] = ""
+
+        preferred = [c for c in BASE_COLS + CKW_COLS + META_COLS if c in vdf.columns]
+        remaining = [c for c in vdf.columns if c not in preferred]
+        display_cols = preferred + remaining
+
+        # ---- Prepare view (rename, hide controls) ----
+        _src = vdf.copy()
+        if "computed_keywords" not in _src.columns:
+            _src["computed_keywords"] = ""
+        if "ckw_manual_extra" in _src.columns:
+            _src = _src.rename(columns={"ckw_manual_extra": "keywords"})
+
+        _HIDE_EXACT = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
+        def _is_ckw_control(col: str) -> bool:
+            return col.startswith("ckw_")
+
+        _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
+
+        ORDER = [
+            "business_name", "category", "service",
+            "keywords", "computed_keywords",
+            "phone", "website", "notes",
+        ]
+        _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
+        # Column widths + labels
+        _cfg = {}
+        for c in _ordered:
+            w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
+            label = "Keywords" if c == "keywords" else ("CKW" if c == "computed_keywords" else c.replace("_", " ").title())
+            _cfg[c] = st.column_config.TextColumn(label, width=w)
+
+        # -------- Hidden/control-char scanning + sanitization --------
+        import re, json
+        from datetime import datetime as _dt
+        _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+
+        def _to_str_safe(x):
+            if x is None:
+                return ""
+            if isinstance(x, _dt):
+                return x.isoformat(sep=" ", timespec="seconds")
+            if isinstance(x, (bytes, bytearray)):
+                try:
+                    x = x.decode("utf-8", errors="replace")
+                except Exception:
+                    return str(x)
+            if isinstance(x, dict):
+                try:
+                    return json.dumps(x, ensure_ascii=False)
+                except Exception:
+                    return str(x)
+            if isinstance(x, (list, tuple, set)):
+                return ", ".join("" if (v is None) else str(v) for v in x)
+            try:
+                return "" if pd.isna(x) else str(x)
+            except Exception:
+                return str(x)
+
+        def _strip_hidden(s: str) -> str:
+            return _HIDDEN_RX.sub("", s)
+
+        _view = _src.loc[:, _ordered] if not _src.empty else _src
+
+        # Diagnostics (first 300 rows)
+        _issues: dict[str, dict[str, list]] = {}
+        if not _view.empty:
+            for col in _ordered:
+                risky, hidden = [], []
+                for idx, val in _view[col].head(300).items():
+                    if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
+                        risky.append((int(idx), type(val).__name__))
+                    if isinstance(val, str) and _HIDDEN_RX.search(val):
+                        hidden.append(int(idx))
+                if risky or hidden:
+                    _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
+
+        with st.expander("Browse diagnostics (click to open)", expanded=False):
+            if _issues:
+                st.write({"columns_with_issues": _issues})
+                st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
+            else:
+                st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
+
+        # Normalize → strings + strip hidden chars
+        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+
+        # Render
+        st.dataframe(
+            _view_safe,
+            column_config=_cfg,
+            use_container_width=True,
+            hide_index=True,
+            height=520,
+        )
+
+        # ---- Bottom toolbar (CSV export + help) ----
+        bt1, bt_sp = st.columns([0.2, 0.8])
+        if not _view_safe.empty:
+            csv_bytes = _view_safe.to_csv(index=False).encode("utf-8")
+            bt1.download_button(
+                "Download CSV",
+                data=csv_bytes,
+                file_name="providers.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        with st.expander("Help — How to use Browse (click to open)", expanded=False):
+            st.markdown(HELP_MD)
 
     except Exception as e:
         st.error(f"Browse failed: {e}")
         st.stop()
     # [END ANCHOR — keep this line below]
+
 
 
 
