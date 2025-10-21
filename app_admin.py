@@ -1383,36 +1383,46 @@ def main() -> None:
 
         st.divider()
 
-        # ---------- CKW Maintenance ----------
+                # ---------- CKW Maintenance ----------
         st.markdown("**Computed Keywords (CKW)**")
-        c1, c2 = st.columns([0.5, 0.5])
+        col_left, col_right = st.columns(2)  # use ints, not floats
 
-        # Buttons always render; actions run inside try/except
-        click_stale = c1.button("Recompute CKW — Stale & Unlocked only", key="ckw_recompute_stale")
-        click_all   = c2.button("Recompute CKW — ALL (override locks)", type="primary", key="ckw_recompute_all")
+        with col_left:
+            pressed_stale = st.button(
+                "Recompute CKW — Stale & Unlocked only",
+                key="ckw_recompute_stale_btn",
+            )
+            st.caption("Updates only records where ckw_version != CURRENT_VER and not locked.")
+            if pressed_stale:
+                try:
+                    ids: list[int] = []
+                    with eng.connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
+                            {"v": CURRENT_VER},
+                        ).mappings().all()
+                        ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
+                    changed = recompute_ckw_for_ids(eng, ids)
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
+                except Exception as e:
+                    st.error(f"Stale recompute failed: {str(e)}")
 
-        if click_stale:
-            try:
-                ids: list[int] = []
-                with eng.connect() as cx:
-                    rows = cx.exec_driver_sql(
-                        "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
-                        {"v": CURRENT_VER},
-                    ).mappings().all()
-                    ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
-                changed = recompute_ckw_for_ids(eng, ids)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
-            except Exception as e:
-                st.error(f"Stale recompute failed: {e}")
+        with col_right:
+            pressed_all = st.button(
+                "Recompute CKW — ALL (override locks)",
+                type="primary",
+                key="ckw_recompute_all_btn",
+            )
+            st.caption("Recomputes every vendor regardless of lock state.")
+            if pressed_all:
+                try:
+                    changed = recompute_ckw_all(eng)
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    st.success(f"Recomputed CKW for {changed} provider(s).")
+                except Exception as e:
+                    st.error(f"ALL recompute failed: {str(e)}")
 
-        if click_all:
-            try:
-                changed = recompute_ckw_all(eng)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Recomputed CKW for {changed} provider(s).")
-            except Exception as e:
-                st.error(f"ALL recompute failed: {e}")
 
         st.divider()
 
