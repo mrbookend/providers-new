@@ -119,8 +119,41 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "notes": 320,
     "ckw": 360,
 }
-# ── CKW version (bump when you change the algorithm/seed logic) ─────────
+# ── CKW version (bump when algo/seed logic changes) ──
 CURRENT_VER = 1
+
+# ── Curated baseline seeds by service ──
+CURATED_SEEDS_BY_SERVICE: dict[str, str] = {
+    "Plumber": "plumber, plumbing, leak repair, drain cleaning, clogged drain, pipe burst, water heater, toilet repair, faucet repair, garbage disposal",
+    "Electrician": "electrician, electrical repair, breaker panel, outlet install, light fixtures, ceiling fan, wiring, gfci, ev charger, generator",
+    "HVAC": "ac repair, air conditioning, heater repair, furnace, hvac service, tune up, thermostat, refrigerant, ductwork, mini split",
+    "Roofing": "roofer, roof repair, shingles, roof leak, replacement, hail damage, flashing, ridge vent, gutter repair",
+    "Garage Door": "garage door, opener, spring repair, door repair, track, remote, new door, keypad",
+    "Handyman": "handyman, home repair, drywall, minor plumbing, minor electrical, faucet, disposal, light install, tv mount",
+    "Pest Control": "pest control, exterminator, ants, roaches, spiders, scorpions, termites, mosquito, wasps, rodent",
+    "Lawn Care": "lawn mowing, lawn service, yard work, edging, trimming, weed control, lawn fertilization, aeration, mulch",
+    "Landscaping": "landscaper, landscape design, planting, shrubs, irrigation, sprinkler repair, sod, xeriscape, rock, beds",
+    "Tree Service": "tree trimming, tree removal, stump grinding, arborist, pruning, oak wilt",
+    "Irrigation": "sprinkler repair, irrigation, controller, leak, heads, drip system, backflow, winterize",
+    "House Cleaning": "house cleaning, maid service, deep clean, move out clean, recurring clean, kitchen, bathroom, dusting",
+    "Window Cleaning": "window cleaning, windows, screens, hard water, exterior windows, interior windows",
+    "Pressure Washing": "pressure wash, power wash, driveway, sidewalk, siding, fence, deck, patio, mildew",
+    "Pool Service": "pool service, pool cleaning, chemicals, pump repair, filter, green pool, opening, closing",
+    "Appliance Repair": "appliance repair, refrigerator, washer, dryer, dishwasher, oven, stove, microwave, ice maker",
+    "Flooring": "flooring, install, hardwood, laminate, vinyl plank, tile, carpet, baseboards",
+    "Painter": "painter, painting, interior paint, exterior paint, cabinet paint, trim, drywall repair",
+    "Countertops": "countertops, quartz, granite, install, fabrication, backsplash",
+    "Windows & Doors": "windows, replacement windows, energy efficient, entry door, patio door, install",
+    "Fencing": "fence, fencing, cedar, privacy fence, repair, gates, staining",
+    "Auto Repair": "auto repair, mechanic, brakes, oil change, check engine, tires, alignment, battery, ac service",
+    "Dentist": "dentist, dental cleaning, exam, fillings, crown, root canal, emergency dentist, whitening",
+    "Optometrist": "eye doctor, optometrist, eye exam, glasses, contacts, prescription, vision",
+    "Primary Care": "primary care, family doctor, annual physical, wellness, blood work, same day appointment",
+    "Urgent Care": "urgent care, walk in, same day, stitches, x ray, flu test, covid test",
+    "Insurance Agent": "insurance agent, auto insurance, home insurance, renters, umbrella, quotes, policy review, claims",
+    "Real Estate Agent": "realtor, real estate agent, buy a home, sell a home, listing agent, buyer agent, cma",
+    "Veterinarian": "veterinarian, vet clinic, vaccines, spay, neuter, dental, emergency vet, wellness exam",
+}
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers (string / time)
