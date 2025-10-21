@@ -260,6 +260,41 @@ def ensure_ckw_seeds_table() -> str:
         cx.exec_driver_sql(ddl)
         cx.exec_driver_sql(idx)
     return "ckw_seeds table present (created if missing)"
+def get_ckw_seed(category: str | None, service: str | None) -> str:
+    """
+    Resolve best seed for (category, service) with fallback to category-wide ('').
+    Returns '' if none found.
+    """
+    cat = (category or "").strip()
+    svc = (service or "").strip()
+    if not cat and not svc:
+        return ""
+
+    eng = get_engine()
+
+    # 1) Exact (category, service)
+    if cat and svc:
+        with eng.connect() as cx:
+            row = cx.exec_driver_sql(
+                "SELECT seed FROM ckw_seeds WHERE category=:c AND service=:s",
+                {"c": cat, "s": svc},
+            ).first()
+            if row:
+                return row[0] or ""
+
+    # 2) Category-wide (service = '')
+    if cat:
+        with eng.connect() as cx:
+            row = cx.exec_driver_sql(
+                "SELECT seed FROM ckw_seeds WHERE category=:c AND service=''",
+                {"c": cat},
+            ).first()
+            if row:
+                return row[0] or ""
+
+    # 3) No seed
+    return ""
+    
 def ensure_ckw_seeds_table() -> str:
     """
     Create ckw_seeds if missing.
