@@ -1433,7 +1433,7 @@ def main() -> None:
                 st.success(msg)
                 st.stop()  # refresh maintenance view so coverage probe updates
 
-                # ---------- CKW Maintenance ----------
+        # ---------- CKW Maintenance ----------
         st.markdown("**Computed Keywords (CKW)**")
         col_left, col_right = st.columns(2)  # use ints, not floats
 
@@ -1441,38 +1441,74 @@ def main() -> None:
             pressed_stale = st.button(
                 "Recompute CKW — Stale & Unlocked only",
                 key="ckw_recompute_stale_btn",
+                use_container_width=True,
             )
             st.caption("Updates only records where ckw_version != CURRENT_VER and not locked.")
+
             if pressed_stale:
                 try:
+                    # 1) Find stale + unlocked IDs
                     ids: list[int] = []
                     with eng.connect() as cx:
                         rows = cx.exec_driver_sql(
-                            "SELECT id, ckw_locked FROM vendors WHERE ckw_version IS NULL OR ckw_version <> :v",
+                            """
+                            SELECT id, COALESCE(ckw_locked, 0) AS ckw_locked
+                            FROM vendors
+                            WHERE ckw_version IS NULL OR ckw_version <> :v
+                            """,
                             {"v": CURRENT_VER},
                         ).mappings().all()
-                        ids = [int(r["id"]) for r in rows if int(r.get("ckw_locked") or 0) == 0]
-                    changed = recompute_ckw_for_ids(eng, ids)
-                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                    st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
+                        ids = [int(r["id"]) for r in rows if int(r["ckw_locked"]) == 0]
+
+                    if not ids:
+                        st.info("No stale & unlocked providers to update.")
+                    else:
+                        # 2) Recompute keywords for those IDs
+                        changed = recompute_ckw_for_ids(eng, ids)
+
+                        # 3) Bump version for exactly those IDs
+                        with eng.begin() as cx:
+                            cx.exec_driver_sql(
+                                "UPDATE vendors SET ckw_version = :v WHERE id = :id",
+                                [{"v": CURRENT_VER, "id": i} for i in ids],  # executemany
+                            )
+
+                        # 4) Cache-bust + message + refresh
+                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                        st.success(f"Recomputed CKW for {changed} provider(s) (stale & unlocked).")
+                        st.rerun()
+
                 except Exception as e:
-                    st.error(f"Stale recompute failed: {str(e)}")
+                    st.error(f"Stale recompute failed: {e}")
 
         with col_right:
             pressed_all = st.button(
                 "Recompute CKW — ALL (override locks)",
                 type="primary",
                 key="ckw_recompute_all_btn",
+                use_container_width=True,
             )
             st.caption("Recomputes every vendor regardless of lock state.")
+
             if pressed_all:
                 try:
+                    # 1) Recompute for all providers (ignores locks)
                     changed = recompute_ckw_all(eng)
+
+                    # 2) Bump version for all rows
+                    with eng.begin() as cx:
+                        cx.exec_driver_sql(
+                            "UPDATE vendors SET ckw_version = :v",
+                            {"v": CURRENT_VER},
+                        )
+
+                    # 3) Cache-bust + message + refresh
                     st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                     st.success(f"Recomputed CKW for {changed} provider(s).")
-                except Exception as e:
-                    st.error(f"ALL recompute failed: {str(e)}")
+                    st.rerun()
 
+                except Exception as e:
+                    st.error(f"ALL recompute failed: {e}")
 
         st.divider()
 
