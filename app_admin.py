@@ -945,43 +945,40 @@ def main() -> None:
     # Helper used by the Browse tab "Clear" button.
     # Important: this only sets a FLAG. We clear the actual query BEFORE rendering the text_input.
 
-    # ── Bootstrap (must be above # Tabs): safe state + DB readiness ─────────────────
-import pandas as pd  # used in Browse table/export
-import sqlalchemy as sa  # used in Maintenance, queries
+        # ── Bootstrap (must be above # Tabs): safe state + DB readiness ─────────────
+    # Ensure session-state defaults exist before any UI uses them
+    if "DATA_VER" not in st.session_state:
+        st.session_state["DATA_VER"] = 0
+    if "q" not in st.session_state:
+        st.session_state["q"] = ""
 
-# Ensure session-state defaults exist before any UI uses them
-if "DATA_VER" not in st.session_state:
-    st.session_state["DATA_VER"] = 0
-if "q" not in st.session_state:
-    st.session_state["q"] = ""
+    def _resolve_engine_for_probe():
+        """Prefer the app's real engine; fall back to local sqlite."""
+        try:
+            return get_engine()
+        except Exception:
+            pass
+        db_path = globals().get("DB_PATH", "providers.db")
+        return sa.create_engine(f"sqlite:///{db_path}", future=True)
 
-def _resolve_engine_for_probe():
-    """Prefer the app's real engine; fall back to local sqlite."""
+    # Safe DB readiness probe: check for the actual 'vendors' table
     try:
-        return get_engine()
+        _eng = _resolve_engine_for_probe()
+        with _eng.connect() as _cx:
+            # Record DB path for diagnostics
+            _db_row = _cx.exec_driver_sql("PRAGMA database_list").first()
+            st.session_state["DB_PATH_INFO"] = (_db_row[2] if _db_row else None)
+
+            # TRUE readiness only if 'vendors' exists
+            _row = _cx.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='vendors'"
+            ).first()
+        DB_READY = bool(_row)
     except Exception:
-        pass
-    db_path = globals().get("DB_PATH", "providers.db")
-    return sa.create_engine(f"sqlite:///{db_path}", future=True)
+        DB_READY = False
 
-# Safe DB readiness probe: check for the actual 'vendors' table
-try:
-    _eng = _resolve_engine_for_probe()
-    with _eng.connect() as _cx:
-        # Record DB path for diagnostics
-        _db_row = _cx.exec_driver_sql("PRAGMA database_list").first()
-        st.session_state["DB_PATH_INFO"] = (_db_row[2] if _db_row else None)
-
-        # TRUE readiness only if 'vendors' exists
-        _row = _cx.exec_driver_sql(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='vendors'"
-        ).first()
-    DB_READY = bool(_row)
-except Exception:
-    DB_READY = False
-
-# Make readiness available everywhere
-st.session_state["DB_READY"] = DB_READY
+    # Make readiness available everywhere
+    st.session_state["DB_READY"] = DB_READY
 
 
 # Tabs
