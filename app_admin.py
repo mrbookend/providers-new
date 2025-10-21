@@ -1026,6 +1026,40 @@ with tab_browse:
     st.session_state["q"] = q
 
     # [BEGIN ANCHOR — keep this line above]
+        # --- Search & load rows (CKW-first; hashable-only; no engine args) ---
+    # Cache-buster default (in case a writer hasn’t bumped it yet)
+    DATA_VER = st.session_state.get("DATA_VER", 0)
+
+    # Count matching rows
+    try:
+        total = count_rows(q=q, data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (count): {e}")
+        st.stop()
+    st.caption(f"{total:,} matching provider(s)")
+
+    # Resolve IDs (CKW-first) and load the rows
+    try:
+        ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
+        if not ids:
+            df = pd.DataFrame(columns=BROWSE_DISPLAY_COLUMNS)  # keep schema for downstream
+        else:
+            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (load): {e}")
+        st.stop()
+
+    # Ensure expected columns exist; reindex to policy order
+    for col in BROWSE_DISPLAY_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    df = df.reindex(columns=BROWSE_DISPLAY_COLUMNS, fill_value="")
+
+    # Hide heavy/internal columns (you asked to hide created_at / updated_at)
+    _HIDE = {"created_at", "updated_at", "computed_keywords", "ckw_locked", "ckw_version"}
+    show_cols = [c for c in df.columns if c not in _HIDE]
+
+
     try:
         # Ensure DATA_VER exists (cache-buster used by your cached funcs)
         if "DATA_VER" not in st.session_state:
