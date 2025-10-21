@@ -264,26 +264,33 @@ def ensure_schema_uncached() -> str:
                 cx.exec_driver_sql(stmt)
                 altered.append(c)
 
-        # 3) Indexes
-cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
-cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
-cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
-cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service)")
-cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
-# 4) Lookup tables (simple)
+                # 3) Indexes
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service)")
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
+
+        # 4) Lookup tables (simple)
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
-        # Seed lookups if empty
+
+        # Seed lookups if empty (only non-empty trimmed names)
         if (cx.exec_driver_sql("SELECT COUNT(*) FROM categories").scalar() or 0) == 0:
-            cx.exec_driver_sql(
-                "INSERT OR IGNORE INTO categories(name) "
-                "SELECT DISTINCT TRIM(category) FROM vendors WHERE IFNULL(TRIM(category),'')<>''"
-            )
+            cx.exec_driver_sql("""
+                INSERT OR IGNORE INTO categories(name)
+                SELECT DISTINCT COALESCE(TRIM(category),'')
+                FROM vendors
+                WHERE COALESCE(TRIM(category),'') <> ''
+            """)
         if (cx.exec_driver_sql("SELECT COUNT(*) FROM services").scalar() or 0) == 0:
-            cx.exec_driver_sql(
-                "INSERT OR IGNORE INTO services(name) "
-                "SELECT DISTINCT TRIM(service) FROM vendors WHERE IFNULL(TRIM(service),'')<>''"
-            )
+            cx.exec_driver_sql("""
+                INSERT OR IGNORE INTO services(name)
+                SELECT DISTINCT COALESCE(TRIM(service),'')
+                FROM vendors
+                WHERE COALESCE(TRIM(service),'') <> ''
+            """)
+
 
     if altered:
         return f"Schema OK (added: {', '.join(altered)})"
