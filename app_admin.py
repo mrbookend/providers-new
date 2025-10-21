@@ -897,8 +897,8 @@ def main() -> None:
             height=520,
         )
 
-        # ---- Bottom toolbar: CSV/XLSX + Help ----
-        bt1, bt2, bt3 = st.columns([0.22, 0.22, 0.56])
+        # ---- Bottom toolbar: CSV + Help ----
+        bt1, bt2 = st.columns([0.22, 0.78])
         if not _view_safe.empty:
             _export_df = _view_safe
             with bt1:
@@ -909,21 +909,10 @@ def main() -> None:
                     mime="text/csv",
                     use_container_width=True,
                 )
-            with bt2:
-                import io
-                _buf = io.BytesIO()
-                with pd.ExcelWriter(_buf, engine="xlsxwriter") as _xlw:
-                    _export_df.to_excel(_xlw, index=False, sheet_name="Providers")
-                st.download_button(
-                    "Download XLSX",
-                    data=_buf.getvalue(),
-                    file_name="providers.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
 
         with st.expander("Help — How to use Browse (click to open)", expanded=False):
             st.markdown(HELP_MD)
+
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
