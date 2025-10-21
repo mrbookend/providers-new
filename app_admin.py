@@ -758,26 +758,27 @@ def main() -> None:
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
 
-    # ─────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────
     # Browse (Admin) — single, CKW-first implementation
     # ─────────────────────────────────────────────────────────────────────
     with tab_browse:
-# --- Search bar (single-click Clear) ---
-c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-q = c1.text_input(
-    label="Search",
-    key="q",  # bind input directly to session state
-    value=st.session_state.get("q", ""),
-    placeholder="Search name, category, service, notes, phone, website…",
-    label_visibility="collapsed",
-)
-if c2.button("Clear", use_container_width=True):
-    # Atomic reset: clear session value and rerun so both the filter and box reset in one click
-    st.session_state["q"] = ""
-    st.experimental_rerun()
+        # --- Search bar (single-click Clear) ---
+        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
+        q = c1.text_input(
+            label="Search",
+            key="q",  # bind input directly to session state
+            value=st.session_state.get("q", ""),
+            placeholder="Search name, category, service, notes, phone, website…",
+            label_visibility="collapsed",
+        )
+        if c2.button("Clear", use_container_width=True):
+            # Atomic reset: clear session value and rerun so both the filter and box reset in one click
+            st.session_state["q"] = ""
+            st.experimental_rerun()
 
-# After a clear-rerun, q reflects the session value (empty)
-q = st.session_state.get("q", "")
+        # After a clear-rerun, q reflects the session value (empty)
+        q = st.session_state.get("q", "")
+
 
 
         # Count matching rows
