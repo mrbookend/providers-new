@@ -909,17 +909,46 @@ def main() -> None:
             else:
                 st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
-        # Normalize → strings + strip hidden chars
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+                # Normalize → strings + strip hidden chars
+        _view_safe = _view.map(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+
+        # Ensure friendly display columns exist (derive from canonical names if needed)
+        if not _view_safe.empty:
+            if "contact name" not in _view_safe.columns and "contact_name" in _view_safe.columns:
+                _view_safe["contact name"] = _view_safe["contact_name"].fillna("")
+            if "email address" not in _view_safe.columns and "email" in _view_safe.columns:
+                _view_safe["email address"] = _view_safe["email"].fillna("")
+            if "keywords" not in _view_safe.columns and "ckw_manual_extra" in _view_safe.columns:
+                _view_safe["keywords"] = _view_safe["ckw_manual_extra"].fillna("")
+            if "ckw" not in _view_safe.columns and "computed_keywords" in _view_safe.columns:
+                _view_safe["ckw"] = _view_safe["computed_keywords"].fillna("")
+
+        # Final enforced Browse order (single source of truth for the grid)
+        BROWSE_COLUMNS = [
+            "business_name",
+            "category",
+            "service",
+            "phone",
+            "contact name",
+            "website",
+            "email address",
+            "notes",
+            "keywords",
+            "ckw",
+        ]
+        if not _view_safe.empty:
+            _view_safe = _view_safe[[c for c in BROWSE_COLUMNS if c in _view_safe.columns]]
 
         # Render
         st.dataframe(
             _view_safe,
             column_config=_cfg,
+            column_order=BROWSE_COLUMNS,  # reinforce order at render time
             use_container_width=True,
             hide_index=True,
             height=520,
         )
+
 
         # ---- Bottom toolbar (CSV export + help) ----
         bt1, _ = st.columns([0.2, 0.8])
