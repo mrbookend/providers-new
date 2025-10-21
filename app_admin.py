@@ -40,12 +40,11 @@ import hashlib
 import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
-from sqlalchemy import text as sql_text
 
 # ──────────────────────────────────────────────────────────────────────────
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
-APP_VER = "admin-2025-10-21.0"
+APP_VER = "admin-2025-10-21.1"
 DB_PATH = os.getenv("DB_PATH", "providers.db")
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
@@ -59,7 +58,7 @@ except NameError:
 
 Use the **Search** box to filter by name, category, service, notes, phone, or website.
 - **Clear** resets the search.
-- **Download CSV** exports the current **filtered** results; when no filter is applied it exports **all** records.
+- **Download CSV/XLSX** export the current **filtered** results; when no filter is applied they export **all** records.
 - Sorting/filtering is controlled by the Admin app (no per-column filters here).
 
 _Replace this with your long, book-style help content when ready._
@@ -89,6 +88,20 @@ BROWSE_COLUMNS = [
     "notes",
 ]
 
+# Fixed visual order for Browse (aliases included)
+ORDER = [
+    "business_name",
+    "category",
+    "service",
+    "phone",
+    "contact name",
+    "website",
+    "email address",
+    "notes",
+    "keywords",
+    "ckw",
+]
+
 # Fallback widths (px). Secrets may override.
 DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "business_name": 260,
@@ -97,11 +110,14 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "keywords": 360,
     "computed_keywords": 600,
     "contact_name": 160,
+    "contact name": 160,
     "phone": 140,
     "email": 240,
+    "email address": 240,
     "website": 240,
     "address": 260,
     "notes": 320,
+    "ckw": 360,
 }
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -212,7 +228,6 @@ def ensure_schema_uncached() -> str:
     Returns a short status string.
     """
     eng = get_engine()
-    altered: List[str] = []
     with eng.begin() as cx:
         cx.exec_driver_sql(
             """
@@ -248,7 +263,6 @@ def ensure_schema_uncached() -> str:
         for c, stmt in want_cols.items():
             if c not in cols:
                 cx.exec_driver_sql(stmt)
-                altered.append(c)
 
         # Indexes (plus NOCASE companions)
         cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
@@ -425,51 +439,6 @@ def ensure_ckw_seeds_table() -> None:
         cx.exec_driver_sql(
             "CREATE INDEX IF NOT EXISTS idx_ckw_seeds_cat_svc ON ckw_seeds(category, service)"
         )
-
-def _load_ckw_seed(cx, category: str | None, service: str | None) -> list[str]:
-    cat = (category or "").strip()
-    svc = (service or "").strip()
-    if not cat and not svc:
-        return []
-    try:
-        rows = cx.exec_driver_sql(
-            "SELECT keywords FROM ckw_seeds WHERE category = :c AND service = :s",
-            {"c": cat, "s": svc},
-        ).all()
-    except sqlite3.OperationalError as e:
-        if "no such table: ckw_seeds" in str(e).lower():
-            return []
-        raise
-    except Exception:
-        return []
-    if not rows:
-        return []
-    out: list[str] = []
-    for (raw,) in rows:
-        if raw is None:
-            continue
-        s = str(raw).strip()
-        # Try JSON array first
-        try:
-            import json
-            parsed = json.loads(s)
-            if isinstance(parsed, list):
-                out.extend([str(x).strip() for x in parsed if str(x).strip()])
-                continue
-        except Exception:
-            pass
-        for delim in ("|", ";"):
-            s = s.replace(delim, ",")
-        out.extend([p.strip() for p in s.split(",") if p.strip()])
-    # de-dup, stable order
-    seen, uniq = set(), []
-    for t in out:
-        tl = t.lower()
-        if tl in seen:
-            continue
-        seen.add(tl)
-        uniq.append(t)
-    return uniq
 
 @st.cache_resource
 def _get_ckw_synonyms_map() -> dict:
@@ -726,8 +695,9 @@ def delete_vendor(eng: Engine, vid: int) -> None:
 def _column_config_from_widths(widths: Dict[str, int]) -> Dict[str, Any]:
     cfg: Dict[str, Any] = {}
     for col, w in widths.items():
-        if col in BROWSE_COLUMNS:
-            cfg[col] = st.column_config.TextColumn(col.replace("_", " ").title(), width=w)
+        if col in DEFAULT_COLUMN_WIDTHS_PX_ADMIN:
+            label = col.replace("_", " ").title()
+            cfg[col] = st.column_config.TextColumn(label, width=w)
     return cfg
 
 def _has_table(eng: Engine, name: str) -> bool:
@@ -803,9 +773,6 @@ def main() -> None:
             q = ""
         st.session_state["q"] = q
 
-        # Cache-buster default
-        DATA_VER = st.session_state.get("DATA_VER", 0)
-
         # Count matching rows
         try:
             total = count_rows(q=q, data_ver=DATA_VER)
@@ -825,7 +792,7 @@ def main() -> None:
             st.error(f"Browse failed (load): {e}")
             st.stop()
 
-        # Ensure expected columns exist; reindex to policy order
+        # Ensure expected columns exist; reindex to policy order for base frame
         for col in BROWSE_COLUMNS:
             if col not in df.columns:
                 df[col] = ""
@@ -838,59 +805,37 @@ def main() -> None:
             "contact_name", "email", "computed_keywords",  # originals hidden
             "address",  # not desired on Browse per spec
         }
+        def _is_ckw_control(col: str) -> bool:
+            return col.startswith("ckw_")
 
-        # Prepare view (rename already handled in fetch_rows_by_ids)
+        # Create alias columns (idempotent)
         _src = df.copy()
-
-        # Ensure friendly display columns exist (derive from canonical names if needed)
         if not _src.empty:
             if "contact name" not in _src.columns and "contact_name" in _src.columns:
                 _src["contact name"] = _src["contact_name"].fillna("")
             if "email address" not in _src.columns and "email" in _src.columns:
                 _src["email address"] = _src["email"].fillna("")
-            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
-                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
+            if "keywords" not in _src.columns and "keywords" in _src.columns:
+                _src["keywords"] = _src["keywords"].fillna("")
             if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
                 _src["ckw"] = _src["computed_keywords"].fillna("")
 
         # Visible columns (drop hidden and ckw_* controls)
-        def _is_ckw_control(col: str) -> bool:
-            return col.startswith("ckw_")
-
         _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
 
-        # *** Fixed Browse order (as requested) ***
-        ORDER = [
-            "business_name",
-            "category",
-            "service",
-            "phone",
-            "contact name",
-            "website",
-            "email address",
-            "notes",
-            "keywords",
-            "ckw",
-        ]
+        # Enforced Browse order
         _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-        # Column widths + labels (map aliases cleanly; keep CKW label)
+        # Column widths + labels
         _cfg = {}
         for c in _ordered:
             w = DEFAULT_COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
-            if c in ("ckw", "computed_keywords"):
-                label = "CKW"
-            elif c == "keywords":
-                label = "Keywords"
-            else:
-                label = c.replace("_", " ").title()
+            label = "CKW" if c in ("ckw", "computed_keywords") else ("Keywords" if c == "keywords" else c.replace("_", " ").title())
             _cfg[c] = st.column_config.TextColumn(label, width=w)
 
-        # -------- Hidden/control-char scanning + sanitization --------
-        import re
-        import json
+        # Hidden/control-char scanning + sanitization helpers
+        import re, json
         from datetime import datetime as _dt
-
         _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
 
         def _to_str_safe(x):
@@ -918,14 +863,16 @@ def main() -> None:
         def _strip_hidden(s: str) -> str:
             return _HIDDEN_RX.sub("", s)
 
+        # Build the view and normalize
         _view = _src.loc[:, _ordered] if not _src.empty else _src
+        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
         # Diagnostics (first 300 rows)
         _issues: dict[str, dict[str, list]] = {}
-        if not _view.empty:
+        if not _view_safe.empty:
             for col in _ordered:
                 risky, hidden = [], []
-                for idx, val in _view[col].head(300).items():
+                for idx, val in _view_safe[col].head(300).items():
                     if isinstance(val, (dict, list, tuple, set, bytes, bytearray, _dt)):
                         risky.append((int(idx), type(val).__name__))
                     if isinstance(val, str) and _HIDDEN_RX.search(val):
@@ -940,326 +887,253 @@ def main() -> None:
             else:
                 st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
-# ── BROWSE: Build view & render (safe) BEGIN ─────────────────────────────
-# Source rows -> _view (empty-safe)
-import pandas as pd  # should already be imported at top; harmless if repeated
-_view_source = locals().get("df", pd.DataFrame())
-_view = _view_source.copy() if isinstance(_view_source, pd.DataFrame) else pd.DataFrame()
-
-# Provide minimal helpers locally if not already defined
-if "_to_str_safe" not in globals():
-    def _to_str_safe(v) -> str:
-        try:
-            if v is None:
-                return ""
-            return str(v)
-        except Exception:
-            return ""
-if "_strip_hidden" not in globals():
-    def _strip_hidden(s: str) -> str:
-        # remove control chars except \t \n \r
-        return "".join(ch for ch in s if (ch >= " " or ch in "\t\n\r"))
-
-# Derive friendly columns (idempotent)
-if not _view.empty:
-    if "contact name" not in _view.columns and "contact_name" in _view.columns:
-        _view["contact name"] = _view["contact_name"].fillna("")
-    if "email address" not in _view.columns and "email" in _view.columns:
-        _view["email address"] = _view["email"].fillna("")
-    if "keywords" not in _view.columns and "ckw_manual_extra" in _view.columns:
-        _view["keywords"] = _view["ckw_manual_extra"].fillna("")
-    if "ckw" not in _view.columns and "computed_keywords" in _view.columns:
-        _view["ckw"] = _view["computed_keywords"].fillna("")
-
-# Enforce Browse order using your module-level constant
-# (created_at / updated_at are excluded by keeping to BROWSE_COLUMNS)
-try:
-    _order = [c for c in BROWSE_COLUMNS if c in _view.columns]
-except NameError:
-    # Fallback if constant is absent
-    _order = [c for c in _view.columns if c not in {"created_at", "updated_at"}]
-
-# Normalize → strings + strip hidden chars (always define _view_safe)
-_view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
-
-# Optional column_config if you’ve built one above; else None
-_cfg = locals().get("_cfg", None)
-
-# Render (empty-safe)
-st.dataframe(
-    _view_safe,                         # positional FIRST
-    column_config=_cfg,
-    column_order=_order if _order else None,
-    use_container_width=True,
-    hide_index=True,
-    height=520,
-)
-# ── BROWSE: Build view & render (safe) END ───────────────────────────────
-
-
-# ---- Bottom toolbar (CSV export + help) ----
-# Must be aligned with st.dataframe(...) — not nested under expander/loops
-
-bt1, bt2, bt3 = st.columns([0.22, 0.22, 0.56])
-
-# CSV download (matches the visible order)
-if not _view_safe.empty:
-    _export_df = _view_safe
-    try:
-        if "_ordered" in locals() and _ordered:
-            _export_df = _view_safe.loc[:, [c for c in _ordered if c in _view_safe.columns]]
-    except Exception:
-        # Fallback: keep current columns
-        pass
-
-    with bt1:
-        st.download_button(
-            "Download CSV",
-            data=_export_df.to_csv(index=False),
-            file_name="providers.csv",
-            mime="text/csv",
+        # Render
+        st.dataframe(
+            _view_safe,
+            column_config=_cfg,
+            column_order=_ordered,
             use_container_width=True,
+            hide_index=True,
+            height=520,
         )
 
-    with bt2:
-        # Optional XLSX export (lightweight, no colors/styles)
-        import io
-        _buf = io.BytesIO()
-        with pd.ExcelWriter(_buf, engine="xlsxwriter") as _xlw:
-            _export_df.to_excel(_xlw, index=False, sheet_name="Providers")
-        st.download_button(
-            "Download XLSX",
-            data=_buf.getvalue(),
-            file_name="providers.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+        # ---- Bottom toolbar: CSV/XLSX + Help ----
+        bt1, bt2, bt3 = st.columns([0.22, 0.22, 0.56])
+        if not _view_safe.empty:
+            _export_df = _view_safe
+            with bt1:
+                st.download_button(
+                    "Download CSV",
+                    data=_export_df.to_csv(index=False),
+                    file_name="providers.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            with bt2:
+                import io
+                _buf = io.BytesIO()
+                with pd.ExcelWriter(_buf, engine="xlsxwriter") as _xlw:
+                    _export_df.to_excel(_xlw, index=False, sheet_name="Providers")
+                st.download_button(
+                    "Download XLSX",
+                    data=_buf.getvalue(),
+                    file_name="providers.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
 
-with st.expander("Help — How to use Browse (click to open)", expanded=False):
-    st.markdown(
-        """
-- **Search**: type part of a name, category, service, phone, website, notes, or keywords.
-- **Clear**: resets the search box and reloads all rows.
-- **Column order** (locked): `business_name, category, service, phone, contact name, website, email address, notes, keywords, ckw`.
-- **Downloads**: CSV/XLSX reflect exactly what you see (same column order).
-- **CKW** = Computed Keywords (algorithm output). **Keywords** = human-curated extras.
-        """.strip()
-    )
-# ---- /Bottom toolbar ----
+        with st.expander("Help — How to use Browse (click to open)", expanded=False):
+            st.markdown(HELP_MD)
 
-# ─────────────────────────────────────────────────────────────────────
-# Add / Edit / Delete  (guarded to avoid crashes when tables missing)
-# ─────────────────────────────────────────────────────────────────────
-with tab_manage:
-    if not st.session_state.get("DB_READY"):
-        st.info("Database not ready — skipping Add/Edit UI because required tables are missing.")
-    else:
-        eng = get_engine()
-        lc, rc = st.columns([1, 1], gap="large")
+    # ─────────────────────────────────────────────────────────────────────
+    # Add / Edit / Delete  (guarded to avoid crashes when tables missing)
+    # ─────────────────────────────────────────────────────────────────────
+    with tab_manage:
+        if not st.session_state.get("DB_READY"):
+            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+        else:
+            eng = get_engine()
+            lc, rc = st.columns([1, 1], gap="large")
 
-        # ---------- Add (left) ----------
-        with lc:
-            st.subheader("Add Provider")
-            cats = list_categories(eng) if _has_table(eng, "categories") else []
-            srvs = list_services(eng) if _has_table(eng, "services") else []
+            # ---------- Add (left) ----------
+            with lc:
+                st.subheader("Add Provider")
+                cats = list_categories(eng) if _has_table(eng, "categories") else []
+                srvs = list_services(eng) if _has_table(eng, "services") else []
 
-            bn = st.text_input("Business Name *", key="bn_add")
+                bn = st.text_input("Business Name *", key="bn_add")
 
-            # Select-only category/service (no new inputs here)
-            ccol1, ccol2 = st.columns([1, 1])
-            cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-            srv_choice = ccol2.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+                # Select-only category/service (no new inputs here)
+                ccol1, ccol2 = st.columns([1, 1])
+                cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+                srv_choice = ccol2.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
 
-            contact_name = st.text_input("Contact Name", key="contact_add")
-            phone = st.text_input("Phone", key="phone_add")
-            email = st.text_input("Email", key="email_add")
-            website = st.text_input("Website", key="website_add")
-            address = st.text_input("Address", key="address_add")
-            notes = st.text_area("Notes", height=100, key="notes_add")
+                contact_name = st.text_input("Contact Name", key="contact_add")
+                phone = st.text_input("Phone", key="phone_add")
+                email = st.text_input("Email", key="email_add")
+                website = st.text_input("Website", key="website_add")
+                address = st.text_input("Address", key="address_add")
+                notes = st.text_area("Notes", height=100, key="notes_add")
 
-            keywords_manual = st.text_area(
-                "Keywords",
-                value="",
-                help=(
-                    "Optional, comma/pipe/semicolon-separated phrases to always include. "
-                    "Example: garage door, torsion spring, opener repair"
-                ),
-                height=80,
-                key="kw_add",
-            )
+                keywords_manual = st.text_area(
+                    "Keywords",
+                    value="",
+                    help=(
+                        "Optional, comma/pipe/semicolon-separated phrases to always include. "
+                        "Example: garage door, torsion spring, opener repair"
+                    ),
+                    height=80,
+                    key="kw_add",
+                )
 
-            category = cat_choice if cat_choice != "— Select —" else ""
-            service = srv_choice if srv_choice != "— Select —" else ""
-            disabled = not (bn.strip() and category and service)
+                category = cat_choice if cat_choice != "— Select —" else ""
+                service = srv_choice if srv_choice != "— Select —" else ""
+                disabled = not (bn.strip() and category and service)
 
-            if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
-                data = {
-                    "business_name": bn.strip(),
-                    "category": category.strip(),
-                    "service": service.strip(),
-                    "contact_name": contact_name.strip(),
-                    "phone": phone.strip(),
-                    "email": email.strip(),
-                    "website": website.strip(),
-                    "address": address.strip(),
-                    "notes": notes.strip(),
-                    "ckw_manual_extra": (keywords_manual or "").strip(),
-                }
-                vid = insert_vendor(eng, data)
-                # No ensure_lookup_value here; Add/Edit are select-only per spec
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                refresh_lookups(get_engine())
-                st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
+                if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
+                    data = {
+                        "business_name": bn.strip(),
+                        "category": category.strip(),
+                        "service": service.strip(),
+                        "contact_name": contact_name.strip(),
+                        "phone": phone.strip(),
+                        "email": email.strip(),
+                        "website": website.strip(),
+                        "address": address.strip(),
+                        "notes": notes.strip(),
+                        "ckw_manual_extra": (keywords_manual or "").strip(),
+                    }
+                    vid = insert_vendor(eng, data)
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    refresh_lookups(get_engine())
+                    st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
 
-        # ---------- Edit (right) ----------
-        with rc:
-            st.subheader("Edit Provider")
-            with eng.begin() as cx:
-                rows = cx.exec_driver_sql(
-                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-                ).all()
-
-            if not rows:
-                st.info("No providers yet.")
-            else:
-                labels = [f"#{i} — {n}" for (i, n) in rows]
-                sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
-                sel_id = int(rows[labels.index(sel)][0])
-
+            # ---------- Edit (right) ----------
+            with rc:
+                st.subheader("Edit Provider")
                 with eng.begin() as cx:
-                    r = cx.exec_driver_sql(
-                        "SELECT business_name,category,service,contact_name,phone,email,website,"
-                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
-                        {"id": sel_id},
-                    ).mappings().first()
+                    rows = cx.exec_driver_sql(
+                        "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                    ).all()
 
-                if r:
-                    bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
+                if not rows:
+                    st.info("No providers yet.")
+                else:
+                    labels = [f"#{i} — {n}" for (i, n) in rows]
+                    sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+                    sel_id = int(rows[labels.index(sel)][0])
 
-                    cats = list_categories(eng)
-                    srvs = list_services(eng)
+                    with eng.begin() as cx:
+                        r = cx.exec_driver_sql(
+                            "SELECT business_name,category,service,contact_name,phone,email,website,"
+                            "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
+                            {"id": sel_id},
+                        ).mappings().first()
 
-                    # Select-only category/service (no new inputs here)
-                    e_c1, e_c2 = st.columns([1, 1])
-                    cat_choice_e = e_c1.selectbox(
-                        "Category *",
-                        options=["— Select —"] + cats,
-                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
-                        key="cat_edit_sel",
+                    if r:
+                        bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
+
+                        cats = list_categories(eng)
+                        srvs = list_services(eng)
+
+                        # Select-only category/service (no new inputs here)
+                        e_c1, e_c2 = st.columns([1, 1])
+                        cat_choice_e = e_c1.selectbox(
+                            "Category *",
+                            options=["— Select —"] + cats,
+                            index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                            key="cat_edit_sel",
+                        )
+                        e_s1, e_s2 = st.columns([1, 1])
+                        srv_choice_e = e_s1.selectbox(
+                            "Service *",
+                            options=["— Select —"] + srvs,
+                            index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                            key="srv_edit_sel",
+                        )
+
+                        category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
+                        service_e = r["service"] if srv_choice_e == "— Select —" else srv_choice_e
+
+                        contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+                        phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
+                        email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
+                        website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
+                        address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
+                        notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+
+                        keywords_manual_e = st.text_area(
+                            "Keywords",
+                            value=(r.get("ckw_manual_extra") or ""),
+                            help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
+                            height=80,
+                            key="kw_edit",
+                        )
+
+                        if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                            data = {
+                                "business_name": bn_e.strip(),
+                                "category": category_e.strip(),
+                                "service": service_e.strip(),
+                                "contact_name": contact_name_e.strip(),
+                                "phone": phone_e.strip(),
+                                "email": email_e.strip(),
+                                "website": website_e.strip(),
+                                "address": address_e.strip(),
+                                "notes": notes_e.strip(),
+                                "ckw_manual_extra": (keywords_manual_e or "").strip(),
+                            }
+                            update_vendor(eng, sel_id, data)
+                            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                            st.success(f"Saved changes to provider #{sel_id}. — run “Recompute ALL” to apply keywords.")
+
+        # ▼▼ Delete Provider (guarded) ▼▼
+        if st.session_state.get("DB_READY"):
+            st.markdown("### Delete Provider")
+            st.caption("Danger zone: Permanently removes a record from **vendors**.")
+
+            @st.cache_data(show_spinner=False)
+            def _list_providers_min(data_ver: int):
+                """Minimal list for delete UI; cached by data_ver."""
+                eng2 = get_engine()
+                if not _has_table(eng2, "vendors"):
+                    return [], {}
+                with eng2.connect() as cx2:
+                    q = sa.text("""
+                        SELECT id, business_name, category, service
+                        FROM vendors
+                        ORDER BY business_name COLLATE NOCASE, id
+                    """)
+                    rows2 = [dict(r2) for r2 in cx2.execute(q).mappings().all()]
+                labels2, by_label2 = [], {}
+                for r2 in rows2:
+                    bid = str(r2.get("id"))
+                    bnm = str(r2.get("business_name") or "")
+                    cat = str(r2.get("category") or "")
+                    srv = str(r2.get("service") or "")
+                    label2 = f"{bid} — {bnm} ({cat} → {srv})"
+                    labels2.append(label2)
+                    by_label2[label2] = {"id": bid, "business_name": bnm}
+                return labels2, by_label2
+
+            labels, by_label = _list_providers_min(st.session_state.get("DATA_VER", 0))
+            if not labels:
+                st.warning("No providers to delete yet (missing table or empty list). Initialize or seed the database in **Maintenance**.")
+            else:
+                sel = st.selectbox(
+                    "Select provider to delete",
+                    options=labels,
+                    index=None,
+                    placeholder="Choose a provider…",
+                    key="del_select_label",
+                )
+                row = by_label.get(sel) if sel else None
+                if row:
+                    ok_checkbox = st.checkbox(
+                        "I understand this action is **permanent** and cannot be undone.",
+                        key="del_perm_ack",
+                        value=st.session_state.get("del_perm_ack", False),
                     )
-                    e_s1, e_s2 = st.columns([1, 1])
-                    srv_choice_e = e_s1.selectbox(
-                        "Service *",
-                        options=["— Select —"] + srvs,
-                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
-                        key="srv_edit_sel",
+                    del_btn = st.button(
+                        "Delete provider",
+                        type="primary",
+                        disabled=not ok_checkbox,
+                        help="Enabled only after you tick the permanent-action checkbox.",
                     )
-
-                    category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
-                    service_e = r["service"] if srv_choice_e == "— Select —" else srv_choice_e
-
-                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                    phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
-                    email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
-                    website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
-                    address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
-                    notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
-
-                    keywords_manual_e = st.text_area(
-                        "Keywords",
-                        value=(r.get("ckw_manual_extra") or ""),
-                        help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
-                        height=80,
-                        key="kw_edit",
-                    )
-
-                    if st.button("Save Changes", type="primary", key="save_changes_btn"):
-                        data = {
-                            "business_name": bn_e.strip(),
-                            "category": category_e.strip(),
-                            "service": service_e.strip(),
-                            "contact_name": contact_name_e.strip(),
-                            "phone": phone_e.strip(),
-                            "email": email_e.strip(),
-                            "website": website_e.strip(),
-                            "address": address_e.strip(),
-                            "notes": notes_e.strip(),
-                            "ckw_manual_extra": (keywords_manual_e or "").strip(),
-                        }
-                        update_vendor(eng, sel_id, data)
-                        # No ensure_lookup_value here; Add/Edit are select-only per spec
-                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                        st.success(f"Saved changes to provider #{sel_id}. — run “Recompute ALL” to apply keywords.")
-
-    # ▼▼ Delete Provider ▼▼
-    st.markdown("### Delete Provider")
-    st.caption("Danger zone: Permanently removes a record from **vendors**.")
-
-    @st.cache_data(show_spinner=False)
-    def _list_providers_min(data_ver: int):
-        """Minimal list for delete UI; cached by data_ver."""
-        eng2 = get_engine()
-        if not _has_table(eng2, "vendors"):
-            return [], {}
-        with eng2.connect() as cx2:
-            q = sa.text("""
-                SELECT id, business_name, category, service
-                FROM vendors
-                ORDER BY business_name COLLATE NOCASE, id
-            """)
-            rows2 = [dict(r2) for r2 in cx2.execute(q).mappings().all()]
-        labels2, by_label2 = [], {}
-        for r2 in rows2:
-            bid = str(r2.get("id"))
-            bnm = str(r2.get("business_name") or "")
-            cat = str(r2.get("category") or "")
-            srv = str(r2.get("service") or "")
-            label2 = f"{bid} — {bnm} ({cat} → {srv})"
-            labels2.append(label2)
-            by_label2[label2] = {"id": bid, "business_name": bnm}
-        return labels2, by_label2
-
-    labels, by_label = _list_providers_min(st.session_state.get("DATA_VER", 0))
-    if not labels:
-        st.warning("No providers to delete yet (missing table or empty list). Initialize or seed the database in **Maintenance**.")
-        st.stop()
-
-    sel = st.selectbox(
-        "Select provider to delete",
-        options=labels,
-        index=None,
-        placeholder="Choose a provider…",
-        key="del_select_label",
-    )
-
-    row = by_label.get(sel) if sel else None
-
-    if row:
-        ok_checkbox = st.checkbox(
-            "I understand this action is **permanent** and cannot be undone.",
-            key="del_perm_ack",
-            value=st.session_state.get("del_perm_ack", False),
-        )
-        del_btn = st.button(
-            "Delete provider",
-            type="primary",
-            disabled=not ok_checkbox,
-            help="Enabled only after you tick the permanent-action checkbox.",
-        )
-        if del_btn and ok_checkbox:
-            try:
-                with eng.begin() as cx3:
-                    dq = sa.text("DELETE FROM vendors WHERE id = :id")
-                    res = cx3.execute(dq, {"id": row["id"]})
-                    if hasattr(res, "rowcount") and res.rowcount == 0:
-                        st.warning(f"No provider found with id={row['id']}. It may have been removed already.")
-                    else:
-                        st.success(f"Deleted provider id={row['id']} ({row['business_name']}).")
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.session_state["del_select_label"] = None
-                st.session_state["del_perm_ack"] = False
-            except Exception as e:
-                st.error(f"Delete failed: {e}")
+                    if del_btn and ok_checkbox:
+                        try:
+                            with get_engine().begin() as cx3:
+                                dq = sa.text("DELETE FROM vendors WHERE id = :id")
+                                res = cx3.execute(dq, {"id": row["id"]})
+                                if hasattr(res, "rowcount") and res.rowcount == 0:
+                                    st.warning(f"No provider found with id={row['id']}. It may have been removed already.")
+                                else:
+                                    st.success(f"Deleted provider id={row['id']} ({row['business_name']}).")
+                            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                            st.session_state["del_select_label"] = None
+                            st.session_state["del_perm_ack"] = False
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
@@ -1271,7 +1145,7 @@ with tab_manage:
         # Categories
         with cc:
             try:
-                cats = list_categories(eng)
+                cats = list_categories(eng) if _has_table(eng, "categories") else []
             except Exception as e:
                 cats = []
                 st.error(f"Failed to load categories: {e}")
@@ -1332,7 +1206,7 @@ with tab_manage:
         # Services
         with ss:
             try:
-                srvs = list_services(eng)
+                srvs = list_services(eng) if _has_table(eng, "services") else []
             except Exception as e:
                 srvs = []
                 st.error(f"Failed to load services: {e}")
@@ -1391,7 +1265,7 @@ with tab_manage:
                         st.error(f"Reassign failed: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
-    # Maintenance (placeholder header + count; wire your tools below)
+    # Maintenance (CKW button + count)
     # ─────────────────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Maintenance — Computed Keywords (CKW)")
@@ -1401,7 +1275,17 @@ with tab_manage:
             st.caption(f"Providers in scope: {_prov_cnt}")
         except Exception as e:
             st.warning(f"Count unavailable: {e}")
-        st.info("Add recompute/seed/repair tools here. (Existing Maintenance controls can be ported in.)")
+
+        st.divider()
+        st.markdown("**Recompute ALL CKW (override locks)**")
+        st.caption("Rebuilds computed_keywords for every provider, ignoring CKW locks. Use after changing keywords, seeds, or algorithm.")
+        if st.button("Run CKW Recompute — ALL (override locks)", type="primary", key="ckw_all_btn"):
+            try:
+                changed = recompute_ckw_all(get_engine())
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.success(f"Recomputed CKW for {changed} provider(s).")
+            except Exception as e:
+                st.error(f"Recompute failed: {e}")
 
 if __name__ == "__main__":
     main()
