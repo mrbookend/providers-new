@@ -119,6 +119,8 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "notes": 320,
     "ckw": 360,
 }
+# ── CKW version (bump when you change the algorithm/seed logic) ─────────
+CURRENT_VER = 1
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helpers (string / time)
@@ -204,6 +206,27 @@ def _tokenize_for_ckw(*parts: str) -> List[str]:
             seen.add(t)
             out.append(t)
     return out
+def ensure_ckw_seeds_table() -> str:
+    """
+    Idempotently create ckw_seeds if missing.
+    Schema keeps (category, service) unique as a seed key.
+    """
+    import sqlalchemy as sa
+    eng = get_engine()
+    ddl = """
+    CREATE TABLE IF NOT EXISTS ckw_seeds (
+        id INTEGER PRIMARY KEY,
+        category TEXT NOT NULL,
+        service  TEXT NOT NULL,
+        seed     TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
+    );
+    """
+    idx = "CREATE UNIQUE INDEX IF NOT EXISTS idx_ckw_seeds_cat_srv ON ckw_seeds(category, service);"
+    with eng.begin() as cx:
+        cx.exec_driver_sql(ddl)
+        cx.exec_driver_sql(idx)
+    return "ckw_seeds table present (created if missing)"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Engine (cached)
@@ -1390,6 +1413,25 @@ def main() -> None:
             st.error(f"Stale audit failed: {e}")
 
         st.divider()
+                # CKW version banner + one-time seeds bootstrap
+        st.caption(f"CKW CURRENT_VER = {CURRENT_VER}")
+
+        # Offer a one-time 'Create seeds table' if missing
+        _show_create_seeds = False
+        try:
+            with get_engine().connect() as cx:
+                row = cx.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
+                ).first()
+                _show_create_seeds = (row is None)
+        except Exception as e:
+            st.warning(f"Seeds-table check failed: {e}")
+
+        if _show_create_seeds:
+            if st.button("Create CKW Seeds Table (one-time)", use_container_width=True):
+                msg = ensure_ckw_seeds_table()
+                st.success(msg)
+                st.stop()  # refresh maintenance view so coverage probe updates
 
                 # ---------- CKW Maintenance ----------
         st.markdown("**Computed Keywords (CKW)**")
