@@ -915,19 +915,40 @@ def main() -> None:
 import pandas as pd  # used in Browse table/export
 import sqlalchemy as sa  # used in Maintenance, queries
 
-# Ensure a data version exists in session state (cache bust / view refresh)
+# Ensure session-state defaults exist before any UI uses them
 if "DATA_VER" not in st.session_state:
     st.session_state["DATA_VER"] = 0
+if "q" not in st.session_state:
+    st.session_state["q"] = ""
 
-# Safe DB readiness probe (no reliance on prior `eng` variable)
+def _resolve_engine_for_probe():
+    """Prefer the app's real engine; fall back to local sqlite."""
+    try:
+        return get_engine()
+    except Exception:
+        pass
+    db_path = globals().get("DB_PATH", "providers.db")
+    return sa.create_engine(f"sqlite:///{db_path}", future=True)
+
+# Safe DB readiness probe: check for the actual 'vendors' table
 try:
-    _eng = get_engine()
+    _eng = _resolve_engine_for_probe()
     with _eng.connect() as _cx:
-        # Try vendors existence without crashing the app if missing
-        _cx.exec_driver_sql("SELECT 1").first()
-    DB_READY = True
+        # Record DB path for diagnostics
+        _db_row = _cx.exec_driver_sql("PRAGMA database_list").first()
+        st.session_state["DB_PATH_INFO"] = (_db_row[2] if _db_row else None)
+
+        # TRUE readiness only if 'vendors' exists
+        _row = _cx.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vendors'"
+        ).first()
+    DB_READY = bool(_row)
 except Exception:
     DB_READY = False
+
+# Make readiness available everywhere
+st.session_state["DB_READY"] = DB_READY
+
 
 # Tabs
 tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
