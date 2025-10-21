@@ -1280,7 +1280,11 @@ def main() -> None:
                 err = e
             st.caption(f"DB path: `{_dbp}`")
             st.caption(f"Engine: sqlite:///{DB_PATH}")
-            st.success("Engine OK") if ok else st.error(f"Engine connect failed: {err}")
+            if ok:
+                st.success("Engine OK")
+            else:
+                st.error(f"Engine connect failed: {err}")
+
 
         # ---------- Table & Row Counts ----------
         with c_counts:
