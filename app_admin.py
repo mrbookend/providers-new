@@ -629,9 +629,10 @@ def count_rows(q: str, data_ver: int = 0) -> int:
         params["q"] = f"%{q}%"
 
     sql = f"SELECT COUNT(*) FROM vendors {where}"
-    eng = build_engine()
+    eng = get_engine()  # FIX: was build_engine()
     with eng.begin() as cx:
         return int(cx.exec_driver_sql(sql, params).scalar() or 0)
+
 
 @st.cache_data(show_spinner=False)
 def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
