@@ -1515,65 +1515,7 @@ def main() -> None:
                 st.error(f"Engine connect failed: {err}")
 
 
-        # ---------- Table & Row Counts ----------
-        with c_counts:
-            st.markdown("**Table & Row Counts**")
-            try:
-                with eng.connect() as cx:
-                    tables = [r[0] for r in cx.exec_driver_sql(
-                        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-                    ).all()]
-                    counts = {}
-                    for t in tables:
-                        try:
-                            counts[t] = int(cx.exec_driver_sql(f"SELECT COUNT(*) FROM {t}").scalar() or 0)
-                        except Exception:
-                            counts[t] = "n/a"
-                if tables:
-                    st.write({"tables": counts})
-                else:
-                    st.info("No tables found yet. Use the app or bootstrap to create schema.")
-            except Exception as e:
-                st.error(f"Counts failed: {e}")
-
-        st.divider()
-
-        # ---------- Integrity Self-Test ----------
-        st.markdown("**Integrity Self-Test (read-only)**")
-        try:
-            issues = {}
-            with eng.connect() as cx:
-                # 1) Duplicate IDs
-                dups = cx.exec_driver_sql(
-                    "SELECT id, COUNT(*) c FROM vendors GROUP BY id HAVING c>1"
-                ).all()
-                if dups:
-                    issues["duplicate_ids"] = [int(r[0]) for r in dups[:20]]
-
-                # 2) Blank business names
-                blanks = cx.exec_driver_sql(
-                    "SELECT id FROM vendors WHERE TRIM(COALESCE(business_name,'')) = '' LIMIT 50"
-                ).all()
-                if blanks:
-                    issues["blank_business_name"] = [int(r[0]) for r in blanks]
-
-                # 3) Phone quick sniff (length)
-                bad_phones = cx.exec_driver_sql(
-                    "SELECT id, phone FROM vendors "
-                    "WHERE phone IS NOT NULL AND LENGTH(REPLACE(phone,' ','')) NOT BETWEEN 7 AND 20 "
-                    "LIMIT 50"
-                ).mappings().all()
-                if bad_phones:
-                    issues["phones_suspect"] = [{"id": int(r["id"]), "phone": r["phone"]} for r in bad_phones]
-
-            if issues:
-                st.write({"integrity_issues": issues})
-            else:
-                st.caption("No obvious integrity issues detected.")
-        except Exception as e:
-            st.error(f"Integrity test failed: {e}")
-
-        st.divider()
+       
 
         # ---------- CKW Seed Coverage ----------
         st.markdown("**CKW Seed Coverage**")
