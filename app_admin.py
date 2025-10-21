@@ -262,16 +262,15 @@ def ensure_ckw_seeds_table() -> str:
     return "ckw_seeds table present (created if missing)"
 def ensure_ckw_seeds_table() -> str:
     """
-    Idempotently create ckw_seeds if missing and verify existence.
-    Schema keeps (category, service) unique as a seed key.
+    Create ckw_seeds if missing.
+    Keys: (category, service). Use service='' to mean "category-wide" seed.
     """
-    import sqlalchemy as sa
     eng = get_engine()
     ddl = """
     CREATE TABLE IF NOT EXISTS ckw_seeds (
         id INTEGER PRIMARY KEY,
         category TEXT NOT NULL,
-        service  TEXT NOT NULL,
+        service  TEXT NOT NULL,  -- '' means category-wide
         seed     TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
     );
@@ -288,6 +287,7 @@ def ensure_ckw_seeds_table() -> str:
         if row is None:
             raise RuntimeError("ckw_seeds creation failed verification")
     return "ckw_seeds table present (created if missing)"
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Engine (cached)
