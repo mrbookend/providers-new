@@ -940,18 +940,61 @@ def main() -> None:
             else:
                 st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
-        # Normalize → strings + strip hidden chars
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+# ── BROWSE: Build view & render (safe) BEGIN ─────────────────────────────
+# Source rows -> _view (empty-safe)
+import pandas as pd  # should already be imported at top; harmless if repeated
+_view_source = locals().get("df", pd.DataFrame())
+_view = _view_source.copy() if isinstance(_view_source, pd.DataFrame) else pd.DataFrame()
 
-        # Render
-        st.dataframe(
-            _view_safe,               # positional FIRST
-            column_config=_cfg,
-            column_order=_ordered,
-            use_container_width=True,
-            hide_index=True,
-            height=520,
-        )
+# Provide minimal helpers locally if not already defined
+if "_to_str_safe" not in globals():
+    def _to_str_safe(v) -> str:
+        try:
+            if v is None:
+                return ""
+            return str(v)
+        except Exception:
+            return ""
+if "_strip_hidden" not in globals():
+    def _strip_hidden(s: str) -> str:
+        # remove control chars except \t \n \r
+        return "".join(ch for ch in s if (ch >= " " or ch in "\t\n\r"))
+
+# Derive friendly columns (idempotent)
+if not _view.empty:
+    if "contact name" not in _view.columns and "contact_name" in _view.columns:
+        _view["contact name"] = _view["contact_name"].fillna("")
+    if "email address" not in _view.columns and "email" in _view.columns:
+        _view["email address"] = _view["email"].fillna("")
+    if "keywords" not in _view.columns and "ckw_manual_extra" in _view.columns:
+        _view["keywords"] = _view["ckw_manual_extra"].fillna("")
+    if "ckw" not in _view.columns and "computed_keywords" in _view.columns:
+        _view["ckw"] = _view["computed_keywords"].fillna("")
+
+# Enforce Browse order using your module-level constant
+# (created_at / updated_at are excluded by keeping to BROWSE_COLUMNS)
+try:
+    _order = [c for c in BROWSE_COLUMNS if c in _view.columns]
+except NameError:
+    # Fallback if constant is absent
+    _order = [c for c in _view.columns if c not in {"created_at", "updated_at"}]
+
+# Normalize → strings + strip hidden chars (always define _view_safe)
+_view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+
+# Optional column_config if you’ve built one above; else None
+_cfg = locals().get("_cfg", None)
+
+# Render (empty-safe)
+st.dataframe(
+    _view_safe,                         # positional FIRST
+    column_config=_cfg,
+    column_order=_order if _order else None,
+    use_container_width=True,
+    hide_index=True,
+    height=520,
+)
+# ── BROWSE: Build view & render (safe) END ───────────────────────────────
 
 
 # ---- Bottom toolbar (CSV export + help) ----
