@@ -394,6 +394,10 @@ def ensure_schema_uncached() -> str:
         cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service_nocase ON vendors(service COLLATE NOCASE)")
         cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc_nocase ON vendors(category COLLATE NOCASE, service COLLATE NOCASE)")
 
+        # Minimal CKW maintenance indexes
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw_version ON vendors(ckw_version)")
+        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw_locked  ON vendors(ckw_locked)")
+
         # Lookup tables + seed from vendors
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
