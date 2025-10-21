@@ -265,10 +265,13 @@ def ensure_schema_uncached() -> str:
                 altered.append(c)
 
         # 3) Indexes
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service  ON vendors(service)")
+cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
+# 4) Lookup tables (simple)
 
-        # 4) Lookup tables (simple)
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
         # Seed lookups if empty
@@ -801,9 +804,11 @@ def _recompute_ckw_for_ids(ids: list[int], *, override_locks: bool) -> tuple[int
 # ──────────────────────────────────────────────────────────────────────────
 def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
     row = dict(data)
+    row["phone"] = _digits_only(row.get("phone"))
     row["computed_keywords"] = compute_ckw(row)
     row["created_at"] = row["updated_at"] = _now_iso()
     with eng.begin() as cx:
+
         res = cx.exec_driver_sql(
             sa.text(
                 """
@@ -827,6 +832,7 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
 
 def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
     row = dict(data)
+    row["phone"] = _digits_only(row.get("phone"))
     row["computed_keywords"] = compute_ckw(row)
     row["updated_at"] = _now_iso()
     row["id"] = vid
@@ -908,8 +914,6 @@ def main() -> None:
 
     # Helper used by the Browse tab "Clear" button.
     # Important: this only sets a FLAG. We clear the actual query BEFORE rendering the text_input.
-    def _mark_clear_browse():
-        st.session_state["_clear_browse"] = True
 
     # ── Bootstrap (must be above # Tabs): safe state + DB readiness ─────────────────
 import pandas as pd  # used in Browse table/export
@@ -976,8 +980,9 @@ with tab_browse:
 
         # ---- Resolve row IDs (CKW-first search) and load rows ----
     if not _has_table(get_engine(), "vendors"):
-        st.warning("Database not initialized yet (no 'vendors' table). See Maintenance → Quick Engine Probe / Seed.")
-        vdf = pd.DataFrame()
+    st.warning("Database not initialized yet (no 'vendors' table).
+See Maintenance → Quick Engine Probe / Seed.")
+    st.stop()
     else:
         try:
             ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=data_ver)
@@ -1161,7 +1166,7 @@ with tab_manage:
             scol1, scol2 = st.columns([1, 1])
             srv_choice = scol1.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
             srv_new = scol2.text_input("New Service (optional)", key="srv_add_new")
-            service = (srv_new or "").strip() or (srv_choice if cat_choice != "— Select —" else "")
+            service = (srv_new or "").strip() or (srv_choice if srv_choice != "— Select —" else "")
 
             contact_name = st.text_input("Contact Name", key="contact_add")
             phone = st.text_input("Phone", key="phone_add")
@@ -1306,12 +1311,13 @@ with tab_manage:
 
         # Small helpers (local to this section)
         def _has_table(engine, name: str) -> bool:
-            try:
-                with engine.connect() as cx:
-                    q = "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
-                    return cx.exec_driver_sql(q, (name,)).first() is not None
-            except Exception:
-                return False
+    try:
+        with engine.connect() as cx:
+            q = "SELECT name FROM sqlite_master WHERE type='table' AND name=:n"
+            return cx.exec_driver_sql(q, {"n": name}).first() is not None
+    except Exception:
+        return False
+
 
         def _strip_ctrl(s: str) -> str:
             if not isinstance(s, str):
