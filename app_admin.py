@@ -265,12 +265,12 @@ def ensure_schema_uncached() -> str:
                 altered.append(c)
 
                 # 3) Indexes
-# Keep the original indexes (fine), and add NOCASE variants to accelerate ORDER BY ... COLLATE NOCASE and case-insensitive lookups
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service ON vendors(service)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
+# NOCASE companions so ORDER BY ... COLLATE NOCASE and case-insensitive filters can use an index
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name_nocase ON vendors(business_name COLLATE NOCASE)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category_nocase ON vendors(category COLLATE NOCASE)")
 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service_nocase ON vendors(service COLLATE NOCASE)")
@@ -280,7 +280,7 @@ cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc_nocase ON ven
 cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
 cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
 
-# Seed/refresh lookups on every run (idempotent; IGNORE prevents dupes; only non-empty trimmed names)
+# Seed/refresh lookups (idempotent; only non-empty trimmed names)
 cx.exec_driver_sql("""
     INSERT OR IGNORE INTO categories(name)
     SELECT DISTINCT COALESCE(TRIM(category),'')
@@ -293,6 +293,7 @@ cx.exec_driver_sql("""
     FROM vendors
     WHERE COALESCE(TRIM(service),'') <> ''
 """)
+
 
     if altered:
         return f"Schema OK (added: {', '.join(altered)})"
@@ -424,6 +425,22 @@ def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
         return
     with eng.begin() as cx:
         cx.exec_driver_sql(f"INSERT OR IGNORE INTO {table}(name) VALUES (:n)", {"n": name.strip()})
+def refresh_lookups(eng: Engine) -> None:
+    """Idempotently upsert categories/services from vendors."""
+    with eng.begin() as cx:
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO categories(name)
+            SELECT DISTINCT COALESCE(TRIM(category),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(category),'') <> ''
+        """)
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO services(name)
+            SELECT DISTINCT COALESCE(TRIM(service),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(service),'') <> ''
+        """)
+        
 def refresh_lookups(eng: Engine) -> None:
     """Idempotently upsert categories/services from vendors."""
     with eng.begin() as cx:
@@ -1253,6 +1270,7 @@ with tab_manage:
                     f"Added provider #{vid}: {data['business_name']}  — run “Recompute ALL” to apply keywords."
                 )
 
+
         # ---------- Edit (right) ----------
         with rc:
             st.subheader("Edit Provider")
@@ -1500,6 +1518,28 @@ with tab_catsvc:
                 st.success(f"Added category: {new_cat.strip()}")
             except Exception as e:
                 st.error(f"Add failed: {e}")
+def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
+    if not name:
+        return
+    with eng.begin() as cx:
+        cx.exec_driver_sql(f"INSERT OR IGNORE INTO {table}(name) VALUES (:n)", {"n": name.strip()})
+
+def refresh_lookups(eng: Engine) -> None:
+    """Idempotently upsert categories/services from vendors."""
+    with eng.begin() as cx:
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO categories(name)
+            SELECT DISTINCT COALESCE(TRIM(category),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(category),'') <> ''
+        """)
+        cx.exec_driver_sql("""
+            INSERT OR IGNORE INTO services(name)
+            SELECT DISTINCT COALESCE(TRIM(service),'')
+            FROM vendors
+            WHERE COALESCE(TRIM(service),'') <> ''
+        """)
+                
 
         st.markdown("**Delete Category** (only if unused)")
         del_cat = st.selectbox("Pick category", options=["— Select —"] + cats, key="del_cat")
