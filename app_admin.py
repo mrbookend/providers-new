@@ -987,10 +987,13 @@ with tab_browse:
 
         # ---- Resolve row IDs (CKW-first search) and load rows ----
     if not _has_table(get_engine(), "vendors"):
-    st.warning("Database not initialized yet (no 'vendors' table).
-See Maintenance → Quick Engine Probe / Seed.")
+    st.warning(
+        "Database not initialized yet (no 'vendors' table). "
+        "See Maintenance → Quick Engine Probe / Seed."
+    )
     st.stop()
 else:
+
 
         try:
             ids = search_ids_ckw_first(q=q, limit=MAX_RENDER_ROWS, offset=0, data_ver=data_ver)
