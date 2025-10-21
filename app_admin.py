@@ -889,7 +889,7 @@ def main() -> None:
                 if risky or hidden:
                     _issues[col] = {"risky_types": risky[:5], "hidden_char_rows": hidden[:5]}
 
-        with st.expander("Browse diagnostics (click to open)", expanded=False):
+        if False:  # removed: Browse diagnostics (click to open)
             if _issues:
                 st.write({"columns_with_issues": _issues})
                 st.caption("Shown: first 5 examples per column. Values are normalized for safe rendering/export.")
