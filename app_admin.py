@@ -923,31 +923,21 @@ def main() -> None:
             if "ckw" not in _view_safe.columns and "computed_keywords" in _view_safe.columns:
                 _view_safe["ckw"] = _view_safe["computed_keywords"].fillna("")
 
-        # Final enforced Browse order (single source of truth for the grid)
-        BROWSE_COLUMNS = [
-            "business_name",
-            "category",
-            "service",
-            "phone",
-            "contact name",
-            "website",
-            "email address",
-            "notes",
-            "keywords",
-            "ckw",
-        ]
+                # Final enforced Browse order (use module-level constant; do NOT reassign here)
+        _order = [c for c in BROWSE_COLUMNS if c in _view_safe.columns]
         if not _view_safe.empty:
-            _view_safe = _view_safe[[c for c in BROWSE_COLUMNS if c in _view_safe.columns]]
+            _view_safe = _view_safe[_order]
 
         # Render
         st.dataframe(
             _view_safe,
             column_config=_cfg,
-            column_order=BROWSE_COLUMNS,  # reinforce order at render time
+            column_order=_order,  # reinforce order at render time
             use_container_width=True,
             hide_index=True,
             height=520,
         )
+
 
 
         # ---- Bottom toolbar (CSV export + help) ----
