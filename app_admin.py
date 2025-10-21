@@ -1015,10 +1015,18 @@ try:
     st.caption(f"{total} matching provider(s)")
 
     df = fetch_page(_engine=engine, q=q, offset=0, limit=PAGE_SIZE)
+
+    # Render table (guard empty)
+    if df is None or len(df) == 0:
+        st.info("No matches.")
+    else:
+        st.dataframe(df, use_container_width=True)
+
 except Exception as e:
     st.error(f"Browse failed: {e}")
     st.stop()
 # [END ANCHOR — keep this line below]
+
 
     # Use a local data_ver (don’t rely on a global alias that might be undefined)
     data_ver = st.session_state.get("DATA_VER", 0)
