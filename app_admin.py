@@ -239,27 +239,7 @@ def _tokenize_for_ckw(*parts: str) -> List[str]:
             seen.add(t)
             out.append(t)
     return out
-def ensure_ckw_seeds_table() -> str:
-    """
-    Idempotently create ckw_seeds if missing.
-    Schema keeps (category, service) unique as a seed key.
-    """
-    import sqlalchemy as sa
-    eng = get_engine()
-    ddl = """
-    CREATE TABLE IF NOT EXISTS ckw_seeds (
-        id INTEGER PRIMARY KEY,
-        category TEXT NOT NULL,
-        service  TEXT NOT NULL,
-        seed     TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
-    );
-    """
-    idx = "CREATE UNIQUE INDEX IF NOT EXISTS idx_ckw_seeds_cat_srv ON ckw_seeds(category, service);"
-    with eng.begin() as cx:
-        cx.exec_driver_sql(ddl)
-        cx.exec_driver_sql(idx)
-    return "ckw_seeds table present (created if missing)"
+
 def get_ckw_seed(category: str | None, service: str | None) -> str:
     """
     Resolve best seed for (category, service) with fallback to category-wide ('').
