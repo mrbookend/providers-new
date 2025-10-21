@@ -910,16 +910,19 @@ def main() -> None:
                 st.caption("No obvious mixed types or hidden characters detected in the first 300 rows.")
 
         # Normalize → strings + strip hidden chars
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+_view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
-        # Render
-        st.dataframe(
-            _view_safe,
-            column_config=_cfg,
-            use_container_width=True,
-            hide_index=True,
-            height=520,
-        )
+# Render
+st.dataframe(
+    _view_safe,               # positional FIRST
+    column_config=_cfg,
+    column_order=_order,      # keep as keyword
+    use_container_width=True,
+    hide_index=True,
+    height=520,
+)
+
+
 
         # ---- Bottom toolbar (CSV export + help) ----
         bt1, _ = st.columns([0.2, 0.8])
