@@ -666,22 +666,6 @@ def refresh_lookups(eng: Engine) -> None:
 # ──────────────────────────────────────────────────────────────────────────
 # CKW helpers: seeds + synonyms (optional)
 # ──────────────────────────────────────────────────────────────────────────
-def ensure_ckw_seeds_table() -> None:
-    eng = get_engine()
-    with eng.begin() as cx:
-        cx.exec_driver_sql(
-            """
-            CREATE TABLE IF NOT EXISTS ckw_seeds (
-                category TEXT NOT NULL,
-                service  TEXT NOT NULL,
-                keywords TEXT NOT NULL,
-                PRIMARY KEY (category, service)
-            )
-            """
-        )
-        cx.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS idx_ckw_seeds_cat_svc ON ckw_seeds(category, service)"
-        )
 
 @st.cache_resource
 def _get_ckw_synonyms_map() -> dict:
