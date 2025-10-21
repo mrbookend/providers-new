@@ -1359,17 +1359,17 @@ with tab_manage:
         st.caption("Danger zone: Permanently removes a record from **vendors**.")
 
         # Local fallback to get an engine if your app doesn't expose get_engine()
-        def _get_engine_fallback():
-            try:
-                return get_engine()  # your real builder if present
-            except Exception:
-                pass
-            import sqlalchemy as sa
-            db_path = globals().get("DB_PATH", "providers.db")
-            return sa.create_engine(f"sqlite:///{db_path}", future=True)
+def _get_engine_fallback():
+    try:
+        return get_engine()  # your real builder if present
+    except Exception:
+        pass
+    import sqlalchemy as sa
+    db_path = globals().get("DB_PATH", "providers.db")
+    return sa.create_engine(f"sqlite:///{db_path}", future=True)
 
-        # Small helpers (local to this section)
-        def _has_table(engine, name: str) -> bool:
+# Small helpers (local to this section)
+def _has_table(engine, name: str) -> bool:
     try:
         with engine.connect() as cx:
             q = "SELECT name FROM sqlite_master WHERE type='table' AND name=:n"
@@ -1377,73 +1377,74 @@ with tab_manage:
     except Exception:
         return False
 
-        def _strip_ctrl(s: str) -> str:
-            if not isinstance(s, str):
-                return s
-            return "".join(ch for ch in s if ch == "\t" or ch == "\n" or ord(ch) >= 32)
+def _strip_ctrl(s: str) -> str:
+    if not isinstance(s, str):
+        return s
+    return "".join(ch for ch in s if ch == "\t" or ch == "\n" or ord(ch) >= 32)
 
-        def _as_text(v) -> str:
-            import json, datetime as _dt
-            if v is None:
-                return ""
-            if isinstance(v, (list, dict, set, tuple)):
-                try:
-                    return json.dumps(v, ensure_ascii=False)
-                except Exception:
-                    return str(v)
-            if isinstance(v, (bytes, bytearray)):
-                try:
-                    v = v.decode("utf-8", errors="replace")
-                except Exception:
-                    v = str(v)
-            if isinstance(v, (_dt.datetime, _dt.date)):
-                try:
-                    if isinstance(v, _dt.datetime) and v.tzinfo is not None:
-                        v = v.astimezone(_dt.timezone.utc).replace(tzinfo=None)
-                    return v.isoformat(sep=" ", timespec="seconds")
-                except Exception:
-                    return str(v)
-            return _strip_ctrl(str(v))
+def _as_text(v) -> str:
+    import json, datetime as _dt
+    if v is None:
+        return ""
+    if isinstance(v, (list, dict, set, tuple)):
+        try:
+            return json.dumps(v, ensure_ascii=False)
+        except Exception:
+            return str(v)
+    if isinstance(v, (bytes, bytearray)):
+        try:
+            v = v.decode("utf-8", errors="replace")
+        except Exception:
+            v = str(v)
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        try:
+            if isinstance(v, _dt.datetime) and v.tzinfo is not None:
+                v = v.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+            return v.isoformat(sep=" ", timespec="seconds")
+        except Exception:
+            return str(v)
+    return _strip_ctrl(str(v))
 
-        from sqlalchemy import text as sql_text
+from sqlalchemy import text as sql_text
 
-        @st.cache_data(show_spinner=False)
-        def _list_providers_min(data_ver: int):
-            """Minimal list for delete UI; cached by data_ver."""
-            eng2 = _get_engine_fallback()
-            if not _has_table(eng2, "vendors"):
-                # Table missing; surface empty list so caller can warn & stop.
-                return [], {}
+@st.cache_data(show_spinner=False)
+def _list_providers_min(data_ver: int):
+    """Minimal list for delete UI; cached by data_ver."""
+    eng2 = _get_engine_fallback()
+    if not _has_table(eng2, "vendors"):
+        # Table missing; surface empty list so caller can warn & stop.
+        return [], {}
 
-            with eng2.connect() as cx2:
-                q = sql_text("""
-                    SELECT id, business_name, category, service
-                    FROM vendors
-                    ORDER BY business_name COLLATE NOCASE, id
-                """)
-                rows2 = [dict(r2) for r2 in cx2.execute(q).mappings().all()]
+    with eng2.connect() as cx2:
+        q = sql_text("""
+            SELECT id, business_name, category, service
+            FROM vendors
+            ORDER BY business_name COLLATE NOCASE, id
+        """)
+        rows2 = [dict(r2) for r2 in cx2.execute(q).mappings().all()]
 
-            labels2, by_label2 = [], {}
-            for r2 in rows2:
-                bid = _as_text(r2.get("id"))
-                bnm = _as_text(r2.get("business_name"))
-                cat = _as_text(r2.get("category"))
-                srv = _as_text(r2.get("service"))
-                label2 = f"{bid} — {bnm} ({cat} → {srv})"
-                labels2.append(label2)
-                by_label2[label2] = {"id": bid, "business_name": bnm}
-            return labels2, by_label2
+    labels2, by_label2 = [], {}
+    for r2 in rows2:
+        bid = _as_text(r2.get("id"))
+        bnm = _as_text(r2.get("business_name"))
+        cat = _as_text(r2.get("category"))
+        srv = _as_text(r2.get("service"))
+        label2 = f"{bid} — {bnm} ({cat} → {srv})"
+        labels2.append(label2)
+        by_label2[label2] = {"id": bid, "business_name": bnm}
+    return labels2, by_label2
 
-        # Resolve DATA_VER for cache-busting
-        if "DATA_VER" not in st.session_state:
-            st.session_state["DATA_VER"] = 0
+# Resolve DATA_VER for cache-busting
+if "DATA_VER" not in st.session_state:
+    st.session_state["DATA_VER"] = 0
 
-        labels, by_label = _list_providers_min(st.session_state["DATA_VER"])
+labels, by_label = _list_providers_min(st.session_state["DATA_VER"])
 
-        # Guard: if no table / no rows, inform and stop
-        if not labels:
-            st.warning("No providers to delete yet (missing table or empty list). Initialize or seed the database in **Maintenance**.")
-            st.stop()
+# Guard: if no table / no rows, inform and stop
+if not labels:
+    st.warning("No providers to delete yet (missing table or empty list). Initialize or seed the database in **Maintenance**.")
+    st.stop()
+
 
         # ---- Select provider (no find box; full list) ----
         sel = st.selectbox(
