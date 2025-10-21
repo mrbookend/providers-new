@@ -611,54 +611,27 @@ def _has_ckw_column(data_ver: int) -> bool:
         except Exception:
             return False
 
-
 @st.cache_data(show_spinner=False)
-def count_rows(q: str, data_ver: int) -> int:
-    eng = get_engine()
-    q_norm = (q or "").strip().lower()
-    with eng.connect() as cx:
-        if q_norm:
-            if _has_ckw_column(data_ver):
-                sql = sa.text(
-                    """
-                    SELECT COUNT(*) FROM (
-                      SELECT id FROM vendors WHERE LOWER(COALESCE(computed_keywords,'')) LIKE :q1
-                      UNION
-                      SELECT id FROM vendors
-                      WHERE LOWER(
-                        COALESCE(business_name,'')||' '||
-                        COALESCE(category,'')||' '||
-                        COALESCE(service,'')||' '||
-                        COALESCE(notes,'')||' '||
-                        COALESCE(phone,'')||' '||
-                        COALESCE(website,'')||' '||
-                        COALESCE(address,'')
-                      ) LIKE :q2
-                    )
-                    """
-                )
-                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%"}
-            else:
-                sql = sa.text(
-                    """
-                    SELECT COUNT(*) FROM vendors
-                    WHERE LOWER(
-                      COALESCE(business_name,'')||' '||
-                      COALESCE(category,'')||' '||
-                      COALESCE(service,'')||' '||
-                      COALESCE(notes,'')||' '||
-                      COALESCE(phone,'')||' '||
-                      COALESCE(website,'')||' '||
-                      COALESCE(address,'')
-                    ) LIKE :q
-                    """
-                )
-                params = {"q": f"%{q_norm}%"}
-        else:
-            sql = sa.text("SELECT COUNT(*) FROM vendors")
-            params = {}
-        return int(cx.execute(sql, params).scalar() or 0)
+def count_rows(q: str, data_ver: int = 0) -> int:
+    where = ""
+    params: dict[str, Any] = {}
+    if q:
+        where = """
+            WHERE (
+                COALESCE(business_name,'') || ' ' ||
+                COALESCE(category,'')      || ' ' ||
+                COALESCE(service,'')       || ' ' ||
+                COALESCE(notes,'')         || ' ' ||
+                COALESCE(phone,'')         || ' ' ||
+                COALESCE(website,'')
+            ) LIKE :q
+        """
+        params["q"] = f"%{q}%"
 
+    sql = f"SELECT COUNT(*) FROM vendors {where}"
+    eng = build_engine()
+    with eng.begin() as cx:
+        return int(cx.exec_driver_sql(sql, params).scalar() or 0)
 
 @st.cache_data(show_spinner=False)
 def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
