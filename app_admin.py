@@ -227,6 +227,34 @@ def ensure_ckw_seeds_table() -> str:
         cx.exec_driver_sql(ddl)
         cx.exec_driver_sql(idx)
     return "ckw_seeds table present (created if missing)"
+def ensure_ckw_seeds_table() -> str:
+    """
+    Idempotently create ckw_seeds if missing and verify existence.
+    Schema keeps (category, service) unique as a seed key.
+    """
+    import sqlalchemy as sa
+    eng = get_engine()
+    ddl = """
+    CREATE TABLE IF NOT EXISTS ckw_seeds (
+        id INTEGER PRIMARY KEY,
+        category TEXT NOT NULL,
+        service  TEXT NOT NULL,
+        seed     TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S','now'))
+    );
+    """
+    idx = "CREATE UNIQUE INDEX IF NOT EXISTS idx_ckw_seeds_cat_srv ON ckw_seeds(category, service);"
+    with eng.begin() as cx:
+        cx.exec_driver_sql(ddl)
+        cx.exec_driver_sql(idx)
+    # verify
+    with eng.connect() as cx:
+        row = cx.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
+        ).first()
+        if row is None:
+            raise RuntimeError("ckw_seeds creation failed verification")
+    return "ckw_seeds table present (created if missing)"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Engine (cached)
