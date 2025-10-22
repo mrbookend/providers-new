@@ -172,23 +172,24 @@ def _order_from_secrets(default: list[str]) -> list[str]:
             cand = [str(c).strip() for c in raw if str(c).strip()]
         else:
             return default
-                # Only keep known columns; ignore typos
+
+        # Only keep known columns; ignore typos
         # Include tech/originals so secrets can intentionally unhide them.
         known = set(
             [
-                "business_name","category","service","phone",
-                "contact name","website","address","email address",
-                "notes","keywords","ckw",
+                "business_name", "category", "service", "phone",
+                "contact name", "website", "address", "email address",
+                "notes", "keywords", "ckw",
                 # Tech/originals that can be explicitly requested:
-                "id","created_at","updated_at","ckw_locked","ckw_version",
-                "contact_name","email","computed_keywords",
+                "id", "created_at", "updated_at", "ckw_locked", "ckw_version",
+                "contact_name", "email", "computed_keywords",
             ]
         )
         ordered = [c for c in cand if c in known]
-
         return ordered or default
     except Exception:
         return default
+
 
 ORDER = _order_from_secrets(DEFAULT_ORDER)
 
