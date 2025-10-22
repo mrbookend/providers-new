@@ -1161,6 +1161,14 @@ def main() -> None:
             st.stop()
         st.caption(f"{total:,} matching provider(s)")
 
+        with st.expander("Debug: active Browse order & secrets", expanded=False):
+            st.write({"ORDER (effective)": ORDER})
+            try:
+                st.write({"BROWSE_ORDER (secrets)": st.secrets.get("BROWSE_ORDER", None)})
+            except Exception as e:
+                st.write({"BROWSE_ORDER (secrets)": f"error: {e}"})
+
+        
         # Resolve IDs and load rows
         try:
             ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
