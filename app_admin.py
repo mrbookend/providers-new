@@ -1303,10 +1303,32 @@ def main() -> None:
         # --- one-time refresh trigger (safe to remove later) ---
         try:
             from streamlit import column_config as cc
-            if "id" in _ordered:
-                _cfg["id"] = cc.NumberColumn("id", width=100, help="Primary key")
+
+        # Column widths + labels (merge defaults with secrets)
+        try:
+            from streamlit import column_config as cc
+
+            _cfg: Dict[str, Any] = {}
+
+            def _label_for(col: str) -> str:
+                return (
+                    "CKW" if col in ("ckw", "computed_keywords")
+                    else "Keywords" if col == "keywords"
+                    else col.replace("_", " ").title()
+                )
+
+            for c in _ordered:
+                w = int(COLUMN_WIDTHS_PX_ADMIN.get(c, 220))
+                if c == "id":
+                    _cfg[c] = cc.NumberColumn("ID", width=w, help="Primary key")
+                else:
+                    _cfg[c] = cc.TextColumn(_label_for(c), width=w)
         except Exception:
-            pass
+            # Fallback: if column_config import fails, render without custom widths
+            _cfg = {}
+
+        # Hidden/control-char scanning + sanitization helpers
+        import re
 
         # Render
         st.dataframe(
