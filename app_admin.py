@@ -177,30 +177,134 @@ def _unique_join(parts: list[str]) -> str:
         out.append(p)
     return " ".join(out)
 
-def _build_ckw(row: dict[str, str], *, seed: list[str] | None,
-               syn_service: list[str] | None, syn_category: list[str] | None) -> str:
+def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list[str] | None, syn_category: list[str] | None) -> str:
     base = []
+
+    # ---- 1) Core sources (as before) ------------------------------------
     base += _split_tokens(row.get("business_name", ""))
     base += _split_tokens(row.get("category", ""))
     base += _split_tokens(row.get("service", ""))
+    # Keep short/normal words from notes (as before)
     base += [t for t in _split_tokens(row.get("notes", "")) if 3 <= len(t) <= 20]
+
+    # Synonyms from upstream (if any)
     if syn_service:
         base += [t for t in syn_service if t and t not in _STOP]
     if syn_category:
         base += [t for t in syn_category if t and t not in _STOP]
+
+    # Seeds (phrases → phrase + headwords)
     if seed:
         for kw in seed:
             if not kw:
                 continue
-            base.append(kw.lower())
-            base += _split_tokens(kw)
+            kw_l = kw.lower().strip()
+            if kw_l:
+                base.append(kw_l)
+                base += _split_tokens(kw_l)
+
+    # Manual extras (still supported, but no longer required for coverage)
     manual = (row.get("ckw_manual_extra") or "").strip()
     if manual:
         s = manual.replace("|", ",").replace(";", ",")
         for piece in [p.strip() for p in s.split(",") if p.strip()]:
-            base.append(piece.lower())
-            base += _split_tokens(piece)
-    return _unique_join(base)
+            piece_l = piece.lower()
+            base.append(piece_l)
+            base += _split_tokens(piece_l)
+
+    # ---- 2) Rule-based expansions for window coverings -------------------
+    # Trigger domain by category/service terms (very forgiving).
+    svc = (row.get("service") or "").lower()
+    cat = (row.get("category") or "").lower()
+    triggers = "window" in svc or "window" in cat or any(
+        k in svc or k in cat for k in ("treatment", "blinds", "shades", "drap", "curtain", "shutter")
+    )
+
+    if triggers:
+        # Product families (phrases kept; headwords added via _explode)
+        BLINDS_FAM = (
+            "wood blinds", "faux wood blinds", "vertical blinds", "mini blinds",
+            "aluminum blinds", "cordless blinds",
+        )
+        SHADES_FAM = (
+            "roller shades", "solar shades", "roman shades", "cellular shades",
+            "honeycomb shades", "pleated shades", "zebra shades", "blackout shades",
+            "sheer shades",
+        )
+        DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
+        ACCESSORIES = ("valances", "cornices")
+        ACTIONS = ("design", "consultation", "design consultation", "measure", "install", "installation", "in-home")
+        MOTORIZED = ("motorized shades", "motorized blinds", "motorized drapes")
+
+        def _explode(phrases: list[str] | tuple[str, ...]) -> list[str]:
+            out: list[str] = []
+            seen: set[str] = set()
+            for ph in phrases:
+                phl = (ph or "").lower().strip()
+                if not phl:
+                    continue
+                if phl not in seen:
+                    out.append(phl); seen.add(phl)
+                # add headwords of the phrase
+                for t in _split_tokens(phl):
+                    if t not in seen:
+                        out.append(t); seen.add(t)
+            return out
+
+        base += _explode(BLINDS_FAM)
+        base += _explode(SHADES_FAM)
+        base += _explode(DRAPERY_FAM)
+        base += _explode(ACCESSORIES)
+        base += _explode(ACTIONS)
+        base += _explode(MOTORIZED)
+
+    # ---- 3) Filter junk + stable de-dup + budgeted trim ------------------
+    # Drop tiny numerics and obvious junk (STOP already handled in _split_tokens).
+    def _is_junk(tok: str) -> bool:
+        if not tok:
+            return True
+        if tok.isdigit() and len(tok) <= 2:
+            return True
+        return False
+
+    # Stable de-dup first
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for t in base:
+        t = t.strip()
+        if not t or _is_junk(t):
+            continue
+        if t not in seen:
+            seen.add(t)
+            uniq.append(t)
+
+    # Priority tiers: keep service/product families highest, then verbs, then accessories, then everything else.
+    TIERS = ([], [], [], [], [])  # 0..4
+    for t in uniq:
+        if (" shades" in t) or (" blinds" in t) or t in {"shades", "blinds", "shutters"}:
+            TIERS[0].append(t)
+        elif t in {"motorized", "motorized shades", "motorized blinds", "motorized drapes"}:
+            TIERS[1].append(t)
+        elif t in {"install", "installation", "measure", "design", "consultation", "in-home"}:
+            TIERS[2].append(t)
+        elif t in {"valances", "cornices", "curtains", "drapes"} or "drapery" in t:
+            TIERS[3].append(t)
+        else:
+            TIERS[4].append(t)
+
+    BUDGET = 32  # keep CKW lean for performance and readability
+    out: list[str] = []
+    for bucket in TIERS:
+        for t in bucket:
+            if len(out) >= BUDGET:
+                break
+            if t not in out:
+                out.append(t)
+        if len(out) >= BUDGET:
+            break
+
+    return " ".join(out)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
