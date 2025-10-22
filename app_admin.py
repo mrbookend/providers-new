@@ -1519,34 +1519,38 @@ except Exception as e:
     # ─────────────────────────────────────────────────────────────────────
     with tab_manage:
         # --- One-shot post-action clearing (runs before any widgets are created) ---
-        _clear = st.session_state.pop("_after_action_clear", None)
-        if _clear:
-            base_fields = [
-                "business_name", "category", "service",
-                "phone", "website", "address",
-                "notes", "email", "contact_name",
-                "keywords", "ckw",
-            ]
-            friendly_aliases = ["contact name", "email address"]
-            add_prefixed  = [f"add_{f}"  for f in base_fields + friendly_aliases]
-            edit_prefixed = [f"edit_{f}" for f in base_fields + friendly_aliases]
-            misc = [
-                "add_submit_clicked", "edit_submit_clicked",
-                "edit_selected_id", "edit_prev_updated",
-                "del_select_id",
-            ]
-            if _clear == "add":
-                _pop_keys(base_fields + friendly_aliases + add_prefixed + misc)
-            elif _clear == "edit":
-                _pop_keys(base_fields + friendly_aliases + edit_prefixed + misc)
-            elif _clear == "delete":
-                _pop_keys(["del_select_id"])
+_clear = st.session_state.pop("_after_action_clear", None)
+if _clear == "add":
+    # Clear Add form widgets
+    for k in [
+        "bn_add", "cat_add_sel", "srv_add_sel",
+        "contact_add", "phone_add", "email_add",
+        "website_add", "address_add", "notes_add", "kw_add",
+        "btn_add_provider",
+    ]:
+        st.session_state.pop(k, None)
 
-        if not st.session_state.get("DB_READY"):
-            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
-        else:
-            eng = get_engine()
-            lc, rc = st.columns([1, 1], gap="large")
+elif _clear == "edit":
+    # Clear Edit form widgets
+    for k in [
+        "pick_edit_sel", "bn_edit", "cat_edit_sel", "srv_edit_sel",
+        "contact_edit", "phone_edit", "email_edit",
+        "website_edit", "address_edit", "notes_edit", "kw_edit",
+        "save_changes_btn",
+        "edit_selected_id", "edit_prev_updated",
+    ]:
+        st.session_state.pop(k, None)
+
+elif _clear == "delete":
+    # Clear Delete selection
+    st.session_state.pop("del_select_id", None)
+
+if not st.session_state.get("DB_READY"):
+    st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+else:
+    eng = get_engine()
+    lc, rc = st.columns([1, 1], gap="large")
+
 
             # ---------- Add ----------
 with lc:
