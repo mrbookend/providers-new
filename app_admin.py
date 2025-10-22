@@ -29,7 +29,6 @@ if "q" not in st.session_state:
 # ── Stdlib ────────────────────────────────────────────────────────────────
 import os
 import csv
-import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -1060,22 +1059,7 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
     row["phone"] = _digits_only(row.get("phone"))
     row["computed_keywords"] = compute_ckw(row)
     row["created_at"] = row["updated_at"] = _now_iso()
-    with eng.begin() as cx:
-        res = cx.exec_driver_sql(
-            sa.text(
-                """
-                INSERT INTO vendors (
-                  business_name,category,service,contact_name,phone,email,website,
-                  address,notes,ckw_manual_extra,created_at,updated_at,computed_keywords
-                )
-                VALUES (
-                  :business_name,:category,:service,:contact_name,:phone,:email,:website,
-                  :address,:notes,:ckw_manual_extra,:created_at,:updated_at,:computed_keywords
-                )
-                """
-            ),
-            row,
-        )
+    
         new_id = int(res.lastrowid or 0)
     ensure_lookup_value(eng, "categories", row.get("category", ""))
     ensure_lookup_value(eng, "services", row.get("service", ""))
@@ -1088,6 +1072,8 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
     row["updated_at"] = _now_iso()
     row["id"] = vid
 # ── BEGIN REPLACE: submit handler builds CKW + params and updates guarded ──
+eng = get_engine()  # define locally in this handler
+
 # 1) Build computed keywords from current form values
 ckw = build_computed_keywords(
     business_name=(business_name or ""),
@@ -1096,8 +1082,7 @@ ckw = build_computed_keywords(
     manual_csv=(ckw_manual_extra or ""),
 )
 
-# 2) Build params dict (NO updated_at param; DB sets CURRENT_TIMESTAMP)
-#    NOTE: loaded_row must be the row you fetched before showing the form.
+# 2) Build params dict (DB sets CURRENT_TIMESTAMP; no updated_at param)
 params = {
     "id":                int(vendor_id),
     "business_name":     (business_name or "").strip(),
@@ -1112,11 +1097,11 @@ params = {
     "ckw_manual_extra":  (ckw_manual_extra or "").strip(),
     "computed_keywords": ckw,
     "ckw_version":       CURRENT_CKW_VER,
-    "prev_updated":      (loaded_row.get("updated_at") or ""),
-    "override":          int(bool(override_ckw_lock)),  # usually 0
+    "prev_updated":      st.session_state.get("EDIT_PREV_UPDATED", ""),
+    "override":          int(bool(override_ckw_lock)) if "override_ckw_lock" in locals() else 0,
 }
 
-# 3) Guarded UPDATE (honors lock unless override=1; optimistic concurrency)
+# 3) Guarded UPDATE (respects locks unless override=1; optimistic concurrency)
 with eng.begin() as cx:
     res = cx.exec_driver_sql(
         """
@@ -1140,14 +1125,19 @@ with eng.begin() as cx:
         """,
         params,
     )
+# ── BEGIN ADD: remember prev_updated for optimistic concurrency ──
+row_dict = dict(row_proxy_or_tuple)  # whatever you already use
+st.session_state["EDIT_PREV_UPDATED"] = str(row_dict.get("updated_at", ""))
+# ── END ADD ──
 
-# 4) Post-update: detect conflicts/locks and cache-bust views
+# 4) Post-update UX + cache-bust
 if getattr(res, "rowcount", 0) == 0:
     st.warning("No rows updated — record changed elsewhere or CKW lock prevented the write. Reload and try again.")
 else:
     st.success("Provider updated.")
     st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
 # ── END REPLACE ──
+
 
 
     ensure_lookup_value(eng, "categories", row.get("category", ""))
@@ -1311,7 +1301,12 @@ def main() -> None:
             _cfg[c] = st.column_config.TextColumn(label, width=w)
 
         # Hidden/control-char scanning + sanitization helpers
+        # Replace:
         import re, json
+        # With:
+        import re
+        import json
+
         from datetime import datetime as _dt
         _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
 
