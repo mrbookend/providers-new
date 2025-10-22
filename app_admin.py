@@ -1300,8 +1300,21 @@ def main() -> None:
         # Build the view and normalize
         _view = _src.loc[:, _ordered] if not _src.empty else _src
         _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
-                # Column widths + labels (merge defaults with secrets)
+
+        # Column widths + labels (merge defaults with secrets)
         from streamlit import column_config as cc
+
+        # --- px -> bucket helper (Streamlit only honors buckets) ---
+        def _width_bucket(px: int) -> str:
+            try:
+                v = int(px)
+            except Exception:
+                return "medium"
+            if v <= 120:
+                return "small"
+            if v <= 220:
+                return "medium"
+            return "large"
 
         _cfg: Dict[str, Any] = {}
 
@@ -1312,27 +1325,34 @@ def main() -> None:
                 else col.replace("_", " ").title()
             )
 
-        for c in _ordered:
-            w = int(COLUMN_WIDTHS_PX_ADMIN.get(c, 220))
+        # Build config for columns that are actually present in the final view
+        # Try a module/global COLUMN_WIDTHS_PX_ADMIN first; fall back to secrets
+        try:
+            _px_map = dict(COLUMN_WIDTHS_PX_ADMIN)  # may already exist in your module
+        except Exception:
+            _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+
+        _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
+        for c in _cols_present:
+            px = _px_map.get(c, 220)
+            bucket = _width_bucket(px)
             if c == "id":
-                _cfg[c] = cc.NumberColumn("ID", width=w, help="Primary key")
+                _cfg[c] = cc.NumberColumn(label="ID", help="Primary key", width=bucket)
             else:
-                _cfg[c] = cc.TextColumn(_label_for(c), width=w)
+                _cfg[c] = cc.TextColumn(label=_label_for(c), width=bucket)
 
         # Hidden/control-char scanning + sanitization helpers
         import re
 
-                # Render
+        # Render
         st.dataframe(
             _view_safe,
             column_config=_cfg,
-            column_order=_ordered,
-            use_container_width=False,  # was True
+            column_order=_cols_present,   # use only present columns
+            use_container_width=True,     # buckets work best with container width
             hide_index=True,
             height=520,
         )
-
-
 
         # ---- Bottom toolbar: CSV + Help ----
         bt1, bt2 = st.columns([0.22, 0.78])
