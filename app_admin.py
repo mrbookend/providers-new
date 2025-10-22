@@ -1323,14 +1323,15 @@ def main() -> None:
         import re
 
         # Render
-        st.dataframe(
-            _view_safe,
-            column_config=_cfg,
-            column_order=_ordered,
-            use_container_width=True,
-            hide_index=True,
-            height=520,
-        )
+        sst.dataframe(
+    _view_safe,
+    column_config=_cfg,
+    column_order=_ordered,
+    use_container_width=False,  # was True
+    hide_index=True,
+    height=520,
+)
+
 
         # ---- Bottom toolbar: CSV + Help ----
         bt1, bt2 = st.columns([0.22, 0.78])
