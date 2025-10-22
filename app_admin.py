@@ -571,40 +571,6 @@ def compute_ckw(row: Dict[str, Any]) -> str:
 
 # >>> CKW recompute (optimized) BEGIN ------------------------------------------
 
-def _ckw_merge(seed: str, manual: str, business_name: str, notes: str) -> str:
-    def _parts(s: str | None) -> list[str]:
-        if not s:
-            return []
-        items = []
-        for chunk in s.split(","):
-            t = chunk.strip().lower()
-            if t:
-                items.append(t)
-        return items
-
-    base = _parts(seed) + _parts(manual)
-
-    import re
-    word_re = re.compile(r"[a-z0-9]+", re.IGNORECASE)
-    for blob in (business_name or "", notes or ""):
-        for w in word_re.findall(blob):
-            w = w.lower()
-            if len(w) >= 3:
-                base.append(w)
-
-    seen = set()
-    deduped = []
-    for x in base:
-        if x not in seen:
-            seen.add(x)
-            deduped.append(x)
-
-    if len(deduped) > 200:
-        deduped = deduped[:200]
-
-    return ", ".join(deduped)
-
-
 def _preload_seed_map(eng) -> dict[tuple[str, str], str]:
     seed_map: dict[tuple[str, str], str] = {}
     try:
@@ -617,19 +583,37 @@ def _preload_seed_map(eng) -> dict[tuple[str, str], str]:
                 svc = (r["service"] or "").strip()
                 seed = (r["seed"] or "").strip()
                 seed_map[(cat, svc)] = seed
+                # optional cache of category-wide
+                if cat and svc == "" and (cat, "") not in seed_map:
+                    seed_map[(cat, "")] = seed
     except Exception:
         pass
     return seed_map
 
 
-def _resolve_seed(seed_map: dict[tuple[str, str], str], category: str | None, service: str | None) -> str:
+def _resolve_seed(seed_map: dict[tuple[str, str], str], category: str | None, service: str | None) -> list[str]:
+    """Return a normalized list of seed phrases for (category, service), with category-wide fallback."""
     cat = (category or "").strip()
     svc = (service or "").strip()
+    s = ""
     if cat and svc and (cat, svc) in seed_map:
-        return seed_map[(cat, svc)]
-    if cat and (cat, "") in seed_map:
-        return seed_map[(cat, "")]
-    return ""
+        s = seed_map[(cat, svc)]
+    elif cat and (cat, "") in seed_map:
+        s = seed_map[(cat, "")]
+    if not s:
+        return []
+    return [p.strip().lower() for p in s.split(",") if p.strip()]
+
+
+def _row_for_builder(r: dict[str, Any]) -> dict[str, str]:
+    """Normalize a DB row into the dict that _build_ckw expects."""
+    return {
+        "business_name": r.get("business_name") or "",
+        "category":      r.get("category") or "",
+        "service":       r.get("service") or "",
+        "notes":         r.get("notes") or "",
+        "ckw_manual_extra": r.get("ckw_manual_extra") or "",
+    }
 
 
 def recompute_ckw_for_ids(eng, ids: list[int]) -> int:
@@ -637,7 +621,6 @@ def recompute_ckw_for_ids(eng, ids: list[int]) -> int:
         return 0
 
     seed_map = _preload_seed_map(eng)
-
     placeholders = ",".join([":id" + str(i) for i in range(len(ids))])
     id_params = {("id" + str(i)): int(v) for i, v in enumerate(ids)}
 
@@ -656,12 +639,14 @@ def recompute_ckw_for_ids(eng, ids: list[int]) -> int:
     updates = []
     for r in rows:
         row_id = int(r["id"])
-        seed = _resolve_seed(seed_map, r.get("category"), r.get("service"))
-        new_ckw = _ckw_merge(
-            seed=seed,
-            manual=r.get("ckw_manual_extra") or "",
-            business_name=r.get("business_name") or "",
-            notes=r.get("notes") or "",
+        seed_list = _resolve_seed(seed_map, r.get("category"), r.get("service"))
+        syn_service = _load_synonyms_service(r.get("service"))
+        syn_category = _load_synonyms_category(r.get("category"))
+        new_ckw = _build_ckw(
+            _row_for_builder(r),
+            seed=seed_list,
+            syn_service=syn_service,
+            syn_category=syn_category,
         )
         old_ckw = r.get("computed_keywords") or ""
         if new_ckw != old_ckw:
@@ -700,12 +685,14 @@ def recompute_ckw_all(eng) -> int:
     updates = []
     for r in rows:
         row_id = int(r["id"])
-        seed = _resolve_seed(seed_map, r.get("category"), r.get("service"))
-        new_ckw = _ckw_merge(
-            seed=seed,
-            manual=r.get("ckw_manual_extra") or "",
-            business_name=r.get("business_name") or "",
-            notes=r.get("notes") or "",
+        seed_list = _resolve_seed(seed_map, r.get("category"), r.get("service"))
+        syn_service = _load_synonyms_service(r.get("service"))
+        syn_category = _load_synonyms_category(r.get("category"))
+        new_ckw = _build_ckw(
+            _row_for_builder(r),
+            seed=seed_list,
+            syn_service=syn_service,
+            syn_category=syn_category,
         )
         old_ckw = r.get("computed_keywords") or ""
         if new_ckw != old_ckw:
@@ -728,6 +715,7 @@ def recompute_ckw_all(eng) -> int:
     return len(updates)
 
 # <<< CKW recompute (optimized) END --------------------------------------------
+
 
 def list_categories(eng: Engine) -> List[str]:
     with eng.begin() as cx:
@@ -820,15 +808,17 @@ def count_rows(q: str, data_ver: int = 0) -> int:
     params: dict[str, Any] = {}
     if q:
         where = """
-            WHERE (
-                COALESCE(business_name,'') || ' ' ||
-                COALESCE(category,'')      || ' ' ||
-                COALESCE(service,'')       || ' ' ||
-                COALESCE(notes,'')         || ' ' ||
-                COALESCE(phone,'')         || ' ' ||
-                COALESCE(website,'')
-            ) LIKE :q
-        """
+    WHERE (
+        COALESCE(computed_keywords,'') || ' ' ||
+        COALESCE(business_name,'')     || ' ' ||
+        COALESCE(category,'')          || ' ' ||
+        COALESCE(service,'')           || ' ' ||
+        COALESCE(notes,'')             || ' ' ||
+        COALESCE(phone,'')             || ' ' ||
+        COALESCE(website,'')
+    ) LIKE :q
+"""
+
         params["q"] = f"%{q}%"
     sql = f"SELECT COUNT(*) FROM vendors {where}"
     eng = get_engine()
