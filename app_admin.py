@@ -1309,7 +1309,7 @@ render_add_edit_delete(tab_manage)
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
 
-    # ─────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────
 # Browse (Admin)
 # ─────────────────────────────────────────────────────────────────────
 with tab_browse:
@@ -1507,7 +1507,6 @@ with tab_browse:
 
     with st.expander("Help — How to use Browse (click to open)", expanded=False):
         st.markdown(HELP_MD)
-
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
