@@ -96,6 +96,7 @@ ORDER = [
     "phone",
     "contact name",
     "website",
+    "address",          # ← now shown
     "email address",
     "notes",
     "keywords",
@@ -1197,7 +1198,6 @@ def main() -> None:
             "id", "created_at", "updated_at",
             "ckw_locked", "ckw_version",
             "contact_name", "email", "computed_keywords",
-            "address",
         }
         def _is_ckw_control(col: str) -> bool:
             return col.startswith("ckw_")
