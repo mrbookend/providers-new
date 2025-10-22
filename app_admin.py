@@ -1698,6 +1698,11 @@ def main() -> None:
                 st.caption(f"Admin file: {ADMIN_FILE} · sha256: {ADMIN_SHA}")
 
         eng = get_engine()
+with st.expander("Debug: Column widths (secrets)", expanded=True):
+    try:
+        st.write(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    except Exception as e:
+        st.write({"error": str(e)})
 
         # ---------- Quick Engine Probe ----------
         c_probe, c_counts = st.columns([0.45, 0.55], gap="large")
