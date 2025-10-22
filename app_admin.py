@@ -1209,17 +1209,35 @@ def main() -> None:
         df = df.reindex(columns=BROWSE_COLUMNS, fill_value="")
 
         # Hide heavy/internal columns and originals replaced with aliases
-        _HIDE_EXACT = {
-            "id", "created_at", "updated_at",
-            "ckw_locked", "ckw_version",
-            "contact_name", "email", "computed_keywords",
-        }
+        _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
+        _ALIAS_ORIGS = {"contact_name", "email", "computed_keywords"}  # originals replaced by friendly aliases
+        _hide = set(_TECH_COLS | _ALIAS_ORIGS)
+
+        # If a tech/original column is explicitly requested in ORDER, don't hide it.
+        for col in list(_hide):
+            if col in ORDER:
+                _hide.discard(col)
+
         def _is_ckw_control(col: str) -> bool:
-            return col.startswith("ckw_")
-...
+            # Only hide ckw_* controls if they're NOT explicitly requested in ORDER
+            return col.startswith("ckw_") and col not in ORDER
+
+        # Create alias columns (idempotent)
+        _src = df.copy()
+        if not _src.empty:
+            if "contact name" not in _src.columns and "contact_name" in _src.columns:
+                _src["contact name"] = _src["contact_name"].fillna("")
+            if "email address" not in _src.columns and "email" in _src.columns:
+                _src["email address"] = _src["email"].fillna("")
+            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
+                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
+            if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
+                _src["ckw"] = _src["computed_keywords"].fillna("")
+
         # Visible columns and enforced order
-        _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
+        _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
         _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
 
 
         # Column widths + labels (merge defaults with secrets)
