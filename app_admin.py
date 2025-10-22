@@ -1311,7 +1311,8 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────
     # Browse (Admin)
     # ─────────────────────────────────────────────────────────────────────
-   with tab_browse:
+
+    with tab_browse:
     # --- Search bar (single-click Clear) ---
     c1, c2, _ = st.columns([0.5, 0.12, 0.38])
     q = c1.text_input(
@@ -1506,7 +1507,7 @@ def main() -> None:
 
     with st.expander("Help — How to use Browse (click to open)", expanded=False):
         st.markdown(HELP_MD)
-
+   
 
         # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
