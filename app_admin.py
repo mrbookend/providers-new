@@ -1050,7 +1050,7 @@ def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
         "ckw_locked", "ckw_version",
     ]
 
-    # Normalize
+    # Normalize → params
     params: dict[str, Any] = {}
     for k, v in (data or {}).items():
         col = keymap.get(k, k)
@@ -1105,6 +1105,102 @@ def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
 
         # Defensive fallback
         return int(cx.exec_driver_sql(sa.text(sql_basic).text, params).lastrowid)
+
+
+def update_vendor(
+    eng: Engine,
+    vendor_id: int,
+    data: dict[str, Any],
+    prev_updated: str | None = None,   # optional optimistic concurrency
+) -> int:
+    """
+    Update a vendor row by id. Returns number of rows changed (0 = no-op/stale).
+    - Maps friendly keys ("contact name", "email address", "keywords", "ckw") to DB columns.
+    - Normalizes types (bool→int, string scrub).
+    - Uses NULLIF(:service,'') so empty string -> NULL.
+    - If prev_updated is provided, enforces optimistic concurrency:
+      WHERE COALESCE(updated_at,'') = COALESCE(:prev_updated,'')
+    """
+    keymap = {
+        "business_name": "business_name",
+        "category": "category",
+        "service": "service",
+        "phone": "phone",
+        "website": "website",
+        "address": "address",
+        "notes": "notes",
+        "email": "email",
+        "email address": "email",
+        "contact_name": "contact_name",
+        "contact name": "contact_name",
+        "keywords": "ckw_manual_extra",
+        "ckw": "computed_keywords",
+        "computed_keywords": "computed_keywords",
+        "ckw_locked": "ckw_locked",
+        "ckw_version": "ckw_version",
+    }
+    allowed = {
+        "business_name", "category", "service",
+        "phone", "website", "address",
+        "notes", "email", "contact_name",
+        "ckw_manual_extra", "computed_keywords",
+        "ckw_locked", "ckw_version",
+    }
+
+    # Normalize input
+    params: dict[str, Any] = {}
+    for k, v in (data or {}).items():
+        col = keymap.get(k, k)
+        if col not in allowed:
+            continue
+        if col == "ckw_locked":
+            params[col] = 1 if bool(v) else 0
+        elif v is None:
+            params[col] = None
+        elif isinstance(v, (int, float)):
+            params[col] = v
+        else:
+            s = str(v)
+            params[col] = "".join(ch for ch in s if ch >= " " or ch == "\n").strip()
+
+    if not params:
+        return 0
+
+    # Dynamic SET list
+    set_clauses: list[str] = []
+    named_params: dict[str, Any] = {"id": int(vendor_id)}
+
+    for col, val in params.items():
+        if col == "service":
+            set_clauses.append("service = NULLIF(:service,'')")
+            named_params["service"] = val
+        else:
+            set_clauses.append(f"{col} = :{col}")
+            named_params[col] = val
+
+    # updated_at = now
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    set_clauses.append("updated_at = :updated_at")
+    named_params["updated_at"] = now_iso
+
+    where_clause = "id = :id"
+    if prev_updated is not None:
+        where_clause += " AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'')"
+        named_params["prev_updated"] = prev_updated
+
+    sql = f"UPDATE vendors SET {', '.join(set_clauses)} WHERE {where_clause}"
+
+    import sqlalchemy as sa
+    with eng.begin() as cx:
+        res = cx.exec_driver_sql(sa.text(sql).text, named_params)
+        changed = int(res.rowcount or 0)
+
+    if prev_updated is not None and changed == 0:
+        raise RuntimeError("Stale write: updated_at mismatch; reload before saving.")
+
+    return changed
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Lookup helpers
