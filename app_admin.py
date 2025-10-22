@@ -1032,13 +1032,77 @@ def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
         "address": "address",
         "notes": "notes",
         "email": "email",
-        "email address": "email",         # friendly → DB
+        "email address": "email",
         "contact_name": "contact_name",
-        "contact name": "contact_name",   # friendly → DB
-        "keywords": "ckw_manual_extra",   # curated keywords column
-        "ckw": "computed_keywords",       # algorithm output
+        "contact name": "contact_name",
+        "keywords": "ckw_manual_extra",
+        "ckw": "computed_keywords",
         "computed_keywords": "computed_keywords",
     }
+
+    allowed = [
+        "business_name", "category", "service",
+        "phone", "website", "address",
+        "notes", "email", "contact_name",
+        "ckw_manual_extra", "computed_keywords",
+        "ckw_locked", "ckw_version",
+    ]
+
+    # Normalize
+    params: dict[str, Any] = {}
+    for k, v in (data or {}).items():
+        col = keymap.get(k, k)
+        if col not in allowed:
+            continue
+        if col == "ckw_locked":
+            params[col] = 1 if bool(v) else 0
+        elif v is None:
+            params[col] = None
+        elif isinstance(v, (int, float)):
+            params[col] = v
+        else:
+            s = str(v)
+            params[col] = "".join(ch for ch in s if ch >= " " or ch == "\n").strip()
+
+    params.setdefault("ckw_locked", 0)
+    params.setdefault("ckw_version", 1)
+
+    if not params.get("business_name"):
+        raise ValueError("business_name is required")
+
+    cols = list(params.keys())
+    col_list = ", ".join(cols)
+    val_list = ", ".join(f":{c}" for c in cols)
+
+    sql_returning = f"INSERT INTO vendors ({col_list}) VALUES ({val_list}) RETURNING id"
+    sql_basic     = f"INSERT INTO vendors ({col_list}) VALUES ({val_list})"
+
+    import sqlalchemy as sa
+    with eng.begin() as cx:
+        try:
+            res = cx.exec_driver_sql(sa.text(sql_returning).text, params)
+            row = res.first()
+            if row and row[0] is not None:
+                return int(row[0])
+        except Exception:
+            try:
+                res = cx.exec_driver_sql(sa.text(sql_basic).text, params)
+            except TypeError:
+                import os
+                if os.getenv("SHOW_DEBUG") == "1":
+                    st.error("TypeError during INSERT (likely placeholder/params mismatch).")
+                    st.code(
+                        {
+                            "sql": sql_basic,
+                            "cols": cols,
+                            "param_types": {k: type(v).__name__ for k, v in params.items()},
+                        }
+                    )
+                raise
+            return int(res.lastrowid)
+
+        # Defensive fallback
+        return int(cx.exec_driver_sql(sa.text(sql_basic).text, params).lastrowid)
 
 # ──────────────────────────────────────────────────────────────────────────
 # Lookup helpers
@@ -1085,6 +1149,14 @@ def _has_table(eng: Engine, name: str) -> bool:
         return bool(rows)
     except Exception:
         return False
+# --- One-shot clearing helpers -------------------------------------------
+def _pop_keys(keys: list[str]) -> None:
+    for k in keys:
+        st.session_state.pop(k, None)
+
+def _clear_after(scope: str) -> None:
+    st.session_state["_after_action_clear"] = scope
+    st.rerun()
 
 # ──────────────────────────────────────────────────────────────────────────
 # Main App
@@ -1218,11 +1290,6 @@ def main() -> None:
         # Visible columns and enforced order
         _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
         _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
-
-        _cfg: Dict[str, Any] = {}
-        for c in _ordered:
-            w = COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
-            label = "CKW" if c in ("ckw", "computed_keywords") else ("Keywords" if c == "keywords" else c.replace("_", " ").title())
 
         # Hidden/control-char scanning + sanitization helpers
         import json
@@ -1373,9 +1440,13 @@ def main() -> None:
                 _pop_keys(base_fields + friendly_aliases + edit_prefixed + misc)
             elif _clear == "delete":
                 _pop_keys(["del_select_id"])
-   
-    with tab_manage:
-        if not st.session_state.get("DB_READY"):
+           if not st.session_state.get("DB_READY"):
+            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+        else:
+            eng = get_engine()
+            lc, rc = st.columns([1, 1], gap="large")
+            ...
+
             st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
         else:
             eng = get_engine()
