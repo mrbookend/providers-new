@@ -102,6 +102,56 @@ ORDER = [
     "ckw",
 ]
 
+# === CKW CONSTANTS & HELPERS — ADD ONCE (anchor: CKW_CONSTANTS_START) ===
+# Version the algorithm so we can detect "stale" rows.
+CURRENT_CKW_VER: int = 1
+
+# Short global stoplist; keep tiny to avoid wiping signal.
+_CKW_STOP = {
+    "inc", "llc", "co", "company", "the", "and", "of", "for", "services", "service",
+    "sa", "san", "antonio", "tx", "texas",
+}
+
+# Curated synonym seeds you can extend over time.
+# NOTE: These are *additive* to per-(category, service) seeds stored in ckw_seeds.
+SERVICE_SYNONYMS = {
+    "Auto Repair": ["mechanic", "brakes", "engine", "transmission", "oil change", "tune up"],
+    "Window Treatments": ["blinds", "shades", "shutters", "blackout", "motorized"],
+    "Landscaping": ["xeriscape", "mulch", "irrigation", "lawn", "hardscape"],
+}
+CATEGORY_SYNONYMS = {
+    "Auto Services": ["vehicle", "car", "auto"],
+    "Home Services": ["contractor", "home improvement", "repair"],
+}
+
+import re
+import unicodedata
+def _norm_term(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s = re.sub(r"[^a-z0-9\s\-]+", " ", s.lower()).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _split_csv(csv: str) -> list[str]:
+    return [t.strip() for t in (csv or "").replace(";", ",").split(",") if t.strip()]
+
+def _tokenize_name_for_ckw(name: str) -> list[str]:
+    name = _norm_term(name)
+    toks = [t for t in name.split(" ") if t and t not in _CKW_STOP and len(t) > 2]
+    return toks
+
+def _dedupe_preserve_order(terms: list[str]) -> list[str]:
+    seen = set()
+    out = []
+    for t in terms:
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+# === CKW CONSTANTS & HELPERS — END (anchor: CKW_CONSTANTS_END) ===
+
+
 # Fallback widths (px). Secrets may override.
 DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "business_name": 260,
@@ -789,6 +839,68 @@ def _load_synonyms_category(category: str | None) -> list[str]:
     vals = _get_ckw_synonyms_map().get("category", {}).get(name, [])
     return [str(x).strip() for x in vals if str(x).strip()]
 
+# === CKW BUILDER — ADD (anchor: CKW_BUILDER_START) ===
+from typing import Optional
+
+def _get_seed_terms(category: str, service: str) -> list[str]:
+    """
+    Reads ckw_seeds(category, service, seed_csv). Returns [] if table/row absent.
+    """
+    try:
+        eng = get_engine()
+        with eng.connect() as cx:
+            row = cx.exec_driver_sql(
+                "SELECT seed_csv FROM ckw_seeds WHERE category=? AND service=?",
+                (category or "", service or "")
+            ).first()
+        return _split_csv(row[0]) if row and row[0] else []
+    except Exception:
+        # If seeds table missing, just act like no seeds found.
+        return []
+
+def _synonyms_for(category: str, service: str) -> list[str]:
+    out = []
+    if (service or "") in SERVICE_SYNONYMS:
+        out.extend(SERVICE_SYNONYMS[service])
+    if (category or "") in CATEGORY_SYNONYMS:
+        out.extend(CATEGORY_SYNONYMS[category])
+    return out
+
+def build_computed_keywords(
+    business_name: str,
+    category: str,
+    service: str,
+    manual_csv: Optional[str] = "",
+) -> str:
+    """
+    Canonical CKW pipeline (3-Day-Blinds recipe generalized):
+      Seeds(cat,service) → Synonyms(cat,service) → Name tokens → Manual extras
+      → normalize → dedupe → join. Empty-safe & zero-seed fallback.
+    Priority (order) encodes importance.
+    """
+    seeds = _get_seed_terms(category, service)        # highest priority
+    syns  = _synonyms_for(category, service)          # next priority
+    name_terms = _tokenize_name_for_ckw(business_name or "")
+    manual = _split_csv(manual_csv or "")
+
+    # Normalize everything
+    seeds  = [_norm_term(t) for t in seeds if t]
+    syns   = [_norm_term(t) for t in syns if t]
+    name_terms = [_norm_term(t) for t in name_terms if t]
+    manual = [_norm_term(t) for t in manual if t]
+
+    # Priority order: seeds → synonyms → name → manual
+    ordered = seeds + syns + name_terms + manual
+
+    # Remove stop-words/noise and dedupe
+    ordered = [t for t in ordered if t and t not in _CKW_STOP]
+    ordered = _dedupe_preserve_order(ordered)
+
+    # Final human-friendly CSV (keep commas & spaces)
+    return ", ".join(ordered)
+# === CKW BUILDER — END (anchor: CKW_BUILDER_END) ===
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Cached data functions used by Browse
 # ──────────────────────────────────────────────────────────────────────────
@@ -975,28 +1087,32 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
     row["computed_keywords"] = compute_ckw(row)
     row["updated_at"] = _now_iso()
     row["id"] = vid
-    with eng.begin() as cx:
-        cx.exec_driver_sql(
-            sa.text(
-                """
-                UPDATE vendors
-                SET business_name=:business_name,
-                    category=:category,
-                    service=:service,
-                    contact_name=:contact_name,
-                    phone=:phone,
-                    email=:email,
-                    website=:website,
-                    address=:address,
-                    notes=:notes,
-                    ckw_manual_extra=:ckw_manual_extra,
-                    computed_keywords=:computed_keywords,
-                    updated_at=:updated_at
-                WHERE id=:id
-                """
-            ),
-            row,
-        )
+    # ── BEGIN REPLACE: guarded vendor update (anchor: UPDATE_VENDOR_GUARDED) ──
+with eng.begin() as cx:
+    cx.exec_driver_sql(
+        """
+        UPDATE vendors
+        SET business_name        = :business_name,
+            category             = :category,
+            service              = NULLIF(:service,''),
+            contact_name         = :contact_name,
+            phone                = :phone,
+            email                = :email,
+            website              = :website,
+            address              = :address,
+            notes                = :notes,
+            ckw_manual_extra     = :ckw_manual_extra,
+            computed_keywords    = :computed_keywords,
+            ckw_version          = :ckw_version,
+            updated_at           = CURRENT_TIMESTAMP
+        WHERE id = :id
+          AND (:override = 1 OR ckw_locked = 0)
+          AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'');
+        """,
+        params,
+    )
+# ── END REPLACE: guarded vendor update ──
+
     ensure_lookup_value(eng, "categories", row.get("category", ""))
     ensure_lookup_value(eng, "services", row.get("service", ""))
 
