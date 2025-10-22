@@ -1311,208 +1311,202 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────
     # Browse (Admin)
     # ─────────────────────────────────────────────────────────────────────
-    with tab_browse:
-        # --- Search bar (single-click Clear) ---
-        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-        q = c1.text_input(
-            label="Search",
-            key="q",
-            placeholder="Search name, category, service, notes, phone, website…",
-            label_visibility="collapsed",
-        )
-        if c2.button("Clear", use_container_width=True):
-            if "q" in st.session_state:
-                del st.session_state["q"]
-            st.rerun()
+   with tab_browse:
+    # --- Search bar (single-click Clear) ---
+    c1, c2, _ = st.columns([0.5, 0.12, 0.38])
+    q = c1.text_input(
+        label="Search",
+        key="q",
+        placeholder="Search name, category, service, notes, phone, website…",
+        label_visibility="collapsed",
+    )
+    if c2.button("Clear", use_container_width=True):
+        if "q" in st.session_state:
+            del st.session_state["q"]
+        st.rerun()
 
-        q = st.session_state.get("q", "")
+    q = st.session_state.get("q", "")
 
-        # Count matching rows
-        try:
-            total = count_rows(q=q, data_ver=DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (count): {e}")
-            st.stop()
+    # Count matching rows
+    try:
+        total = count_rows(q=q, data_ver=DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (count): {e}")
+        st.stop()
 
-                # Resolve IDs and load rows
-try:
-    page_size = st.session_state.get("PAGE_SIZE", PAGE_SIZE)  # use session/secret
-    ids = search_ids_ckw_first(q=q, limit=page_size, offset=0, data_ver=DATA_VER)
-    if not ids:
-        df = pd.DataFrame()
-    else:
-        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-
-    # make Browse data available to the Delete section
-    vdf = df
-except Exception as e:
-    st.error(f"Browse failed (load): {e}")
-    st.stop()
-
-
-        # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
-        _base_cols = list(BROWSE_COLUMNS)
-        for c in ORDER:
-            if c not in _base_cols:
-                _base_cols.append(c)
-
-        if df.empty:
-            df = pd.DataFrame(columns=_base_cols)
+    # Resolve IDs and load rows
+    try:
+        ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
+        if not ids:
+            df = pd.DataFrame()
         else:
-            for col in _base_cols:
-                if col not in df.columns:
-                    df[col] = ""
-            df = df.reindex(columns=_base_cols, fill_value="")
+            df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+    except Exception as e:
+        st.error(f"Browse failed (load): {e}")
+        st.stop()
 
-        # Hide heavy/internal columns and originals replaced with aliases
-        _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
-        _ALIAS_ORIGS = {"contact_name", "email", "computed_keywords"}  # originals replaced by friendly aliases
-        _hide = set(_TECH_COLS | _ALIAS_ORIGS)
+    # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
+    _base_cols = list(BROWSE_COLUMNS)
+    for c in ORDER:
+        if c not in _base_cols:
+            _base_cols.append(c)
 
-        # If a tech/original column is explicitly requested in ORDER, don't hide it.
-        for col in list(_hide):
-            if col in ORDER:
-                _hide.discard(col)
+    if df.empty:
+        df = pd.DataFrame(columns=_base_cols)
+    else:
+        for col in _base_cols:
+            if col not in df.columns:
+                df[col] = ""
+        df = df.reindex(columns=_base_cols, fill_value="")
 
-        def _is_ckw_control(col: str) -> bool:
-            # Only hide ckw_* controls if they're NOT explicitly requested in ORDER
-            return col.startswith("ckw_") and col not in ORDER
+    # Hide heavy/internal columns and originals replaced with aliases
+    _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
+    _ALIAS_ORIGS = {"contact_name", "email", "computed_keywords"}  # originals replaced by friendly aliases
+    _hide = set(_TECH_COLS | _ALIAS_ORIGS)
 
-        # Create alias columns (idempotent)
-        _src = df.copy()
-        if not _src.empty:
-            if "contact name" not in _src.columns and "contact_name" in _src.columns:
-                _src["contact name"] = _src["contact_name"].fillna("")
-            if "email address" not in _src.columns and "email" in _src.columns:
-                _src["email address"] = _src["email"].fillna("")
-            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
-                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
-            if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
-                _src["ckw"] = _src["computed_keywords"].fillna("")
+    # If a tech/original column is explicitly requested in ORDER, don't hide it.
+    for col in list(_hide):
+        if col in ORDER:
+            _hide.discard(col)
 
-        # Visible columns and enforced order
-        _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
-        _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+    def _is_ckw_control(col: str) -> bool:
+        # Only hide ckw_* controls if they're NOT explicitly requested in ORDER
+        return col.startswith("ckw_") and col not in ORDER
 
-        # Hidden/control-char scanning + sanitization helpers
-        import json
-        from datetime import datetime as _dt
-        _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+    # Create alias columns (idempotent)
+    _src = df.copy()
+    if not _src.empty:
+        if "contact name" not in _src.columns and "contact_name" in _src.columns:
+            _src["contact name"] = _src["contact_name"].fillna("")
+        if "email address" not in _src.columns and "email" in _src.columns:
+            _src["email address"] = _src["email"].fillna("")
+        if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
+            _src["keywords"] = _src["ckw_manual_extra"].fillna("")
+        if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
+            _src["ckw"] = _src["computed_keywords"].fillna("")
 
-        def _to_str_safe(x):
-            if x is None:
-                return ""
-            if isinstance(x, _dt):
-                return x.isoformat(sep=" ", timespec="seconds")
-            if isinstance(x, (bytes, bytearray)):
-                try:
-                    x = x.decode("utf-8", errors="replace")
-                except Exception:
-                    return str(x)
-            if isinstance(x, dict):
-                try:
-                    return json.dumps(x, ensure_ascii=False)
-                except Exception:
-                    return str(x)
-            if isinstance(x, (list, tuple, set)):
-                return ", ".join("" if (v is None) else str(v) for v in x)
+    # Visible columns and enforced order
+    _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
+    _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
+    # Hidden/control-char scanning + sanitization helpers
+    import json
+    from datetime import datetime as _dt
+    _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+
+    def _to_str_safe(x):
+        if x is None:
+            return ""
+        if isinstance(x, _dt):
+            return x.isoformat(sep=" ", timespec="seconds")
+        if isinstance(x, (bytes, bytearray)):
             try:
-                return "" if pd.isna(x) else str(x)
+                x = x.decode("utf-8", errors="replace")
             except Exception:
                 return str(x)
-
-        def _strip_hidden(s: str) -> str:
-            return _HIDDEN_RX.sub("", s)
-
-        # Build the view and normalize
-        _view = _src.loc[:, _ordered] if not _src.empty else _src
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
-
-        # Hidden/control-char scanning + sanitization helpers
-
-        # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
+        if isinstance(x, dict):
+            try:
+                return json.dumps(x, ensure_ascii=False)
+            except Exception:
+                return str(x)
+        if isinstance(x, (list, tuple, set)):
+            return ", ".join("" if (v is None) else str(v) for v in x)
         try:
-            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+            return "" if pd.isna(x) else str(x)
         except Exception:
-            st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
-        else:
-            # Respect final ordered columns that actually exist in the DataFrame
-            _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
-            _df = _view_safe[_cols_present] if _cols_present else _view_safe
+            return str(x)
 
-            # Read exact widths from secrets (ints); fallback to 160 if missing/bad
-            _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    def _strip_hidden(s: str) -> str:
+        return _HIDDEN_RX.sub("", s)
 
-            gb = GridOptionsBuilder.from_dataframe(
-                _df,
-                enableValue=False,
-                enableRowGroup=False,
-                enablePivot=False,
+    # Build the view and normalize
+    _view = _src.loc[:, _ordered] if not _src.empty else _src
+    _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+
+    # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
+    try:
+        from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+    except Exception:
+        st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
+    else:
+        # Respect final ordered columns that actually exist in the DataFrame
+        _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
+        _df = _view_safe[_cols_present] if _cols_present else _view_safe
+
+        # Read exact widths from secrets (ints); fallback to 160 if missing/bad
+        _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+
+        gb = GridOptionsBuilder.from_dataframe(
+            _df,
+            enableValue=False,
+            enableRowGroup=False,
+            enablePivot=False,
+        )
+        go = gb.build()
+
+        # Auto-size columns to fit contents (runs once on first data render)
+        go["onFirstDataRendered"] = JsCode("""
+        function(params) {
+          var all = params.columnApi.getAllDisplayedColumns().map(c => c.getColId());
+          params.columnApi.autoSizeColumns(all, false);
+        }
+        """)
+
+        # Default column behavior: resizable, no wrap, bounded widths
+        go["defaultColDef"] = {
+          "resizable": True,
+          "wrapText": False,
+          "autoHeight": False,
+          "minWidth": 60,
+          "maxWidth": 1000
+        }
+
+        # Apply per-column pixel widths and common options (+ tooltips)
+        for col in go.get("columnDefs", []):
+            name = col.get("field")
+            width_px = 160
+            if name in _px_map:
+                try:
+                    width_px = int(_px_map[name])
+                except Exception:
+                    pass
+            col["width"] = width_px
+            col["resizable"] = True
+            col["sortable"] = True
+            col["wrapText"] = False
+            col["autoHeight"] = False
+            col["tooltipField"] = name
+
+        # Do NOT auto-stretch to container; keep your exact pixels
+        go["suppressSizeToFit"] = True
+        go["domLayout"] = "normal"
+
+        AgGrid(
+            _df,
+            gridOptions=go,
+            update_mode=GridUpdateMode.NO_UPDATE,
+            height=520,
+            fit_columns_on_grid_load=False,   # keep exact widths; allow horizontal scroll
+            allow_unsafe_jscode=True,         # required for JsCode callback
+        )
+
+    # ---- Bottom toolbar: CSV + Help ----
+    bt1, bt2 = st.columns([0.22, 0.78])
+
+    if not _view_safe.empty:
+        _export_df = _view_safe
+        with bt1:
+            st.download_button(
+                "Download CSV",
+                data=_export_df.to_csv(index=False),
+                file_name="providers.csv",
+                mime="text/csv",
+                use_container_width=True,
             )
-            go = gb.build()
 
-            # Auto-size columns to fit contents (runs once on first data render)
-            go["onFirstDataRendered"] = JsCode("""
-            function(params) {
-              var all = params.columnApi.getAllDisplayedColumns().map(c => c.getColId());
-              params.columnApi.autoSizeColumns(all, false);
-            }
-            """)
+    with st.expander("Help — How to use Browse (click to open)", expanded=False):
+        st.markdown(HELP_MD)
 
-            # Default column behavior: resizable, no wrap, bounded widths
-            go["defaultColDef"] = {
-              "resizable": True,
-              "wrapText": False,
-              "autoHeight": False,
-              "minWidth": 60,
-              "maxWidth": 1000
-            }
-
-            # Apply per-column pixel widths and common options (+ tooltips)
-            for col in go.get("columnDefs", []):
-                name = col.get("field")
-                width_px = 160
-                if name in _px_map:
-                    try:
-                        width_px = int(_px_map[name])
-                    except Exception:
-                        pass
-                col["width"] = width_px
-                col["resizable"] = True
-                col["sortable"] = True
-                col["wrapText"] = False
-                col["autoHeight"] = False
-                col["tooltipField"] = name
-
-            # Do NOT auto-stretch to container; keep your exact pixels
-            go["suppressSizeToFit"] = True
-            go["domLayout"] = "normal"
-
-            AgGrid(
-                _df,
-                gridOptions=go,
-                update_mode=GridUpdateMode.NO_UPDATE,
-                height=520,
-                fit_columns_on_grid_load=False,   # keep exact widths; allow horizontal scroll
-                allow_unsafe_jscode=True,         # required for JsCode callback
-            )
-
-        # ---- Bottom toolbar: CSV + Help ----
-        bt1, bt2 = st.columns([0.22, 0.78])
-
-        if not _view_safe.empty:
-            _export_df = _view_safe
-            with bt1:
-                st.download_button(
-                    "Download CSV",
-                    data=_export_df.to_csv(index=False),
-                    file_name="providers.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-
-        with st.expander("Help — How to use Browse (click to open)", expanded=False):
-            st.markdown(HELP_MD)
 
         # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
