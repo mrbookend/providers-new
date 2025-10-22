@@ -120,7 +120,7 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "ckw": 360,
 }
 # ── CKW version (bump when algo/seed logic changes) ──
-CURRENT_VER = 1
+CURRENT_VER = 2
 
 # ── Curated baseline seeds by service ──
 CURATED_SEEDS_BY_SERVICE: dict[str, str] = {
