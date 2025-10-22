@@ -71,6 +71,8 @@ from typing import Any, Dict, List
 from urllib.parse import urlparse
 from pathlib import Path
 import hashlib
+import re
+
 
 # ── Third-party ───────────────────────────────────────────────────────────
 import pandas as pd
@@ -1326,7 +1328,6 @@ def main() -> None:
         _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
         # Hidden/control-char scanning + sanitization helpers
-        import re
 
         # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
         try:
