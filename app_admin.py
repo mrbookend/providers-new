@@ -888,21 +888,23 @@ def count_rows(q: str, data_ver: int = 0) -> int:
     params: dict[str, Any] = {}
     if q:
         where = """
-    WHERE (
+    WHERE LOWER(
         COALESCE(computed_keywords,'') || ' ' ||
         COALESCE(business_name,'')     || ' ' ||
         COALESCE(category,'')          || ' ' ||
         COALESCE(service,'')           || ' ' ||
         COALESCE(notes,'')             || ' ' ||
         COALESCE(phone,'')             || ' ' ||
-        COALESCE(website,'')
+       COALESCE(website,'')            || ' ' ||
+        COALESCE(address,'')
     ) LIKE :q
 """
-        params["q"] = f"%{q}%"
+        params["q"] = f"%{(q or '').strip().lower()}%"
     sql = f"SELECT COUNT(*) FROM vendors {where}"
     eng = get_engine()
     with eng.begin() as cx:
         return int(cx.exec_driver_sql(sql, params).scalar() or 0)
+
 
 @st.cache_data(show_spinner=False)
 def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
@@ -1333,15 +1335,20 @@ def main() -> None:
             st.stop()
 
                 # Resolve IDs and load rows
-        try:
-            ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
-            if not ids:
-                df = pd.DataFrame()
-            else:
-                df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (load): {e}")
-            st.stop()
+try:
+    page_size = st.session_state.get("PAGE_SIZE", PAGE_SIZE)  # use session/secret
+    ids = search_ids_ckw_first(q=q, limit=page_size, offset=0, data_ver=DATA_VER)
+    if not ids:
+        df = pd.DataFrame()
+    else:
+        df = fetch_rows_by_ids(tuple(ids), DATA_VER)
+
+    # make Browse data available to the Delete section
+    vdf = df
+except Exception as e:
+    st.error(f"Browse failed (load): {e}")
+    st.stop()
+
 
         # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
         _base_cols = list(BROWSE_COLUMNS)
@@ -1542,54 +1549,64 @@ def main() -> None:
             lc, rc = st.columns([1, 1], gap="large")
 
             # ---------- Add ----------
-            with lc:
-                st.subheader("Add Provider")
-                cats = list_categories(eng) if _has_table(eng, "categories") else []
-                srvs = list_services(eng)    if _has_table(eng, "services")   else []
+with lc:
+    st.subheader("Add Provider")
+    cats = list_categories(eng) if _has_table(eng, "categories") else []
+    srvs = list_services(eng)    if _has_table(eng, "services")   else []
 
-                bn = st.text_input("Business Name *", key="bn_add")
-                ccol1, ccol2 = st.columns([1, 1])
-                cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-                srv_choice = ccol2.selectbox("Service *",  options=["— Select —"] + srvs, key="srv_add_sel")
+    bn = st.text_input("Business Name *", key="bn_add")
 
-                contact_name = st.text_input("Contact Name", key="contact_add")
-                phone        = st.text_input("Phone",        key="phone_add")
-                email        = st.text_input("Email",        key="email_add")
-                website      = st.text_input("Website",      key="website_add")
-                address      = st.text_input("Address",      key="address_add")
-                notes        = st.text_area ("Notes", height=100, key="notes_add")
+    # If we have lookup values, use selectboxes; otherwise allow free text
+    if cats:
+        ccol1, ccol2 = st.columns([1, 1])
+        cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
+        category = cat_choice if cat_choice != "— Select —" else ""
+    else:
+        category = st.text_input("Category *", key="cat_add_text")
 
-                keywords_manual = st.text_area(
-                    "Keywords",
-                    value="",
-                    help="Optional, comma/pipe/semicolon-separated phrases to always include. Example: garage door, torsion spring, opener repair",
-                    height=80,
-                    key="kw_add",
-                )
+    if srvs:
+        srv_choice = st.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+        service = srv_choice if srv_choice != "— Select —" else ""
+    else:
+        service = st.text_input("Service *", key="srv_add_text")
 
-                category = cat_choice if cat_choice != "— Select —" else ""
-                service  = srv_choice if srv_choice != "— Select —" else ""
-                disabled = not (bn.strip() and category and service)
+    contact_name = st.text_input("Contact Name", key="contact_add")
+    phone        = st.text_input("Phone",        key="phone_add")
+    email        = st.text_input("Email",        key="email_add")
+    website      = st.text_input("Website",      key="website_add")
+    address      = st.text_input("Address",      key="address_add")
+    notes        = st.text_area ("Notes", height=100, key="notes_add")
 
-                if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
-                    data = {
-                        "business_name": bn.strip(),
-                        "category": category.strip(),
-                        "service": service.strip(),
-                        "contact_name": contact_name.strip(),
-                        "phone": phone.strip(),
-                        "email": email.strip(),
-                        "website": website.strip(),
-                        "address": address.strip(),
-                        "notes": notes.strip(),
-                        "ckw_manual_extra": (keywords_manual or "").strip(),
-                    }
-                    vid = insert_vendor(eng, data)
-                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                    _clear_after("add")  # sets flag + reruns
-                    # (code below runs only if rerun is skipped by Streamlit; safe to keep)
-                    refresh_lookups(get_engine())
-                    st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
+    keywords_manual = st.text_area(
+        "Keywords",
+        value="",
+        help="Optional, comma/pipe/semicolon-separated phrases to always include. Example: garage door, torsion spring, opener repair",
+        height=80,
+        key="kw_add",
+    )
+
+    disabled = not (bn.strip() and category.strip() and service.strip())
+
+    if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
+        data = {
+            "business_name": bn.strip(),
+            "category": category.strip(),
+            "service": service.strip(),
+            "contact_name": contact_name.strip(),
+            "phone": phone.strip(),
+            "email": email.strip(),
+            "website": website.strip(),
+            "address": address.strip(),
+            "notes": notes.strip(),
+            "ckw_manual_extra": (keywords_manual or "").strip(),
+        }
+        vid = insert_vendor(eng, data)
+        # add the new values to lookups so subsequent adds can use selectboxes
+        ensure_lookup_value(eng, "categories", category.strip())
+        ensure_lookup_value(eng, "services",   service.strip())
+        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+        _clear_after("add")
+        st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
 
             # ---------- Edit ----------
             with rc:
