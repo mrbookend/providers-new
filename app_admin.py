@@ -1322,15 +1322,16 @@ def main() -> None:
         # Hidden/control-char scanning + sanitization helpers
         import re
 
-        # Render
-        sst.dataframe(
-    _view_safe,
-    column_config=_cfg,
-    column_order=_ordered,
-    use_container_width=False,  # was True
-    hide_index=True,
-    height=520,
-)
+                # Render
+        st.dataframe(
+            _view_safe,
+            column_config=_cfg,
+            column_order=_ordered,
+            use_container_width=False,  # was True
+            hide_index=True,
+            height=520,
+        )
+
 
 
         # ---- Bottom toolbar: CSV + Help ----
