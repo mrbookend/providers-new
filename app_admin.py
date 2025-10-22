@@ -137,6 +137,47 @@ def _merge_widths_with_secrets(defaults: Dict[str, int]) -> Dict[str, int]:
     return out
 
 COLUMN_WIDTHS_PX_ADMIN = _merge_widths_with_secrets(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
+# Default visual order for Browse (aliases included)
+DEFAULT_ORDER = [
+    "business_name",
+    "category",
+    "service",
+    "phone",
+    "contact name",
+    "website",
+    "address",
+    "email address",
+    "notes",
+    "keywords",
+    "ckw",
+]
+
+def _order_from_secrets(default: list[str]) -> list[str]:
+    try:
+        raw = st.secrets.get("BROWSE_ORDER", None)
+        if not raw:
+            return default
+        # Allow comma-separated string OR proper TOML array
+        if isinstance(raw, str):
+            cand = [c.strip() for c in raw.split(",") if c.strip()]
+        elif isinstance(raw, (list, tuple)):
+            cand = [str(c).strip() for c in raw if str(c).strip()]
+        else:
+            return default
+        # Only keep known columns; ignore typos
+        known = set(
+            [
+                "business_name","category","service","phone",
+                "contact name","website","address","email address",
+                "notes","keywords","ckw",
+            ]
+        )
+        ordered = [c for c in cand if c in known]
+        return ordered or default
+    except Exception:
+        return default
+
+ORDER = _order_from_secrets(DEFAULT_ORDER)
 
 # ── Curated baseline seeds by service ──
 CURATED_SEEDS_BY_SERVICE: dict[str, str] = {
