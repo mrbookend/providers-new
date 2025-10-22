@@ -1343,16 +1343,60 @@ def main() -> None:
 
         # Hidden/control-char scanning + sanitization helpers
         import re
+        try:
+            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+        except Exception:
+            st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
 
-        # Render
-        st.dataframe(
-            _view_safe,
-            column_config=_cfg,
-            column_order=_cols_present,   # use only present columns
-            use_container_width=True,     # buckets work best with container width
-            hide_index=True,
-            height=520,
-        )
+                # Render (AgGrid with exact pixel widths)
+        try:
+            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+        except Exception:
+            st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
+        else:
+            # Respect final ordered columns that actually exist in the DataFrame
+            _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
+            _df = _view_safe[_cols_present] if _cols_present else _view_safe
+
+            # Read exact widths from secrets (ints); fallback handled in loop
+            _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+
+            gb = GridOptionsBuilder.from_dataframe(
+                _df,
+                enableValue=False,
+                enableRowGroup=False,
+                enablePivot=False,
+            )
+            go = gb.build()
+
+            # Apply per-column pixel widths and common options
+            for col in go.get("columnDefs", []):
+                name = col.get("field")
+                # Default to 160px if not specified or bad value
+                width_px = 160
+                if name in _px_map:
+                    try:
+                        width_px = int(_px_map[name])
+                    except Exception:
+                        pass
+                col["width"] = width_px
+                col["resizable"] = True
+                col["sortable"] = True
+                col["wrapText"] = False
+                col["autoHeight"] = False
+
+            # Do NOT auto-stretch to container; keep your exact pixels
+            go["suppressSizeToFit"] = True
+            go["domLayout"] = "normal"
+
+            AgGrid(
+                _df,
+                gridOptions=go,
+                update_mode=GridUpdateMode.NO_UPDATE,
+                height=520,
+                fit_columns_on_grid_load=False,   # don't override our widths
+                allow_unsafe_jscode=False,
+            )
 
         # ---- Bottom toolbar: CSV + Help ----
         bt1, bt2 = st.columns([0.22, 0.78])
