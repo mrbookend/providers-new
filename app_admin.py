@@ -1310,23 +1310,21 @@ render_add_edit_delete(tab_manage)
     )
 
     # ─────────────────────────────────────────────────────────────────────
-    # Browse (Admin)
-    # ─────────────────────────────────────────────────────────────────────
-
-    with tab_browse:
-        # --- Search bar (single-click Clear) ---
-        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-        q = c1.text_input(
-            label="Search",
-            key="q",
-            placeholder="Search name, category, service, notes, phone, website…",
-            label_visibility="collapsed",
-        )
-        if c2.button("Clear", use_container_width=True):
-            if "q" in st.session_state:
-                del st.session_state["q"]
-            st.rerun()
-
+# Browse (Admin)
+# ─────────────────────────────────────────────────────────────────────
+with tab_browse:
+    # --- Search bar (single-click Clear) ---
+    c1, c2, _ = st.columns([0.5, 0.12, 0.38])
+    q = c1.text_input(
+        label="Search",
+        key="q",
+        placeholder="Search name, category, service, notes, phone, website…",
+        label_visibility="collapsed",
+    )
+    if c2.button("Clear", use_container_width=True):
+        if "q" in st.session_state:
+            del st.session_state["q"]
+        st.rerun()
 
     q = st.session_state.get("q", "")
 
@@ -1393,7 +1391,7 @@ render_add_edit_delete(tab_manage)
     _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
     # Hidden/control-char scanning + sanitization helpers
-    import json
+    import json as _json
     from datetime import datetime as _dt
     _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
 
@@ -1409,7 +1407,7 @@ render_add_edit_delete(tab_manage)
                 return str(x)
         if isinstance(x, dict):
             try:
-                return json.dumps(x, ensure_ascii=False)
+                return _json.dumps(x, ensure_ascii=False)
             except Exception:
                 return str(x)
         if isinstance(x, (list, tuple, set)):
@@ -1509,7 +1507,7 @@ render_add_edit_delete(tab_manage)
 
     with st.expander("Help — How to use Browse (click to open)", expanded=False):
         st.markdown(HELP_MD)
-   
+
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
