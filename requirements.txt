@@ -3,3 +3,4 @@ sqlalchemy==2.0.44
 sqlalchemy-libsql==0.2.0
 libsql-experimental>=0.0.55
 pandas>=2.2
+streamlit-aggrid==0.3.4.post3
