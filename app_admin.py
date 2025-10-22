@@ -19,6 +19,28 @@ def _safe_page_config() -> None:
 
 
 _safe_page_config()
+# ---- Session defaults (must run before any UI uses these) ----
+import os
+
+def _get_secret_int(name: str, default: int) -> int:
+    try:
+        v = st.secrets.get(name, default)
+        return int(v)
+    except Exception:
+        return int(default)
+
+# Cache-buster for @st.cache_data
+st.session_state.setdefault("DATA_VER", 0)
+
+# Browse / UI prefs
+st.session_state.setdefault("SEARCH_Q", "")
+st.session_state.setdefault("SHOW_HELP", False)
+st.session_state.setdefault("BROWSE_PAGE", 0)
+st.session_state.setdefault("PAGE_SIZE", _get_secret_int("MAX_RENDER_ROWS_ADMIN", 500))
+
+# Flags toggled elsewhere (defensive defaults)
+st.session_state.setdefault("CKW_BUSY", False)
+st.session_state.setdefault("DB_READY", False)
 
 # ---- Session defaults (must run before any UI uses these) ----
 if "DATA_VER" not in st.session_state:
