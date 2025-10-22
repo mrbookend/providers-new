@@ -1039,6 +1039,106 @@ def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
         "ckw": "computed_keywords",       # algorithm output
         "computed_keywords": "computed_keywords",
     }
+# ── DB Update helper ─────────────────────────────────────────────────────
+def update_vendor(
+    eng: Engine,
+    vendor_id: int,
+    data: dict[str, Any],
+    prev_updated: str | None = None,   # pass the row's prior updated_at if you have it; optional
+) -> int:
+    """
+    Update a vendor row by id. Returns number of rows changed (0 = no-op/stale).
+    - Maps friendly keys ("contact name", "email address", "keywords", "ckw") to DB columns.
+    - Normalizes types (bool→int, str scrub).
+    - Uses NULLIF(:service,'') so empty string -> NULL.
+    - If prev_updated is provided, enforces optimistic concurrency:
+        WHERE COALESCE(updated_at,'') = COALESCE(:prev_updated,'')
+    """
+    # Friendly→DB column map
+    keymap = {
+        "business_name": "business_name",
+        "category": "category",
+        "service": "service",
+        "phone": "phone",
+        "website": "website",
+        "address": "address",
+        "notes": "notes",
+        "email": "email",
+        "email address": "email",
+        "contact_name": "contact_name",
+        "contact name": "contact_name",
+        "keywords": "ckw_manual_extra",
+        "ckw": "computed_keywords",
+        "computed_keywords": "computed_keywords",
+        "ckw_locked": "ckw_locked",
+        "ckw_version": "ckw_version",
+    }
+    allowed = {
+        "business_name", "category", "service",
+        "phone", "website", "address",
+        "notes", "email", "contact_name",
+        "ckw_manual_extra", "computed_keywords",
+        "ckw_locked", "ckw_version",
+    }
+
+    # Normalize incoming data to DB columns
+    params: dict[str, Any] = {}
+    for k, v in (data or {}).items():
+        col = keymap.get(k, k)
+        if col not in allowed:
+            continue
+        if col == "ckw_locked":
+            params[col] = 1 if bool(v) else 0
+        elif v is None:
+            params[col] = None
+        elif isinstance(v, (int, float)):
+            params[col] = v
+        else:
+            s = str(v)
+            # strip control chars except newline
+            params[col] = "".join(ch for ch in s if ch >= " " or ch == "\n").strip()
+
+    # Nothing to update?
+    if not params:
+        return 0
+
+    # Build dynamic SET list; special handling for 'service'
+    set_clauses: list[str] = []
+    named_params: dict[str, Any] = {"id": int(vendor_id)}
+
+    for col, val in params.items():
+        if col == "service":
+            set_clauses.append("service = NULLIF(:service,'')")
+            named_params["service"] = val
+        else:
+            set_clauses.append(f"{col} = :{col}")
+            named_params[col] = val
+
+    # Always bump updated_at to ISO now
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    set_clauses.append("updated_at = :updated_at")
+    named_params["updated_at"] = now_iso
+
+    # Optional optimistic concurrency (recommended if your Edit form captures prior updated_at)
+    where_clause = "id = :id"
+    if prev_updated is not None:
+        where_clause += " AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'')"
+        named_params["prev_updated"] = prev_updated
+
+    sql = f"UPDATE vendors SET {', '.join(set_clauses)} WHERE {where_clause}"
+
+    import sqlalchemy as sa
+    with eng.begin() as cx:
+        res = cx.exec_driver_sql(sa.text(sql).text, named_params)
+        changed = int(res.rowcount or 0)
+
+    # If we enforced concurrency and nothing changed, make that obvious to the caller
+    if prev_updated is not None and changed == 0:
+        # Raise a precise error so UI can show "record changed by someone else"
+        raise RuntimeError("Stale write: updated_at mismatch; reload before saving.")
+
+    return changed
 
     # Canonical set of columns we support on INSERT (adjust if needed)
     allowed = [
