@@ -1300,31 +1300,24 @@ def main() -> None:
         # Build the view and normalize
         _view = _src.loc[:, _ordered] if not _src.empty else _src
         _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
-        # --- one-time refresh trigger (safe to remove later) ---
-        try:
-            from streamlit import column_config as cc
-
                 # Column widths + labels (merge defaults with secrets)
-        try:
-            from streamlit import column_config as cc
-            _cfg: Dict[str, Any] = {}
+        from streamlit import column_config as cc
 
-            def _label_for(col: str) -> str:
-                return (
-                    "CKW" if col in ("ckw", "computed_keywords")
-                    else "Keywords" if col == "keywords"
-                    else col.replace("_", " ").title()
-                )
+        _cfg: Dict[str, Any] = {}
 
-            for c in _ordered:
-                w = int(COLUMN_WIDTHS_PX_ADMIN.get(c, 220))
-                if c == "id":
-                    _cfg[c] = cc.NumberColumn("ID", width=w, help="Primary key")
-                else:
-                    _cfg[c] = cc.TextColumn(_label_for(c), width=w)
-        except Exception:
-            # Fallback if column_config is unavailable; render without explicit widths
-            _cfg = {}
+        def _label_for(col: str) -> str:
+            return (
+                "CKW" if col in ("ckw", "computed_keywords")
+                else "Keywords" if col == "keywords"
+                else col.replace("_", " ").title()
+            )
+
+        for c in _ordered:
+            w = int(COLUMN_WIDTHS_PX_ADMIN.get(c, 220))
+            if c == "id":
+                _cfg[c] = cc.NumberColumn("ID", width=w, help="Primary key")
+            else:
+                _cfg[c] = cc.TextColumn(_label_for(c), width=w)
 
         # Hidden/control-char scanning + sanitization helpers
         import re
