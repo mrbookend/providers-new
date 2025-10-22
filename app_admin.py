@@ -1313,18 +1313,19 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────
 
     with tab_browse:
-    # --- Search bar (single-click Clear) ---
-    c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-    q = c1.text_input(
-        label="Search",
-        key="q",
-        placeholder="Search name, category, service, notes, phone, website…",
-        label_visibility="collapsed",
-    )
-    if c2.button("Clear", use_container_width=True):
-        if "q" in st.session_state:
-            del st.session_state["q"]
-        st.rerun()
+        # --- Search bar (single-click Clear) ---
+        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
+        q = c1.text_input(
+            label="Search",
+            key="q",
+            placeholder="Search name, category, service, notes, phone, website…",
+            label_visibility="collapsed",
+        )
+        if c2.button("Clear", use_container_width=True):
+            if "q" in st.session_state:
+                del st.session_state["q"]
+            st.rerun()
+
 
     q = st.session_state.get("q", "")
 
