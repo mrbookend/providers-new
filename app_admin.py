@@ -1304,10 +1304,9 @@ def main() -> None:
         try:
             from streamlit import column_config as cc
 
-        # Column widths + labels (merge defaults with secrets)
+                # Column widths + labels (merge defaults with secrets)
         try:
             from streamlit import column_config as cc
-
             _cfg: Dict[str, Any] = {}
 
             def _label_for(col: str) -> str:
@@ -1324,7 +1323,7 @@ def main() -> None:
                 else:
                     _cfg[c] = cc.TextColumn(_label_for(c), width=w)
         except Exception:
-            # Fallback: if column_config import fails, render without custom widths
+            # Fallback if column_config is unavailable; render without explicit widths
             _cfg = {}
 
         # Hidden/control-char scanning + sanitization helpers
