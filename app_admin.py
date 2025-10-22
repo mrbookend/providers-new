@@ -1162,11 +1162,11 @@ def main() -> None:
         st.caption(f"{total:,} matching provider(s)")
 
         with st.expander("Debug: active Browse order & secrets", expanded=False):
-    st.write({"ORDER (effective)": ORDER})
-    try:
-        st.write({"BROWSE_ORDER (secrets)": st.secrets.get("BROWSE_ORDER", None)})
-    except Exception as e:
-        st.write({"BROWSE_ORDER (secrets)": f"error: {e}"})
+            st.write({"ORDER (effective)": ORDER})
+            try:
+                st.write({"BROWSE_ORDER (secrets)": st.secrets.get("BROWSE_ORDER", None)})
+            except Exception as e:
+                st.write({"BROWSE_ORDER (secrets)": f"error: {e}"})
 
         
         # Resolve IDs and load rows
