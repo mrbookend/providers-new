@@ -2212,19 +2212,20 @@ with lc:
 
         st.divider()
 
-        # ---------- Cache Clear ----------
-        st.markdown("**Caches**")
-        clicked_clear_cache = st.button(
-            "Clear @st.cache_data (force Browse refresh)",
-            key="clear_cache_data",
-        )
+    # ---------- Cache Clear ----------
+    st.markdown("**Caches**")
+    clicked_clear_cache = st.button(
+        "Clear @st.cache_data (force Browse refresh)",
+        key="clear_cache_data",
+    )
 
-        if clicked_clear_cache:
-            try:
-                _ = st.cache_data.clear()
-                st.success("Cleared cache_data.")
-            except Exception as e:
-                st.error(f"Clear cache_data failed: {str(e)}")
+    if clicked_clear_cache:
+        try:
+            st.cache_data.clear()
+            st.success("Cleared cache_data.")
+            st.rerun()  # immediately re-run to reflect cleared caches
+        except Exception as e:
+            st.error(f"Clear cache_data failed: {e}")
 
 if __name__ == "__main__":
     main()
