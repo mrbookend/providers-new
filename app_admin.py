@@ -1216,22 +1216,11 @@ def main() -> None:
         }
         def _is_ckw_control(col: str) -> bool:
             return col.startswith("ckw_")
-
-        # Create alias columns (idempotent)
-        _src = df.copy()
-        if not _src.empty:
-            if "contact name" not in _src.columns and "contact_name" in _src.columns:
-                _src["contact name"] = _src["contact_name"].fillna("")
-            if "email address" not in _src.columns and "email" in _src.columns:
-                _src["email address"] = _src["email"].fillna("")
-            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
-                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
-            if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
-                _src["ckw"] = _src["computed_keywords"].fillna("")
-
+...
         # Visible columns and enforced order
         _visible = [c for c in _src.columns if c not in _HIDE_EXACT and not _is_ckw_control(c)]
         _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
 
         # Column widths + labels (merge defaults with secrets)
         _cfg: Dict[str, Any] = {}
