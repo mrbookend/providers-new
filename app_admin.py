@@ -1138,13 +1138,15 @@ def main() -> None:
     except Exception as e:
         st.warning(f"Bootstrap skipped: {e}")
 
-    # SHA fingerprint of this admin file (debug)
+        # Build fingerprint (for Maintenance tab only)
     try:
         this_file = Path(__file__).resolve()
-        sha = hashlib.sha256(this_file.read_bytes()).hexdigest()[:12]
-        st.caption(f"Admin file: {this_file} · sha256: {sha} · {APP_VER}")
+        ADMIN_FILE = str(this_file)
+        ADMIN_SHA  = hashlib.sha256(this_file.read_bytes()).hexdigest()[:12]
     except Exception:
-        st.caption(f"Admin version: {APP_VER}")
+        ADMIN_FILE = None
+        ADMIN_SHA  = None
+
 
     # ---- DB readiness probe (vendors table exists?) ----
     try:
@@ -1187,16 +1189,7 @@ def main() -> None:
         except Exception as e:
             st.error(f"Browse failed (count): {e}")
             st.stop()
-        st.caption(f"{total:,} matching provider(s)")
 
-        with st.expander("Debug: active Browse order & secrets", expanded=False):
-            st.write({"ORDER (effective)": ORDER})
-            try:
-                st.write({"BROWSE_ORDER (secrets)": st.secrets.get("BROWSE_ORDER", None)})
-            except Exception as e:
-                st.write({"BROWSE_ORDER (secrets)": f"error: {e}"})
-
-        
                 # Resolve IDs and load rows
         try:
             ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
@@ -1293,11 +1286,6 @@ def main() -> None:
         _view = _src.loc[:, _ordered] if not _src.empty else _src
         _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
         # --- one-time refresh trigger (safe to remove later) ---
-        if st.button("Refresh table now", key="btn_refresh_browse"):
-            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-            st.rerun()
-        st.caption(f"Debug: df cols before view = {list(df.columns)}")
-        st.caption(f"Debug: final columns = {list(_view_safe.columns)} | ordered = {_ordered}")
         try:
             from streamlit import column_config as cc
             if "id" in _ordered:
@@ -1672,6 +1660,11 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────
     with tab_maint:
         st.subheader("Maintenance — Diagnostics & CKW")
+        # Build info (moved here from Browse)
+        with st.expander("Build info", expanded=False):
+            st.caption(f"Admin version: {APP_VER}")
+            if ADMIN_FILE and ADMIN_SHA:
+                st.caption(f"Admin file: {ADMIN_FILE} · sha256: {ADMIN_SHA}")
 
         eng = get_engine()
 
