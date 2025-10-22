@@ -1039,6 +1039,18 @@ def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
         "ckw": "computed_keywords",       # algorithm output
         "computed_keywords": "computed_keywords",
     }
+# --- One-shot clearing helpers -------------------------------------------
+def _pop_keys(keys: list[str]) -> None:
+    """Safely remove widget keys if present."""
+    for k in keys:
+        st.session_state.pop(k, None)
+
+def _clear_after(scope: str) -> None:
+    """Request a post-action clear on next run, then rerun."""
+    st.session_state["_after_action_clear"] = scope
+    st.rerun()
+
+
 # ── DB Update helper ─────────────────────────────────────────────────────
 def update_vendor(
     eng: Engine,
@@ -1532,6 +1544,37 @@ def main() -> None:
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
     # ─────────────────────────────────────────────────────────────────────
+# --- One-shot post-action clearing (runs before any widgets are created) ---
+_clear = st.session_state.pop("_after_action_clear", None)
+
+if _clear:
+    # Common field names you may use as widget keys (adjust to your exact keys)
+    base_fields = [
+        "business_name", "category", "service",
+        "phone", "website", "address",
+        "notes", "email", "contact_name",
+        "keywords", "ckw",
+    ]
+    # If your widgets use friendly names:
+    friendly_aliases = ["contact name", "email address"]
+
+    # If your form keys are prefixed (e.g., add_* or edit_*), clear those too
+    add_prefixed  = [f"add_{f}"  for f in base_fields + friendly_aliases]
+    edit_prefixed = [f"edit_{f}" for f in base_fields + friendly_aliases]
+
+    # Any other per-form helpers you use (examples)
+    misc = [
+        "add_submit_clicked", "edit_submit_clicked",
+        "edit_selected_id", "edit_prev_updated",
+        "del_select_id",
+    ]
+
+    if _clear == "add":
+        _pop_keys(base_fields + friendly_aliases + add_prefixed + misc)
+    elif _clear == "edit":
+        _pop_keys(base_fields + friendly_aliases + edit_prefixed + misc)
+    elif _clear == "delete":
+        _pop_keys(["del_select_id"])    
     with tab_manage:
         if not st.session_state.get("DB_READY"):
             st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
@@ -1587,6 +1630,8 @@ def main() -> None:
                     }
                     vid = insert_vendor(eng, data)
                     st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    _clear_after("add")
+
                     refresh_lookups(get_engine())
                     st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
 
@@ -1667,6 +1712,8 @@ def main() -> None:
                             update_vendor(eng, sel_id, data)
                             st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                             st.success(f"Saved changes to provider #{sel_id}. — run “Recompute ALL” to apply keywords.")
+                            _clear_after("edit")
+
 
         # ▼▼ Delete Provider (guarded) ▼▼
         if st.session_state.get("DB_READY"):
@@ -1718,9 +1765,12 @@ def main() -> None:
                             st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                             st.session_state.pop("del_select_id", None)
                             st.success(f"Deleted provider id={selected_id}.")
+                            _clear_after("delete")
+
                             st.rerun()
                         except Exception as e:
                             st.error(f"Delete failed: {e}")
+
 
     # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
