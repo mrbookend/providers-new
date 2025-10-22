@@ -44,7 +44,7 @@ from sqlalchemy.engine import Engine
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
 APP_VER = "admin-2025-10-22.1"
-DB_PATH = os.getenv("DB_PATH", "providers.db")
+DB_PATH = os.getenv("DB_PATH", st.secrets.get("DB_PATH", "providers.db"))
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
 
@@ -65,7 +65,7 @@ _Replace this with your long, book-style help content when ready._
 
 PAGE_SIZE = 200
 MAX_RENDER_ROWS = 1000
-MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", str(MAX_RENDER_ROWS)))
+MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", st.secrets.get("MAX_RENDER_ROWS_ADMIN", "1000")))
 
 # ---- CKW algorithm version (single source of truth) ----
 # Bump default when you change CKW logic; env can override.
