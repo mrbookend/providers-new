@@ -1087,9 +1087,38 @@ def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
     row["computed_keywords"] = compute_ckw(row)
     row["updated_at"] = _now_iso()
     row["id"] = vid
-    # ── BEGIN REPLACE: guarded vendor update (anchor: UPDATE_VENDOR_GUARDED) ──
+# ── BEGIN REPLACE: submit handler builds CKW + params and updates guarded ──
+# 1) Build computed keywords from current form values
+ckw = build_computed_keywords(
+    business_name=(business_name or ""),
+    category=(category or ""),
+    service=(service or ""),
+    manual_csv=(ckw_manual_extra or ""),
+)
+
+# 2) Build params dict (NO updated_at param; DB sets CURRENT_TIMESTAMP)
+#    NOTE: loaded_row must be the row you fetched before showing the form.
+params = {
+    "id":                int(vendor_id),
+    "business_name":     (business_name or "").strip(),
+    "category":          (category or "").strip(),
+    "service":           (service or "").strip(),   # NULLIF handled in SQL
+    "contact_name":      (contact_name or "").strip(),
+    "phone":             _digits_only(phone or ""), # your normalizer
+    "email":             (email or "").strip(),
+    "website":           (website or "").strip(),
+    "address":           (address or "").strip(),
+    "notes":             (notes or "").strip(),
+    "ckw_manual_extra":  (ckw_manual_extra or "").strip(),
+    "computed_keywords": ckw,
+    "ckw_version":       CURRENT_CKW_VER,
+    "prev_updated":      (loaded_row.get("updated_at") or ""),
+    "override":          int(bool(override_ckw_lock)),  # usually 0
+}
+
+# 3) Guarded UPDATE (honors lock unless override=1; optimistic concurrency)
 with eng.begin() as cx:
-    cx.exec_driver_sql(
+    res = cx.exec_driver_sql(
         """
         UPDATE vendors
         SET business_name        = :business_name,
@@ -1111,7 +1140,15 @@ with eng.begin() as cx:
         """,
         params,
     )
-# ── END REPLACE: guarded vendor update ──
+
+# 4) Post-update: detect conflicts/locks and cache-bust views
+if getattr(res, "rowcount", 0) == 0:
+    st.warning("No rows updated — record changed elsewhere or CKW lock prevented the write. Reload and try again.")
+else:
+    st.success("Provider updated.")
+    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+# ── END REPLACE ──
+
 
     ensure_lookup_value(eng, "categories", row.get("category", ""))
     ensure_lookup_value(eng, "services", row.get("service", ""))
@@ -1724,6 +1761,130 @@ def main() -> None:
             else:
                 st.error(f"Engine connect failed: {err}")
 
+# === MAINTENANCE — CKW RECOMPUTE (anchor: CKW_MAINT_START) ===
+with st.expander("Computed Keywords (CKW) — Rebuild", expanded=False):
+    st.caption(f"CURRENT_CKW_VER = {CURRENT_CKW_VER}")
+
+    c1, c2 = st.columns(2)
+    do_stale = c1.button("Recompute STALE (respect locks)")
+    do_all   = c2.button("Force Recompute ALL (override locks)")
+
+    BATCH = 200
+
+    def _recompute_batch(ids: list[int], override: int) -> int:
+        eng = get_engine()
+        n = 0
+        with eng.begin() as cx:
+            for vid in ids:
+                row = cx.exec_driver_sql(
+                    "SELECT id, business_name, category, service, ckw_manual_extra, ckw_locked, updated_at "
+                    "FROM vendors WHERE id=?", (vid,)
+                ).first()
+                if not row:
+                    continue
+                (_, name, cat, srv, manual, locked, prev_upd) = row
+                if not override and locked:
+                    continue
+                ckw = build_computed_keywords(name or "", cat or "", srv or "", manual or "")
+                cx.exec_driver_sql(
+                    """
+                    UPDATE vendors
+                    SET computed_keywords=:ckw,
+                        ckw_version=:ver,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=:id
+                      AND (:override=1 OR ckw_locked=0);
+                    """,
+                    {"ckw": ckw, "ver": CURRENT_CKW_VER, "id": vid, "override": int(override)}
+                )
+                n += 1
+        return n
+
+    def _select_ids(stale_only: bool) -> list[int]:
+        eng = get_engine()
+        q = "SELECT id FROM vendors"
+        if stale_only:
+            q += " WHERE ckw_version != ? AND ckw_locked = 0"
+            params = (CURRENT_CKW_VER,)
+        else:
+            params = ()
+        with eng.connect() as cx:
+            rows = cx.exec_driver_sql(q, params).all()
+        return [r[0] for r in rows]
+
+    if do_stale or do_all:
+        ids = _select_ids(stale_only=bool(do_stale))
+        total = len(ids)
+        done = 0
+        for i in range(0, total, BATCH):
+            batch = ids[i:i+BATCH]
+            done += _recompute_batch(batch, override=int(bool(do_all)))
+        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+        st.success(f"CKW recompute completed: {done} / {total} vendors updated. DATA_VER={st.session_state['DATA_VER']}")
+# === MAINTENANCE — CKW RECOMPUTE (anchor: CKW_MAINT_END) ===
+# === CKW SEEDS ADMIN (anchor: CKW_SEEDS_ADMIN_START) ===
+with st.expander("CKW Seeds Admin (curated baseline)", expanded=False):
+    eng = get_engine()
+    # Ensure table exists (idempotent)
+    with eng.begin() as cx:
+        cx.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS ckw_seeds (
+              category TEXT NOT NULL,
+              service  TEXT NOT NULL,
+              seed_csv TEXT NOT NULL DEFAULT '',
+              PRIMARY KEY(category, service)
+            )
+        """)
+    # Simple UI
+    c1, c2 = st.columns(2)
+    category = c1.text_input("Category", placeholder="e.g., Auto Services")
+    service  = c2.text_input("Service", placeholder="e.g., Auto Repair")
+    seed_csv = st.text_area("Seed terms (comma-separated; concise, search-friendly)", height=80)
+
+    c3, c4 = st.columns([1,1])
+    if c3.button("Save / Update Seed"):
+        with eng.begin() as cx:
+            cx.exec_driver_sql("""
+                INSERT INTO ckw_seeds(category, service, seed_csv)
+                VALUES (?, ?, ?)
+                ON CONFLICT(category, service) DO UPDATE SET seed_csv=excluded.seed_csv
+            """, (category.strip(), service.strip(), seed_csv.strip()))
+        st.success("Seed saved. Consider 'Recompute STALE' next.")
+    if c4.button("Delete Seed"):
+        with eng.begin() as cx:
+            cx.exec_driver_sql("DELETE FROM ckw_seeds WHERE category=? AND service=?", (category.strip(), service.strip()))
+        st.warning("Seed deleted.")
+# === CKW SEEDS ADMIN (anchor: CKW_SEEDS_ADMIN_END) ===
+# === CKW PROBES (anchor: CKW_PROBES_START) ===
+with st.expander("Diagnostics — CKW Coverage & Quality", expanded=False):
+    eng = get_engine()
+    with eng.connect() as cx:
+        combos = cx.exec_driver_sql("""
+            SELECT COALESCE(category,''), COALESCE(service,''), COUNT(*)
+            FROM vendors
+            GROUP BY 1,2
+            ORDER BY 3 DESC
+        """).all()
+        seeds = cx.exec_driver_sql("SELECT category, service FROM ckw_seeds").all()
+        seed_set = {(r[0], r[1]) for r in seeds} if seeds else set()
+        cov_n = sum(1 for (c,s,_) in combos if (c,s) in seed_set)
+        total_n = len(combos)
+        st.write(f"Seed coverage: {cov_n} of {total_n} combos ({(cov_n/total_n*100 if total_n else 0):.1f}%)")
+
+        empties = cx.exec_driver_sql("""
+            SELECT id, business_name, category, service
+            FROM vendors
+            WHERE TRIM(COALESCE(computed_keywords,'')) = ''
+               OR ckw_version != ?
+            ORDER BY id ASC
+            LIMIT 50
+        """, (CURRENT_CKW_VER,)).all()
+        if empties:
+            st.warning(f"{len(empties)} sample vendors need CKW (empty/out-of-date). Showing up to 50:")
+            st.dataframe(empties, hide_index=True, use_container_width=True)
+        else:
+            st.success("All vendors appear to have CKW at CURRENT_CKW_VER.")
+# === CKW PROBES (anchor: CKW_PROBES_END) ===
 
        
 
