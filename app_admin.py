@@ -19,7 +19,22 @@ def _safe_page_config() -> None:
 
 
 _safe_page_config()
+
+# Tighten global page padding (left/right)
+st.markdown(
+    """
+    <style>
+      .block-container{
+        padding-left: 8px !important;
+        padding-right: 16px !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ---- Session defaults (must run before any UI uses these) ----
+
 import os
 
 def _get_secret_int(name: str, default: int) -> int:
