@@ -1147,7 +1147,7 @@ def update_vendor(
         "ckw_locked", "ckw_version",
     }
 
-    # Normalize input
+    # Normalize inputs
     named: Dict[str, Any] = {}
     for k, v in (data or {}).items():
         col = keymap.get(k, k)
@@ -1166,23 +1166,22 @@ def update_vendor(
     if not named:
         return 0
 
-    # Dynamic SET list
+    # Dynamic SET + params
     set_clauses: list[str] = []
     params: Dict[str, Any] = {"id": int(vendor_id)}
 
     for col, val in named.items():
         if col == "service":
-            set_clauses.append("service = NULLIF(:service,'')")
+            set_clauses.append("service = NULLIF(:service,'')")  # empty string => NULL
             params["service"] = val
         else:
             set_clauses.append(f"{col} = :{col}")
             params[col] = val
 
-    # updated_at = now
+    # Always bump updated_at
     from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    params["updated_at"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     set_clauses.append("updated_at = :updated_at")
-    params["updated_at"] = now_iso
 
     where_clause = "id = :id"
     if prev_updated is not None:
