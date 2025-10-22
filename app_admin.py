@@ -1039,200 +1039,6 @@ def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
         "ckw": "computed_keywords",       # algorithm output
         "computed_keywords": "computed_keywords",
     }
-# --- One-shot clearing helpers -------------------------------------------
-def _pop_keys(keys: list[str]) -> None:
-    """Safely remove widget keys if present."""
-    for k in keys:
-        st.session_state.pop(k, None)
-
-def _clear_after(scope: str) -> None:
-    """Request a post-action clear on next run, then rerun."""
-    st.session_state["_after_action_clear"] = scope
-    st.rerun()
-
-
-# ── DB Update helper ─────────────────────────────────────────────────────
-def update_vendor(
-    eng: Engine,
-    vendor_id: int,
-    data: dict[str, Any],
-    prev_updated: str | None = None,   # pass the row's prior updated_at if you have it; optional
-) -> int:
-    """
-    Update a vendor row by id. Returns number of rows changed (0 = no-op/stale).
-    - Maps friendly keys ("contact name", "email address", "keywords", "ckw") to DB columns.
-    - Normalizes types (bool→int, str scrub).
-    - Uses NULLIF(:service,'') so empty string -> NULL.
-    - If prev_updated is provided, enforces optimistic concurrency:
-        WHERE COALESCE(updated_at,'') = COALESCE(:prev_updated,'')
-    """
-    # Friendly→DB column map
-    keymap = {
-        "business_name": "business_name",
-        "category": "category",
-        "service": "service",
-        "phone": "phone",
-        "website": "website",
-        "address": "address",
-        "notes": "notes",
-        "email": "email",
-        "email address": "email",
-        "contact_name": "contact_name",
-        "contact name": "contact_name",
-        "keywords": "ckw_manual_extra",
-        "ckw": "computed_keywords",
-        "computed_keywords": "computed_keywords",
-        "ckw_locked": "ckw_locked",
-        "ckw_version": "ckw_version",
-    }
-    allowed = {
-        "business_name", "category", "service",
-        "phone", "website", "address",
-        "notes", "email", "contact_name",
-        "ckw_manual_extra", "computed_keywords",
-        "ckw_locked", "ckw_version",
-    }
-
-    # Normalize incoming data to DB columns
-    params: dict[str, Any] = {}
-    for k, v in (data or {}).items():
-        col = keymap.get(k, k)
-        if col not in allowed:
-            continue
-        if col == "ckw_locked":
-            params[col] = 1 if bool(v) else 0
-        elif v is None:
-            params[col] = None
-        elif isinstance(v, (int, float)):
-            params[col] = v
-        else:
-            s = str(v)
-            # strip control chars except newline
-            params[col] = "".join(ch for ch in s if ch >= " " or ch == "\n").strip()
-
-    # Nothing to update?
-    if not params:
-        return 0
-
-    # Build dynamic SET list; special handling for 'service'
-    set_clauses: list[str] = []
-    named_params: dict[str, Any] = {"id": int(vendor_id)}
-
-    for col, val in params.items():
-        if col == "service":
-            set_clauses.append("service = NULLIF(:service,'')")
-            named_params["service"] = val
-        else:
-            set_clauses.append(f"{col} = :{col}")
-            named_params[col] = val
-
-    # Always bump updated_at to ISO now
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-    set_clauses.append("updated_at = :updated_at")
-    named_params["updated_at"] = now_iso
-
-    # Optional optimistic concurrency (recommended if your Edit form captures prior updated_at)
-    where_clause = "id = :id"
-    if prev_updated is not None:
-        where_clause += " AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'')"
-        named_params["prev_updated"] = prev_updated
-
-    sql = f"UPDATE vendors SET {', '.join(set_clauses)} WHERE {where_clause}"
-
-    import sqlalchemy as sa
-    with eng.begin() as cx:
-        res = cx.exec_driver_sql(sa.text(sql).text, named_params)
-        changed = int(res.rowcount or 0)
-
-    # If we enforced concurrency and nothing changed, make that obvious to the caller
-    if prev_updated is not None and changed == 0:
-        # Raise a precise error so UI can show "record changed by someone else"
-        raise RuntimeError("Stale write: updated_at mismatch; reload before saving.")
-
-    return changed
-
-    # Canonical set of columns we support on INSERT (adjust if needed)
-    allowed = [
-        "business_name", "category", "service",
-        "phone", "website", "address",
-        "notes", "email", "contact_name",
-        "ckw_manual_extra", "computed_keywords",
-        "ckw_locked", "ckw_version",
-    ]
-
-    # Coerce & normalize incoming data to DB columns
-    params: dict[str, Any] = {}
-    for k, v in (data or {}).items():
-        col = keymap.get(k, k)  # map friendly → DB
-        if col not in allowed:
-            continue
-        # Normalize types
-        if col in {"ckw_locked"}:
-            # SQLite wants ints for booleans
-            params[col] = 1 if bool(v) else 0
-        elif v is None:
-            params[col] = None
-        else:
-            # Convert pandas/NumPy types & strip hidden chars on text
-            if isinstance(v, (int, float)):
-                params[col] = v
-            else:
-                s = str(v)
-                # light cleanse: strip control chars
-                params[col] = "".join(ch for ch in s if ch >= " " or ch == "\n").strip()
-
-    # Defaults if missing
-    params.setdefault("ckw_locked", 0)
-    # If you version CKW, set a default CURRENT_VER=1 (or import from your consts)
-    params.setdefault("ckw_version", 1)
-
-    # Required sanity
-    if not params.get("business_name"):
-        raise ValueError("business_name is required")
-
-    # Build named INSERT only with keys we actually have
-    cols = list(params.keys())
-    named = [f":{c}" for c in cols]
-    col_list = ", ".join(cols)
-    val_list = ", ".join(named)
-
-    sql_returning = f"INSERT INTO vendors ({col_list}) VALUES ({val_list}) RETURNING id"
-    sql_basic = f"INSERT INTO vendors ({col_list}) VALUES ({val_list})"
-
-    import sqlalchemy as sa
-    with eng.begin() as cx:
-        try:
-            # Prefer RETURNING if available (SQLite 3.35+)
-            res = cx.exec_driver_sql(sa.text(sql_returning).text, params)
-            row = res.first()
-            if row and row[0] is not None:
-                return int(row[0])
-        except Exception as e_returning:
-            # Fallback to basic insert + lastrowid
-            try:
-                res = cx.exec_driver_sql(sa.text(sql_basic).text, params)
-            except TypeError as te:
-                # Deep debug when SHOW_DEBUG=1
-                import os
-                if os.getenv("SHOW_DEBUG") == "1":
-                    st.error("TypeError during INSERT. Likely a placeholder/params mismatch or bad value type.")
-                    st.code(
-                        {
-                            "sql": sql_basic,
-                            "cols": cols,
-                            "missing_keys": [name for name in cols if name not in params],
-                            "extra_params": [k for k in params.keys() if k not in cols],
-                            "param_types": {k: type(v).__name__ for k, v in params.items()},
-                        }
-                    )
-                raise
-            except Exception:
-                raise
-            return int(res.lastrowid)
-        # If RETURNING path succeeded but returned no row (shouldn't happen), fallback:
-        return int(cx.exec_driver_sql(sa.text(sql_basic).text, params).lastrowid)
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # Lookup helpers
@@ -1417,10 +1223,8 @@ def main() -> None:
         for c in _ordered:
             w = COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
             label = "CKW" if c in ("ckw", "computed_keywords") else ("Keywords" if c == "keywords" else c.replace("_", " ").title())
-            _cfg[c] = st.column_config.TextColumn(label, width=w)
 
         # Hidden/control-char scanning + sanitization helpers
-        import re
         import json
         from datetime import datetime as _dt
         _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
@@ -1541,40 +1345,35 @@ def main() -> None:
         with st.expander("Help — How to use Browse (click to open)", expanded=False):
             st.markdown(HELP_MD)
 
-    # ─────────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
     # ─────────────────────────────────────────────────────────────────────
-# --- One-shot post-action clearing (runs before any widgets are created) ---
-_clear = st.session_state.pop("_after_action_clear", None)
-
-if _clear:
-    # Common field names you may use as widget keys (adjust to your exact keys)
-    base_fields = [
-        "business_name", "category", "service",
-        "phone", "website", "address",
-        "notes", "email", "contact_name",
-        "keywords", "ckw",
-    ]
-    # If your widgets use friendly names:
-    friendly_aliases = ["contact name", "email address"]
-
-    # If your form keys are prefixed (e.g., add_* or edit_*), clear those too
-    add_prefixed  = [f"add_{f}"  for f in base_fields + friendly_aliases]
-    edit_prefixed = [f"edit_{f}" for f in base_fields + friendly_aliases]
-
-    # Any other per-form helpers you use (examples)
-    misc = [
-        "add_submit_clicked", "edit_submit_clicked",
-        "edit_selected_id", "edit_prev_updated",
-        "del_select_id",
-    ]
-
-    if _clear == "add":
-        _pop_keys(base_fields + friendly_aliases + add_prefixed + misc)
-    elif _clear == "edit":
-        _pop_keys(base_fields + friendly_aliases + edit_prefixed + misc)
-    elif _clear == "delete":
-        _pop_keys(["del_select_id"])    
+    with tab_manage:
+        # --- One-shot post-action clearing (runs before any widgets are created) ---
+        _clear = st.session_state.pop("_after_action_clear", None)
+        if _clear:
+            # Common field names you may use as widget keys (adjust to your exact keys)
+            base_fields = [
+                "business_name", "category", "service",
+                "phone", "website", "address",
+                "notes", "email", "contact_name",
+                "keywords", "ckw",
+            ]
+            friendly_aliases = ["contact name", "email address"]
+            add_prefixed  = [f"add_{f}"  for f in base_fields + friendly_aliases]
+            edit_prefixed = [f"edit_{f}" for f in base_fields + friendly_aliases]
+            misc = [
+                "add_submit_clicked", "edit_submit_clicked",
+                "edit_selected_id", "edit_prev_updated",
+                "del_select_id",
+            ]
+            if _clear == "add":
+                _pop_keys(base_fields + friendly_aliases + add_prefixed + misc)
+            elif _clear == "edit":
+                _pop_keys(base_fields + friendly_aliases + edit_prefixed + misc)
+            elif _clear == "delete":
+                _pop_keys(["del_select_id"])
+   
     with tab_manage:
         if not st.session_state.get("DB_READY"):
             st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
@@ -1767,7 +1566,6 @@ if _clear:
                             st.success(f"Deleted provider id={selected_id}.")
                             _clear_after("delete")
 
-                            st.rerun()
                         except Exception as e:
                             st.error(f"Delete failed: {e}")
 
