@@ -1282,7 +1282,7 @@ def main() -> None:
     except Exception as e:
         st.warning(f"Bootstrap skipped: {e}")
 
-        # Build fingerprint (for Maintenance tab only)
+    # Build fingerprint (for Maintenance tab only)
     try:
         this_file = Path(__file__).resolve()
         ADMIN_FILE = str(this_file)
