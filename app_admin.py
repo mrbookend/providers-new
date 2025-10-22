@@ -583,7 +583,6 @@ def _preload_seed_map(eng) -> dict[tuple[str, str], str]:
                 svc = (r["service"] or "").strip()
                 seed = (r["seed"] or "").strip()
                 seed_map[(cat, svc)] = seed
-                # optional cache of category-wide
                 if cat and svc == "" and (cat, "") not in seed_map:
                     seed_map[(cat, "")] = seed
     except Exception:
@@ -715,6 +714,7 @@ def recompute_ckw_all(eng) -> int:
     return len(updates)
 
 # <<< CKW recompute (optimized) END --------------------------------------------
+
 
 
 def list_categories(eng: Engine) -> List[str]:
