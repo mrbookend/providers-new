@@ -1292,6 +1292,18 @@ def main() -> None:
         # Build the view and normalize
         _view = _src.loc[:, _ordered] if not _src.empty else _src
         _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+        # --- one-time refresh trigger (safe to remove later) ---
+        if st.button("Refresh table now", key="btn_refresh_browse"):
+            st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+            st.rerun()
+        st.caption(f"Debug: df cols before view = {list(df.columns)}")
+        st.caption(f"Debug: final columns = {list(_view_safe.columns)} | ordered = {_ordered}")
+        try:
+            from streamlit import column_config as cc
+            if "id" in _ordered:
+                _cfg["id"] = cc.NumberColumn("id", width=100, help="Primary key")
+        except Exception:
+            pass
 
         # Render
         st.dataframe(
