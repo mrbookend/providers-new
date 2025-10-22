@@ -1301,56 +1301,12 @@ def main() -> None:
         _view = _src.loc[:, _ordered] if not _src.empty else _src
         _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
 
-        # Column widths + labels (merge defaults with secrets)
-        from streamlit import column_config as cc
-
-        # --- px -> bucket helper (Streamlit only honors buckets) ---
-        def _width_bucket(px: int) -> str:
-            try:
-                v = int(px)
-            except Exception:
-                return "medium"
-            if v <= 120:
-                return "small"
-            if v <= 220:
-                return "medium"
-            return "large"
-
-        _cfg: Dict[str, Any] = {}
-
-        def _label_for(col: str) -> str:
-            return (
-                "CKW" if col in ("ckw", "computed_keywords")
-                else "Keywords" if col == "keywords"
-                else col.replace("_", " ").title()
-            )
-
-        # Build config for columns that are actually present in the final view
-        # Try a module/global COLUMN_WIDTHS_PX_ADMIN first; fall back to secrets
-        try:
-            _px_map = dict(COLUMN_WIDTHS_PX_ADMIN)  # may already exist in your module
-        except Exception:
-            _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-
-        _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
-        for c in _cols_present:
-            px = _px_map.get(c, 220)
-            bucket = _width_bucket(px)
-            if c == "id":
-                _cfg[c] = cc.NumberColumn(label="ID", help="Primary key", width=bucket)
-            else:
-                _cfg[c] = cc.TextColumn(label=_label_for(c), width=bucket)
-
         # Hidden/control-char scanning + sanitization helpers
         import re
-        try:
-            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-        except Exception:
-            st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
 
-                # Render (AgGrid with exact pixel widths)
+        # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
         try:
-            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
         except Exception:
             st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
         else:
@@ -1358,7 +1314,7 @@ def main() -> None:
             _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
             _df = _view_safe[_cols_present] if _cols_present else _view_safe
 
-            # Read exact widths from secrets (ints); fallback handled in loop
+            # Read exact widths from secrets (ints); fallback to 160 if missing/bad
             _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
 
             gb = GridOptionsBuilder.from_dataframe(
@@ -1369,10 +1325,26 @@ def main() -> None:
             )
             go = gb.build()
 
-            # Apply per-column pixel widths and common options
+            # Auto-size columns to fit contents (runs once on first data render)
+            go["onFirstDataRendered"] = JsCode("""
+            function(params) {
+              var all = params.columnApi.getAllDisplayedColumns().map(c => c.getColId());
+              params.columnApi.autoSizeColumns(all, false);
+            }
+            """)
+
+            # Default column behavior: resizable, no wrap, bounded widths
+            go["defaultColDef"] = {
+              "resizable": True,
+              "wrapText": False,
+              "autoHeight": False,
+              "minWidth": 60,
+              "maxWidth": 1000
+            }
+
+            # Apply per-column pixel widths and common options (+ tooltips)
             for col in go.get("columnDefs", []):
                 name = col.get("field")
-                # Default to 160px if not specified or bad value
                 width_px = 160
                 if name in _px_map:
                     try:
@@ -1384,6 +1356,7 @@ def main() -> None:
                 col["sortable"] = True
                 col["wrapText"] = False
                 col["autoHeight"] = False
+                col["tooltipField"] = name
 
             # Do NOT auto-stretch to container; keep your exact pixels
             go["suppressSizeToFit"] = True
@@ -1394,12 +1367,13 @@ def main() -> None:
                 gridOptions=go,
                 update_mode=GridUpdateMode.NO_UPDATE,
                 height=520,
-                fit_columns_on_grid_load=False,   # don't override our widths
-                allow_unsafe_jscode=False,
+                fit_columns_on_grid_load=False,   # keep exact widths; allow horizontal scroll
+                allow_unsafe_jscode=True,         # required for JsCode callback
             )
 
         # ---- Bottom toolbar: CSV + Help ----
         bt1, bt2 = st.columns([0.22, 0.78])
+
         if not _view_safe.empty:
             _export_df = _view_safe
             with bt1:
