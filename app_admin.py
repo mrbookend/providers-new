@@ -1419,7 +1419,6 @@ def main() -> None:
         # --- One-shot post-action clearing (runs before any widgets are created) ---
         _clear = st.session_state.pop("_after_action_clear", None)
         if _clear:
-            # Common field names you may use as widget keys (adjust to your exact keys)
             base_fields = [
                 "business_name", "category", "service",
                 "phone", "website", "address",
@@ -1440,13 +1439,8 @@ def main() -> None:
                 _pop_keys(base_fields + friendly_aliases + edit_prefixed + misc)
             elif _clear == "delete":
                 _pop_keys(["del_select_id"])
-           if not st.session_state.get("DB_READY"):
-            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
-        else:
-            eng = get_engine()
-            lc, rc = st.columns([1, 1], gap="large")
-            ...
 
+        if not st.session_state.get("DB_READY"):
             st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
         else:
             eng = get_engine()
@@ -1456,33 +1450,30 @@ def main() -> None:
             with lc:
                 st.subheader("Add Provider")
                 cats = list_categories(eng) if _has_table(eng, "categories") else []
-                srvs = list_services(eng) if _has_table(eng, "services") else []
+                srvs = list_services(eng)    if _has_table(eng, "services")   else []
 
                 bn = st.text_input("Business Name *", key="bn_add")
                 ccol1, ccol2 = st.columns([1, 1])
                 cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-                srv_choice = ccol2.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
+                srv_choice = ccol2.selectbox("Service *",  options=["— Select —"] + srvs, key="srv_add_sel")
 
                 contact_name = st.text_input("Contact Name", key="contact_add")
-                phone = st.text_input("Phone", key="phone_add")
-                email = st.text_input("Email", key="email_add")
-                website = st.text_input("Website", key="website_add")
-                address = st.text_input("Address", key="address_add")
-                notes = st.text_area("Notes", height=100, key="notes_add")
+                phone        = st.text_input("Phone",        key="phone_add")
+                email        = st.text_input("Email",        key="email_add")
+                website      = st.text_input("Website",      key="website_add")
+                address      = st.text_input("Address",      key="address_add")
+                notes        = st.text_area ("Notes", height=100, key="notes_add")
 
                 keywords_manual = st.text_area(
                     "Keywords",
                     value="",
-                    help=(
-                        "Optional, comma/pipe/semicolon-separated phrases to always include. "
-                        "Example: garage door, torsion spring, opener repair"
-                    ),
+                    help="Optional, comma/pipe/semicolon-separated phrases to always include. Example: garage door, torsion spring, opener repair",
                     height=80,
                     key="kw_add",
                 )
 
                 category = cat_choice if cat_choice != "— Select —" else ""
-                service = srv_choice if srv_choice != "— Select —" else ""
+                service  = srv_choice if srv_choice != "— Select —" else ""
                 disabled = not (bn.strip() and category and service)
 
                 if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
@@ -1500,8 +1491,8 @@ def main() -> None:
                     }
                     vid = insert_vendor(eng, data)
                     st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                    _clear_after("add")
-
+                    _clear_after("add")  # sets flag + reruns
+                    # (code below runs only if rerun is skipped by Streamlit; safe to keep)
                     refresh_lookups(get_engine())
                     st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
 
@@ -1540,8 +1531,7 @@ def main() -> None:
                             index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
                             key="cat_edit_sel",
                         )
-                        e_s1, e_s2 = st.columns([1, 1])
-                        srv_choice_e = e_s1.selectbox(
+                        srv_choice_e = e_c2.selectbox(
                             "Service *",
                             options=["— Select —"] + srvs,
                             index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
@@ -1549,14 +1539,14 @@ def main() -> None:
                         )
 
                         category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
-                        service_e = r["service"] if srv_choice_e == "— Select —" else srv_choice_e
+                        service_e  = r["service"]  if srv_choice_e == "— Select —" else srv_choice_e
 
                         contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                        phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
-                        email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
-                        website_e = st.text_input("Website", value=r["website"] or "", key="website_edit")
-                        address_e = st.text_input("Address", value=r["address"] or "", key="address_edit")
-                        notes_e = st.text_area("Notes", value=r["notes"] or "", height=100, key="notes_edit")
+                        phone_e        = st.text_input("Phone",        value=r["phone"] or "",         key="phone_edit")
+                        email_e        = st.text_input("Email",        value=r["email"] or "",         key="email_edit")
+                        website_e      = st.text_input("Website",      value=r["website"] or "",       key="website_edit")
+                        address_e      = st.text_input("Address",      value=r["address"] or "",       key="address_edit")
+                        notes_e        = st.text_area ("Notes",        value=r["notes"] or "", height=100, key="notes_edit")
 
                         keywords_manual_e = st.text_area(
                             "Keywords",
@@ -1581,12 +1571,10 @@ def main() -> None:
                             }
                             update_vendor(eng, sel_id, data)
                             st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                            _clear_after("edit")  # sets flag + reruns
                             st.success(f"Saved changes to provider #{sel_id}. — run “Recompute ALL” to apply keywords.")
-                            _clear_after("edit")
 
-
-        # ▼▼ Delete Provider (guarded) ▼▼
-        if st.session_state.get("DB_READY"):
+            # ---------- Delete ----------
             st.markdown("### Delete Provider")
             st.caption("Danger zone: Permanently removes a record from **vendors**.")
 
@@ -1594,13 +1582,11 @@ def main() -> None:
             try:
                 options: list[tuple[int, str]] = []
                 if "vdf" in locals() and isinstance(vdf, pd.DataFrame) and not vdf.empty:
-                    # Prefer the already-fetched Browse data if present
-                    ids = vdf["id"].astype(int).tolist() if "id" in vdf.columns else []
+                    ids   = vdf["id"].astype(int).tolist() if "id" in vdf.columns else []
                     names = vdf["business_name"].astype(str).tolist() if "business_name" in vdf.columns else []
                     for _id, _nm in zip(ids, names):
                         options.append((_id, f"{_id} — {_nm}"))
                 else:
-                    import sqlalchemy as sa
                     with get_engine().connect() as cx:
                         rows = cx.exec_driver_sql(
                             "SELECT id, business_name FROM vendors "
@@ -1624,22 +1610,17 @@ def main() -> None:
                     if selected_id is None:
                         st.warning("No provider selected.")
                     else:
-                        import sqlalchemy as sa
                         try:
                             with get_engine().begin() as cx3:
-                                res = cx3.exec_driver_sql(
+                                cx3.exec_driver_sql(
                                     "DELETE FROM vendors WHERE id = :id",
                                     {"id": int(selected_id)},
                                 )
-                            # bump cache-buster and clear selection; then refresh
                             st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                            st.session_state.pop("del_select_id", None)
                             st.success(f"Deleted provider id={selected_id}.")
-                            _clear_after("delete")
-
+                            _clear_after("delete")  # sets flag + reruns
                         except Exception as e:
                             st.error(f"Delete failed: {e}")
-
 
     # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
