@@ -88,21 +88,6 @@ BROWSE_COLUMNS = [
     "notes",
 ]
 
-# Fixed visual order for Browse (aliases included)
-ORDER = [
-    "business_name",
-    "category",
-    "service",
-    "phone",
-    "contact name",
-    "website",
-    "address",          # ← now shown
-    "email address",
-    "notes",
-    "keywords",
-    "ckw",
-]
-
 # Fallback widths (px). Secrets may override.
 DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "business_name": 260,
