@@ -1020,66 +1020,107 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
 # ──────────────────────────────────────────────────────────────────────────
 # CRUD helpers
 # ──────────────────────────────────────────────────────────────────────────
-def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
-    row = dict(data)
-    row["phone"] = _digits_only(row.get("phone"))
-    row["computed_keywords"] = compute_ckw(row)
-    row["created_at"] = row["updated_at"] = _now_iso()
-    with eng.begin() as cx:
-        res = cx.exec_driver_sql(
-            sa.text(
-                """
-                INSERT INTO vendors (
-                  business_name,category,service,contact_name,phone,email,website,
-                  address,notes,ckw_manual_extra,created_at,updated_at,computed_keywords
-                )
-                VALUES (
-                  :business_name,:category,:service,:contact_name,:phone,:email,:website,
-                  :address,:notes,:ckw_manual_extra,:created_at,:updated_at,:computed_keywords
-                )
-                """
-            ),
-            row,
-        )
-        new_id = int(res.lastrowid or 0)
-    ensure_lookup_value(eng, "categories", row.get("category", ""))
-    ensure_lookup_value(eng, "services", row.get("service", ""))
-    return new_id
+def insert_vendor(eng: Engine, data: dict[str, Any]) -> int:
+    """Insert a vendor row and return new id. Empty-safe & type-safe."""
+    # Map UI/friendly keys → DB column names
+    keymap = {
+        "business_name": "business_name",
+        "category": "category",
+        "service": "service",
+        "phone": "phone",
+        "website": "website",
+        "address": "address",
+        "notes": "notes",
+        "email": "email",
+        "email address": "email",         # friendly → DB
+        "contact_name": "contact_name",
+        "contact name": "contact_name",   # friendly → DB
+        "keywords": "ckw_manual_extra",   # curated keywords column
+        "ckw": "computed_keywords",       # algorithm output
+        "computed_keywords": "computed_keywords",
+    }
 
-def update_vendor(eng: Engine, vid: int, data: Dict[str, Any]) -> None:
-    row = dict(data)
-    row["phone"] = _digits_only(row.get("phone"))
-    row["computed_keywords"] = compute_ckw(row)
-    row["updated_at"] = _now_iso()
-    row["id"] = vid
-    with eng.begin() as cx:
-        cx.exec_driver_sql(
-            sa.text(
-                """
-                UPDATE vendors
-                SET business_name=:business_name,
-                    category=:category,
-                    service=:service,
-                    contact_name=:contact_name,
-                    phone=:phone,
-                    email=:email,
-                    website=:website,
-                    address=:address,
-                    notes=:notes,
-                    ckw_manual_extra=:ckw_manual_extra,
-                    computed_keywords=:computed_keywords,
-                    updated_at=:updated_at
-                WHERE id=:id
-                """
-            ),
-            row,
-        )
-    ensure_lookup_value(eng, "categories", row.get("category", ""))
-    ensure_lookup_value(eng, "services", row.get("service", ""))
+    # Canonical set of columns we support on INSERT (adjust if needed)
+    allowed = [
+        "business_name", "category", "service",
+        "phone", "website", "address",
+        "notes", "email", "contact_name",
+        "ckw_manual_extra", "computed_keywords",
+        "ckw_locked", "ckw_version",
+    ]
 
-def delete_vendor(eng: Engine, vid: int) -> None:
+    # Coerce & normalize incoming data to DB columns
+    params: dict[str, Any] = {}
+    for k, v in (data or {}).items():
+        col = keymap.get(k, k)  # map friendly → DB
+        if col not in allowed:
+            continue
+        # Normalize types
+        if col in {"ckw_locked"}:
+            # SQLite wants ints for booleans
+            params[col] = 1 if bool(v) else 0
+        elif v is None:
+            params[col] = None
+        else:
+            # Convert pandas/NumPy types & strip hidden chars on text
+            if isinstance(v, (int, float)):
+                params[col] = v
+            else:
+                s = str(v)
+                # light cleanse: strip control chars
+                params[col] = "".join(ch for ch in s if ch >= " " or ch == "\n").strip()
+
+    # Defaults if missing
+    params.setdefault("ckw_locked", 0)
+    # If you version CKW, set a default CURRENT_VER=1 (or import from your consts)
+    params.setdefault("ckw_version", 1)
+
+    # Required sanity
+    if not params.get("business_name"):
+        raise ValueError("business_name is required")
+
+    # Build named INSERT only with keys we actually have
+    cols = list(params.keys())
+    named = [f":{c}" for c in cols]
+    col_list = ", ".join(cols)
+    val_list = ", ".join(named)
+
+    sql_returning = f"INSERT INTO vendors ({col_list}) VALUES ({val_list}) RETURNING id"
+    sql_basic = f"INSERT INTO vendors ({col_list}) VALUES ({val_list})"
+
+    import sqlalchemy as sa
     with eng.begin() as cx:
-        cx.exec_driver_sql("DELETE FROM vendors WHERE id=:id", {"id": int(vid)})
+        try:
+            # Prefer RETURNING if available (SQLite 3.35+)
+            res = cx.exec_driver_sql(sa.text(sql_returning).text, params)
+            row = res.first()
+            if row and row[0] is not None:
+                return int(row[0])
+        except Exception as e_returning:
+            # Fallback to basic insert + lastrowid
+            try:
+                res = cx.exec_driver_sql(sa.text(sql_basic).text, params)
+            except TypeError as te:
+                # Deep debug when SHOW_DEBUG=1
+                import os
+                if os.getenv("SHOW_DEBUG") == "1":
+                    st.error("TypeError during INSERT. Likely a placeholder/params mismatch or bad value type.")
+                    st.code(
+                        {
+                            "sql": sql_basic,
+                            "cols": cols,
+                            "missing_keys": [name for name in cols if name not in params],
+                            "extra_params": [k for k in params.keys() if k not in cols],
+                            "param_types": {k: type(v).__name__ for k, v in params.items()},
+                        }
+                    )
+                raise
+            except Exception:
+                raise
+            return int(res.lastrowid)
+        # If RETURNING path succeeded but returned no row (shouldn't happen), fallback:
+        return int(cx.exec_driver_sql(sa.text(sql_basic).text, params).lastrowid)
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Lookup helpers
