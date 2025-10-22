@@ -1208,11 +1208,26 @@ def main() -> None:
             st.error(f"Browse failed (load): {e}")
             st.stop()
 
-        # Ensure expected columns exist; base frame
-        for col in BROWSE_COLUMNS:
+                # Ensure expected columns exist; base frame (include ORDER + tech/originals that might be requested)
+        _base_cols = list(BROWSE_COLUMNS)
+        # Add any columns explicitly requested by secrets (ORDER)
+        for c in ORDER:
+            if c not in _base_cols:
+                _base_cols.append(c)
+        # (Optional) If you want to allow created/updated via secrets too
+        for c in ("id", "created_at", "updated_at", "ckw_locked", "ckw_version", "contact_name", "email", "computed_keywords"):
+            if c in ORDER and c not in _base_cols:
+                _base_cols.append(c)
+
+        # Materialize missing cols, then reindex to the expanded base
+        for col in _base_cols:
             if col not in df.columns:
                 df[col] = ""
-        df = df.reindex(columns=BROWSE_COLUMNS, fill_value="")
+        df = df.reindex(columns=_base_cols, fill_value="")
+from streamlit import column_config as cc
+if "id" in _ordered:
+    _cfg["id"] = cc.NumberColumn("id", width=100, help="Primary key")
+
 
         # Hide heavy/internal columns and originals replaced with aliases
         _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
