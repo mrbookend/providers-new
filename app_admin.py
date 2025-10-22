@@ -1197,37 +1197,30 @@ def main() -> None:
                 st.write({"BROWSE_ORDER (secrets)": f"error: {e}"})
 
         
-        # Resolve IDs and load rows
+                # Resolve IDs and load rows
         try:
             ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
             if not ids:
-                df = pd.DataFrame(columns=BROWSE_COLUMNS)
+                df = pd.DataFrame()
             else:
                 df = fetch_rows_by_ids(tuple(ids), DATA_VER)
         except Exception as e:
             st.error(f"Browse failed (load): {e}")
             st.stop()
 
-                # Ensure expected columns exist; base frame (include ORDER + tech/originals that might be requested)
+        # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
         _base_cols = list(BROWSE_COLUMNS)
-        # Add any columns explicitly requested by secrets (ORDER)
         for c in ORDER:
             if c not in _base_cols:
                 _base_cols.append(c)
-        # (Optional) If you want to allow created/updated via secrets too
-        for c in ("id", "created_at", "updated_at", "ckw_locked", "ckw_version", "contact_name", "email", "computed_keywords"):
-            if c in ORDER and c not in _base_cols:
-                _base_cols.append(c)
 
-        # Materialize missing cols, then reindex to the expanded base
-        for col in _base_cols:
-            if col not in df.columns:
-                df[col] = ""
-        df = df.reindex(columns=_base_cols, fill_value="")
-from streamlit import column_config as cc
-if "id" in _ordered:
-    _cfg["id"] = cc.NumberColumn("id", width=100, help="Primary key")
-
+        if df.empty:
+            df = pd.DataFrame(columns=_base_cols)
+        else:
+            for col in _base_cols:
+                if col not in df.columns:
+                    df[col] = ""
+            df = df.reindex(columns=_base_cols, fill_value="")
 
         # Hide heavy/internal columns and originals replaced with aliases
         _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
@@ -1259,9 +1252,6 @@ if "id" in _ordered:
         _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
         _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
 
-
-
-        # Column widths + labels (merge defaults with secrets)
         _cfg: Dict[str, Any] = {}
         for c in _ordered:
             w = COLUMN_WIDTHS_PX_ADMIN.get(c, 220)
