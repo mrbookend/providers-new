@@ -1673,66 +1673,52 @@ def main() -> None:
             st.markdown("### Delete Provider")
             st.caption("Danger zone: Permanently removes a record from **vendors**.")
 
-            @st.cache_data(show_spinner=False)
-            def _list_providers_min(data_ver: int):
-                """Minimal list for delete UI; cached by data_ver."""
-                eng2 = get_engine()
-                if not _has_table(eng2, "vendors"):
-                    return [], {}
-                with eng2.connect() as cx2:
-                    q = sa.text("""
-                        SELECT id, business_name, category, service
-                        FROM vendors
-                        ORDER BY business_name COLLATE NOCASE, id
-                    """)
-                    rows2 = [dict(r2) for r2 in cx2.execute(q).mappings().all()]
-                labels2, by_label2 = [], {}
-                for r2 in rows2:
-                    bid = str(r2.get("id"))
-                    bnm = str(r2.get("business_name") or "")
-                    cat = str(r2.get("category") or "")
-                    srv = str(r2.get("service") or "")
-                    label2 = f"{bid} — {bnm} ({cat} → {srv})"
-                    labels2.append(label2)
-                    by_label2[label2] = {"id": bid, "business_name": bnm}
-                return labels2, by_label2
+            # Build options: use Browse df if available; otherwise query minimal list
+            try:
+                options: list[tuple[int, str]] = []
+                if "vdf" in locals() and isinstance(vdf, pd.DataFrame) and not vdf.empty:
+                    # Prefer the already-fetched Browse data if present
+                    ids = vdf["id"].astype(int).tolist() if "id" in vdf.columns else []
+                    names = vdf["business_name"].astype(str).tolist() if "business_name" in vdf.columns else []
+                    for _id, _nm in zip(ids, names):
+                        options.append((_id, f"{_id} — {_nm}"))
+                else:
+                    import sqlalchemy as sa
+                    with get_engine().connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, business_name FROM vendors "
+                            "ORDER BY business_name COLLATE NOCASE, id"
+                        ).fetchall()
+                        options = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
+            except Exception:
+                options = []
 
-            labels, by_label = _list_providers_min(st.session_state.get("DATA_VER", 0))
-            if not labels:
-                st.warning("No providers to delete yet (missing table or empty list). Initialize or seed the database in **Maintenance**.")
-            else:
-                sel = st.selectbox(
-                    "Select provider to delete",
-                    options=labels,
-                    index=None,
-                    placeholder="Choose a provider…",
-                    key="del_select_label",
-                )
-                row = by_label.get(sel) if sel else None
-                if row:
-                    ok_checkbox = st.checkbox(
-                        "I understand this action is **permanent** and cannot be undone.",
-                        key="del_perm_ack",
-                        value=st.session_state.get("del_perm_ack", False),
-                    )
-                    del_btn = st.button(
-                        "Delete provider",
-                        type="primary",
-                        disabled=not ok_checkbox,
-                        help="Enabled only after you tick the permanent-action checkbox.",
-                    )
-                    if del_btn and ok_checkbox:
+            selected_id = st.selectbox(
+                "Select provider to delete",
+                options=[o[0] for o in options],
+                format_func=lambda _id: dict(options).get(_id, str(_id)),
+                index=0 if options else None,
+                key="del_select_id",
+            )
+
+            col_del, _ = st.columns([0.25, 0.75])
+            with col_del:
+                if st.button("Delete Provider", type="primary", use_container_width=True):
+                    if selected_id is None:
+                        st.warning("No provider selected.")
+                    else:
+                        import sqlalchemy as sa
                         try:
                             with get_engine().begin() as cx3:
-                                dq = sa.text("DELETE FROM vendors WHERE id = :id")
-                                res = cx3.execute(dq, {"id": int(row["id"])})
-                                if hasattr(res, "rowcount") and res.rowcount == 0:
-                                    st.warning(f"No provider found with id={row['id']}. It may have been removed already.")
-                                else:
-                                    st.success(f"Deleted provider id={row['id']} ({row['business_name']}).")
+                                res = cx3.exec_driver_sql(
+                                    "DELETE FROM vendors WHERE id = :id",
+                                    {"id": int(selected_id)},
+                                )
+                            # bump cache-buster and clear selection; then refresh
                             st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                            st.session_state["del_select_label"] = None
-                            st.session_state["del_perm_ack"] = False
+                            st.session_state.pop("del_select_id", None)
+                            st.success(f"Deleted provider id={selected_id}.")
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Delete failed: {e}")
 
