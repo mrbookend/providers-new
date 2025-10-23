@@ -307,19 +307,21 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
     )
 
     if triggers:
-        BLINDS_FAM = (
-            "wood blinds", "faux wood blinds", "vertical blinds", "mini blinds",
-            "aluminum blinds", "cordless blinds",
-        )
-        SHADES_FAM = (
-            "roller shades", "solar shades", "roman shades", "cellular shades",
-            "honeycomb shades", "pleated shades", "zebra shades", "blackout shades",
-            "sheer shades",
-        )
-        DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
-        ACCESSORIES = ("valances", "cornices")
-        ACTIONS = ("design", "consultation", "design consultation", "measure", "install", "installation", "in-home")
-        MOTORIZED = ("motorized shades", "motorized blinds", "motorized drapes")
+# --- constants (module scope; all flush-left) ---
+BLINDS_FAM = (
+    "wood blinds", "faux wood blinds", "vertical blinds", "mini blinds",
+    "aluminum blinds", "cordless blinds",
+)
+SHADES_FAM = (
+    "roller shades", "solar shades", "roman shades", "cellular shades",
+    "honeycomb shades", "pleated shades", "zebra shades", "blackout shades",
+    "sheer shades",
+)
+DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
+ACCESSORIES = ("valances", "cornices")
+ACTIONS     = ("design", "consultation", "design consultation", "measure",
+               "install", "installation", "in-home")
+MOTORIZED   = ("motorized shades", "motorized blinds", "motorized drapes")
 
 def _explode(phrases: list[str] | tuple[str, ...]) -> list[str]:
     out: list[str] = []
@@ -337,13 +339,16 @@ def _explode(phrases: list[str] | tuple[str, ...]) -> list[str]:
                 seen.add(t)
     return out
 
+# --- build base only when needed ---
+if triggers:
+    base: list[str] = []
+    base += _explode(BLINDS_FAM)
+    base += _explode(SHADES_FAM)
+    base += _explode(DRAPERY_FAM)
+    base += _explode(ACCESSORIES)
+    base += _explode(ACTIONS)
+    base += _explode(MOTORIZED)
 
-        base += _explode(BLINDS_FAM)
-        base += _explode(SHADES_FAM)
-        base += _explode(DRAPERY_FAM)
-        base += _explode(ACCESSORIES)
-        base += _explode(ACTIONS)
-        base += _explode(MOTORIZED)
 
     # ---- 3) Filter junk + stable de-dup + budgeted trim ------------------
     def _is_junk(tok: str) -> bool:
