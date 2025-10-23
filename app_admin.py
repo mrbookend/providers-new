@@ -1324,12 +1324,12 @@ def main() -> None:
     tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
-    # Now that tabs exist, render the Add/Edit/Delete tab
+    # Render Add/Edit/Delete inside its tab
     render_add_edit_delete(tab_manage)
 
     # ─────────────────────────────────────────────────────────────────────
     # Browse (Admin)
-    # ─────────────────────────────────────────────────────────────────────
+
     with tab_browse:
         # --- Search bar (single-click Clear) ---
         c1, c2, _ = st.columns([0.5, 0.12, 0.38])
@@ -1565,9 +1565,54 @@ def render_add_edit_delete(tab_manage):
 
         # ---------- Add ----------
         with lc:
-            # TODO: replace with your real Add form
-            st.caption("Add Provider (placeholder)")
-    
+            st.subheader("Add Provider")
+
+            bn_a = st.text_input("Business Name *", key="bn_add")
+            c1, c2 = st.columns([1, 1])
+            cat_choice_a = c1.selectbox(
+                "Category *",
+                options=["— Select —"] + list_categories(eng),
+                key="cat_add_sel",
+            )
+            srv_choice_a = c2.selectbox(
+                "Service *",
+                options=["— Select —"] + list_services(eng),
+                key="srv_add_sel",
+            )
+
+            contact_a = st.text_input("Contact Name", key="contact_add")
+            phone_a   = st.text_input("Phone",        key="phone_add")
+            email_a   = st.text_input("Email",        key="email_add")
+            website_a = st.text_input("Website",      key="website_add")
+            address_a = st.text_input("Address",      key="address_add")
+            notes_a   = st.text_area ("Notes",        key="notes_add", height=80)
+            kw_a      = st.text_area ("Keywords (manual, optional)", key="kw_add", height=60, help="Comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.")
+
+            if st.button("Add Provider", type="primary", key="btn_add_provider"):
+                try:
+                    data = {
+                        "business_name": (bn_a or "").strip(),
+                        "category": (cat_choice_a if cat_choice_a != "— Select —" else "").strip(),
+                        "service":  (srv_choice_a if srv_choice_a != "— Select —" else "").strip(),
+                        "contact_name": (contact_a or "").strip(),
+                        "phone": _digits_only(phone_a),
+                        "email": (email_a or "").strip(),
+                        "website": (website_a or "").strip(),
+                        "address": (address_a or "").strip(),
+                        "notes": (notes_a or "").strip(),
+                        "ckw_manual_extra": (kw_a or "").strip(),
+                        "computed_keywords": "",
+                    }
+                    if not data["business_name"] or not data["category"] or not data["service"]:
+                        st.warning("Business Name, Category, and Service are required.")
+                    else:
+                        new_id = insert_vendor(eng, data)
+                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                        st.success(f"Added provider #{new_id}. — run \"Recompute ALL\" later to apply CKW.")
+                        _clear_after("add")
+                except Exception as e:
+                    st.error(f"Add failed: {e}")
+
         # ---------- Edit ----------
         with rc:
             st.subheader("Edit Provider")
@@ -1698,17 +1743,21 @@ def render_add_edit_delete(tab_manage):
                             except Exception as e:
                                 st.error(f"Delete failed: {e}")
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Category / Service management
-    # ─────────────────────────────────────────────────────────────────────
-    # Removed here to avoid NameError: tab_catsvc (this tab is rendered in main()).
-    # The canonical Category/Service UI lives in the main() block below.
+# ─────────────────────────────────────────────────────────────────────
+# Category / Service management
+# ─────────────────────────────────────────────────────────────────────
+# Removed here to avoid NameError: tab_catsvc (this tab is rendered in main()).
+# The canonical Category/Service UI lives in the main() block below.
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Maintenance (Diagnostics & CKW)
-    # ─────────────────────────────────────────────────────────────────────
-    # Removed here to avoid NameError: tab_maint (this tab is rendered in main()).
-    # The canonical Maintenance UI lives in the main() block below.
+# ─────────────────────────────────────────────────────────────────────
+# Maintenance (Diagnostics & CKW)
+# ─────────────────────────────────────────────────────────────────────
+# Removed here to avoid NameError: tab_maint (this tab is rendered in main()).
+# The canonical Maintenance UI lives in the main() block below.
+
+
+def main() -> None:
+    # ... (tab_browse, tab_manage, tab_catsvc, tab_maint blocks appear above)
 
     # ---------- Cache Clear ----------
     st.markdown("**Caches**")
@@ -1724,6 +1773,7 @@ def render_add_edit_delete(tab_manage):
             st.rerun()  # immediately re-run to reflect cleared caches
         except Exception as e:
             st.error(f"Clear cache_data failed: {e}")
+
 
 if __name__ == "__main__":
     main()
