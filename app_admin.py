@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+# SOT: mrbookend/providers-new · branch main · app_admin.py
+# Any behavior change must bump APP_VER and pass CI guards.
 
 # ── Streamlit page config MUST be the first Streamlit command ─────────────
 import streamlit as st
@@ -1292,6 +1294,19 @@ def main() -> None:
     except Exception:
         ADMIN_FILE = None
         ADMIN_SHA  = None
+    # --- Runtime drift guard (optional; warn or block if mismatched) ---
+    EXPECTED_APP_VER = os.getenv("EXPECTED_APP_VER", str(st.secrets.get("EXPECTED_APP_VER", "")))
+    EXPECTED_ADMIN_SHA = os.getenv("EXPECTED_ADMIN_SHA", str(st.secrets.get("EXPECTED_ADMIN_SHA", ""))).strip()
+
+    if EXPECTED_APP_VER:
+        if APP_VER != EXPECTED_APP_VER:
+            st.warning(f"Runtime drift: APP_VER running '{APP_VER}' != expected '{EXPECTED_APP_VER}' (secrets).")
+
+    if EXPECTED_ADMIN_SHA and ADMIN_SHA:
+        if ADMIN_SHA != EXPECTED_ADMIN_SHA[:12]:
+            st.error(f"Runtime drift: file sha {ADMIN_SHA} != expected {EXPECTED_ADMIN_SHA[:12]}.")
+            # Uncomment to hard-block instead of warn:
+            # st.stop()
 
 
     # ---- DB readiness probe (vendors table exists?) ----
@@ -1565,9 +1580,13 @@ def render_add_edit_delete(tab_manage):
                 st.info("No providers yet.")
             else:
                 labels = [f"#{i} — {n}" for (i, n) in rows]
-                sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+                sel = st.selectbox(
+                    "Pick a provider",
+                    options=labels,
+                    key="edit_pick_provider",
+                )
                 sel_id = int(rows[labels.index(sel)][0])
-    
+
                 with eng.begin() as cx:
                     r = cx.exec_driver_sql(
                         "SELECT business_name,category,service,contact_name,phone,email,website,"
@@ -1658,9 +1677,9 @@ def render_add_edit_delete(tab_manage):
                     options=[o[0] for o in options],
                     format_func=lambda _id: dict(options).get(_id, str(_id)),
                     index=0 if options else None,
-                    key="del_select_id",
+                    key="delete_select_id",
                 )
-    
+
                 col_del, _ = st.columns([0.25, 0.75])
                 with col_del:
                     if st.button("Delete Provider", type="primary", use_container_width=True):
@@ -1895,7 +1914,11 @@ def render_add_edit_delete(tab_manage):
             st.warning(f"Seeds-table check failed: {e}")
 
         if _show_create_seeds:
-            if st.button("Create CKW Seeds Table (one-time)", use_container_width=True):
+            if st.button(
+                "Create CKW Seeds Table (one-time)",
+                use_container_width=True,
+                key="btn_ckw_create_seeds_once",
+            ):
                 msg = ensure_ckw_seeds_table()
                 st.success(msg)
                 st.stop()
