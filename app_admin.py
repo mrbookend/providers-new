@@ -1376,6 +1376,8 @@ def _clear_after(scope: str) -> None:
     st.session_state["_after_action_clear"] = scope
     st.rerun()
 
+ # Render Add/Edit/Delete inside its tab
+    render_add_edit_delete(tab_manage)
 
 # ──────────────────────────────────────────────────────────────────────────
 # Main App
@@ -1386,9 +1388,7 @@ def main() -> None:
     tab_browse, tab_manage, tab_maint = st.tabs(
         ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
     )
-    # Render Add/Edit/Delete inside its tab
-    render_add_edit_delete(tab_manage)
-
+   
     # --- DEBUG: Always-visible skeleton UI (remove after diagnosis) ---
     st.write("DEBUG: basic UI alive; DB_READY =", st.session_state.get("DB_READY"))
     t_browse, t_maint = st.tabs(["Browse (debug)", "Maintenance (debug)"])
@@ -1756,24 +1756,17 @@ def render_add_edit_delete(tab_manage):
                 st.markdown("### Delete Provider")
                 st.caption("Danger zone: Permanently removes a record from **vendors**.")
     
-                # Build options: use Browse df if available; otherwise query minimal list
+                # Build options directly from DB (no dependency on Browse df)
                 try:
-                    options: list[tuple[int, str]] = []
-                    _vdf = locals().get("vdf", None)
-                    if isinstance(_vdf, pd.DataFrame) and not _vdf.empty:
-                        ids   = _vdf["id"].astype(int).tolist() if "id" in _vdf.columns else []
-                        names = _vdf["business_name"].astype(str).tolist() if "business_name" in _vdf.columns else []
-                        for _id, _nm in zip(ids, names):
-                            options.append((_id, f"{_id} — {_nm}"))
-                    else:
-                        with get_engine().connect() as cx:
-                            rows = cx.exec_driver_sql(
-                                "SELECT id, business_name FROM vendors "
-                                "ORDER BY business_name COLLATE NOCASE, id"
-                            ).fetchall()
-                            options = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
+                    with get_engine().connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, business_name FROM vendors "
+                            "ORDER BY business_name COLLATE NOCASE, id"
+                        ).fetchall()
+                    options: list[tuple[int, str]] = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
                 except Exception:
                     options = []
+
 
     
                 selected_id = st.selectbox(
