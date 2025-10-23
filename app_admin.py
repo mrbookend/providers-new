@@ -1278,7 +1278,6 @@ def main() -> None:
     except Exception as e:
         st.warning(f"Schema check failed: {e}")
 
-    # Optional seed if empty (safe no-op otherwise)
     try:
         msg_seed = bootstrap_from_csv_if_needed()
         if msg_seed and os.getenv("SHOW_STATUS") == "1":
@@ -1286,30 +1285,23 @@ def main() -> None:
     except Exception as e:
         st.warning(f"Bootstrap skipped: {e}")
 
-    # Build fingerprint (for Maintenance tab only)
+    # ---- Build fingerprint (optional drift guard) ----
     try:
         this_file = Path(__file__).resolve()
-        ADMIN_FILE = str(this_file)
+        _ADMIN_FILE = str(this_file)  # intentionally unused; kept for diagnostics
         ADMIN_SHA  = hashlib.sha256(this_file.read_bytes()).hexdigest()[:12]
     except Exception:
-        ADMIN_FILE = None
+        _ADMIN_FILE = None
         ADMIN_SHA  = None
-    # --- Runtime drift guard (optional; warn or block if mismatched) ---
+
     EXPECTED_APP_VER = os.getenv("EXPECTED_APP_VER", str(st.secrets.get("EXPECTED_APP_VER", "")))
     EXPECTED_ADMIN_SHA = os.getenv("EXPECTED_ADMIN_SHA", str(st.secrets.get("EXPECTED_ADMIN_SHA", ""))).strip()
+    if EXPECTED_APP_VER and APP_VER != EXPECTED_APP_VER:
+        st.warning(f"Runtime drift: APP_VER running '{APP_VER}' != expected '{EXPECTED_APP_VER}' (secrets).")
+    if EXPECTED_ADMIN_SHA and ADMIN_SHA and ADMIN_SHA != EXPECTED_ADMIN_SHA[:12]:
+        st.error(f"Runtime drift: file sha {ADMIN_SHA} != expected {EXPECTED_ADMIN_SHA[:12]}.")
 
-    if EXPECTED_APP_VER:
-        if APP_VER != EXPECTED_APP_VER:
-            st.warning(f"Runtime drift: APP_VER running '{APP_VER}' != expected '{EXPECTED_APP_VER}' (secrets).")
-
-    if EXPECTED_ADMIN_SHA and ADMIN_SHA:
-        if ADMIN_SHA != EXPECTED_ADMIN_SHA[:12]:
-            st.error(f"Runtime drift: file sha {ADMIN_SHA} != expected {EXPECTED_ADMIN_SHA[:12]}.")
-            # Uncomment to hard-block instead of warn:
-            # st.stop()
-
-
-    # ---- DB readiness probe (vendors table exists?) ----
+    # ---- DB readiness probe ----
     try:
         with eng.connect() as _cx:
             _row = _cx.exec_driver_sql(
@@ -1320,211 +1312,42 @@ def main() -> None:
         DB_READY = False
     st.session_state["DB_READY"] = DB_READY
 
-    # Tabs
+    # ---- Tabs ----
     tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
-    # Render Add/Edit/Delete inside its tab
+
+    # ---- Browse ----
+    with tab_browse:
+        # TODO: paste your existing Browse UI here (search, grid, CSV, help)
+        st.info("Browse UI goes here.")
+
+    # ---- Add / Edit / Delete ----
     render_add_edit_delete(tab_manage)
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Browse (Admin)
+    # ---- Category / Service ----
+    with tab_catsvc:
+        # TODO: your Category/Service management UI
+        st.info("Category/Service admin UI goes here.")
 
-    with tab_browse:
-        # --- Search bar (single-click Clear) ---
-        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-        q = c1.text_input(
-            label="Search",
-            key="q",
-            placeholder="Search name, category, service, notes, phone, website…",
-            label_visibility="collapsed",
-        )
-        if c2.button("Clear", use_container_width=True):
-            if "q" in st.session_state:
-                del st.session_state["q"]
+    # ---- Maintenance ----
+    with tab_maint:
+        # TODO: your Maintenance (Diagnostics & CKW) UI
+        st.info("Maintenance — diagnostics & CKW tools go here.")
+
+    # ---- Cache Clear footer (global) ----
+    st.markdown("**Caches**")
+    clicked_clear_cache = st.button(
+        "Clear @st.cache_data (force Browse refresh)",
+        key="clear_cache_data",
+    )
+    if clicked_clear_cache:
+        try:
+            st.cache_data.clear()
+            st.success("Cleared cache_data.")
             st.rerun()
-    
-        q = st.session_state.get("q", "")
-    
-        # Count matching rows
-        try:
-            total = count_rows(q=q, data_ver=DATA_VER)
         except Exception as e:
-            st.error(f"Browse failed (count): {e}")
-            st.stop()
-    
-        # Resolve IDs and load rows
-        try:
-            ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
-            if not ids:
-                df = pd.DataFrame()
-            else:
-                df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (load): {e}")
-            st.stop()
-    
-        # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
-        _base_cols = list(BROWSE_COLUMNS)
-        for c in ORDER:
-            if c not in _base_cols:
-                _base_cols.append(c)
-    
-        if df.empty:
-            df = pd.DataFrame(columns=_base_cols)
-        else:
-            for col in _base_cols:
-                if col not in df.columns:
-                    df[col] = ""
-            df = df.reindex(columns=_base_cols, fill_value="")
-    
-        # Hide heavy/internal columns and originals replaced with aliases
-        _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
-        _ALIAS_ORIGS = {"contact_name", "email", "computed_keywords"}  # originals replaced by friendly aliases
-        _hide = set(_TECH_COLS | _ALIAS_ORIGS)
-    
-        # If a tech/original column is explicitly requested in ORDER, don't hide it.
-        for col in list(_hide):
-            if col in ORDER:
-                _hide.discard(col)
-    
-        def _is_ckw_control(col: str) -> bool:
-            # Only hide ckw_* controls if they're NOT explicitly requested in ORDER
-            return col.startswith("ckw_") and col not in ORDER
-    
-        # Create alias columns (idempotent)
-        _src = df.copy()
-        if not _src.empty:
-            if "contact name" not in _src.columns and "contact_name" in _src.columns:
-                _src["contact name"] = _src["contact_name"].fillna("")
-            if "email address" not in _src.columns and "email" in _src.columns:
-                _src["email address"] = _src["email"].fillna("")
-            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
-                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
-            if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
-                _src["ckw"] = _src["computed_keywords"].fillna("")
-    
-        # Visible columns and enforced order
-        _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
-        _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
-    
-        # Hidden/control-char scanning + sanitization helpers
-        import json as _json
-        from datetime import datetime as _dt
-        _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
-    
-        def _to_str_safe(x):
-            if x is None:
-                return ""
-            if isinstance(x, _dt):
-                return x.isoformat(sep=" ", timespec="seconds")
-            if isinstance(x, (bytes, bytearray)):
-                try:
-                    x = x.decode("utf-8", errors="replace")
-                except Exception:
-                    return str(x)
-            if isinstance(x, dict):
-                try:
-                    return _json.dumps(x, ensure_ascii=False)
-                except Exception:
-                    return str(x)
-            if isinstance(x, (list, tuple, set)):
-                return ", ".join("" if (v is None) else str(v) for v in x)
-            try:
-                return "" if pd.isna(x) else str(x)
-            except Exception:
-                return str(x)
-    
-        def _strip_hidden(s: str) -> str:
-            return _HIDDEN_RX.sub("", s)
-    
-        # Build the view and normalize
-        _view = _src.loc[:, _ordered] if not _src.empty else _src
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
-    
-        # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
-        try:
-            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
-        except Exception:
-            st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
-        else:
-            # Respect final ordered columns that actually exist in the DataFrame
-            _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
-            _df = _view_safe[_cols_present] if _cols_present else _view_safe
-    
-            # Read exact widths from secrets (ints); fallback to 160 if missing/bad
-            _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    
-            gb = GridOptionsBuilder.from_dataframe(
-                _df,
-                enableValue=False,
-                enableRowGroup=False,
-                enablePivot=False,
-            )
-            go = gb.build()
-    
-            # Auto-size columns to fit contents (runs once on first data render)
-            go["onFirstDataRendered"] = JsCode("""
-            function(params) {
-              var all = params.columnApi.getAllDisplayedColumns().map(c => c.getColId());
-              params.columnApi.autoSizeColumns(all, false);
-            }
-            """)
-    
-            # Default column behavior: resizable, no wrap, bounded widths
-            go["defaultColDef"] = {
-              "resizable": True,
-              "wrapText": False,
-              "autoHeight": False,
-              "minWidth": 60,
-              "maxWidth": 1000
-            }
-    
-            # Apply per-column pixel widths and common options (+ tooltips)
-            for col in go.get("columnDefs", []):
-                name = col.get("field")
-                width_px = 160
-                if name in _px_map:
-                    try:
-                        width_px = int(_px_map[name])
-                    except Exception:
-                        pass
-                col["width"] = width_px
-                col["resizable"] = True
-                col["sortable"] = True
-                col["wrapText"] = False
-                col["autoHeight"] = False
-                col["tooltipField"] = name
-    
-            # Do NOT auto-stretch to container; keep your exact pixels
-            go["suppressSizeToFit"] = True
-            go["domLayout"] = "normal"
-    
-            AgGrid(
-                _df,
-                gridOptions=go,
-                update_mode=GridUpdateMode.NO_UPDATE,
-                height=520,
-                fit_columns_on_grid_load=False,   # keep exact widths; allow horizontal scroll
-                allow_unsafe_jscode=True,         # required for JsCode callback
-            )
-    
-        # ---- Bottom toolbar: CSV + Help ----
-        bt1, bt2 = st.columns([0.22, 0.78])
-    
-        if not _view_safe.empty:
-            _export_df = _view_safe
-            with bt1:
-                st.download_button(
-                    "Download CSV",
-                    data=_export_df.to_csv(index=False),
-                    file_name="providers.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-    
-        with st.expander("Help — How to use Browse (click to open)", expanded=False):
-            st.markdown(HELP_MD)
+            st.error(f"Clear cache_data failed: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
@@ -1699,23 +1522,17 @@ def render_add_edit_delete(tab_manage):
                 st.markdown("### Delete Provider")
                 st.caption("Danger zone: Permanently removes a record from **vendors**.")
     
-                # Build options: use Browse df if available; otherwise query minimal list
+                # Build options from DB (simple, reliable)
                 try:
-                    options: list[tuple[int, str]] = []
-                    if "vdf" in locals() and isinstance(vdf, pd.DataFrame) and not vdf.empty:
-                        ids   = vdf["id"].astype(int).tolist() if "id" in vdf.columns else []
-                        names = vdf["business_name"].astype(str).tolist() if "business_name" in vdf.columns else []
-                        for _id, _nm in zip(ids, names):
-                            options.append((_id, f"{_id} — {_nm}"))
-                    else:
-                        with get_engine().connect() as cx:
-                            rows = cx.exec_driver_sql(
-                                "SELECT id, business_name FROM vendors "
-                                "ORDER BY business_name COLLATE NOCASE, id"
-                            ).fetchall()
-                            options = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
+                    with get_engine().connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, business_name FROM vendors "
+                            "ORDER BY business_name COLLATE NOCASE, id"
+                        ).fetchall()
+                    options: list[tuple[int, str]] = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
                 except Exception:
                     options = []
+
     
                 selected_id = st.selectbox(
                     "Select provider to delete",
@@ -1756,23 +1573,8 @@ def render_add_edit_delete(tab_manage):
 # The canonical Maintenance UI lives in the main() block below.
 
 
-def main() -> None:
-    # ... (tab_browse, tab_manage, tab_catsvc, tab_maint blocks appear above)
+# (removed duplicate def main() — cache footer lives in the original main())
 
-    # ---------- Cache Clear ----------
-    st.markdown("**Caches**")
-    clicked_clear_cache = st.button(
-        "Clear @st.cache_data (force Browse refresh)",
-        key="clear_cache_data",
-    )
-
-    if clicked_clear_cache:
-        try:
-            st.cache_data.clear()
-            st.success("Cleared cache_data.")
-            st.rerun()  # immediately re-run to reflect cleared caches
-        except Exception as e:
-            st.error(f"Clear cache_data failed: {e}")
 
 
 if __name__ == "__main__":
