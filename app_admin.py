@@ -39,12 +39,14 @@ st.markdown(
 
 import os
 
+
 def _get_secret_int(name: str, default: int) -> int:
     try:
         v = st.secrets.get(name, default)
         return int(v)
     except Exception:
         return int(default)
+
 
 # Cache-buster for @st.cache_data
 st.session_state.setdefault("DATA_VER", 0)
@@ -70,9 +72,6 @@ import csv
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlparse
-from pathlib import Path
-import hashlib
-import re
 
 
 # ── Third-party ───────────────────────────────────────────────────────────
@@ -105,7 +104,9 @@ _Replace this with your long, book-style help content when ready._
 
 PAGE_SIZE = 200
 MAX_RENDER_ROWS = 1000
-MAX_RENDER_ROWS_ADMIN = int(os.getenv("MAX_RENDER_ROWS_ADMIN", st.secrets.get("MAX_RENDER_ROWS_ADMIN", "1000")))
+MAX_RENDER_ROWS_ADMIN = int(
+    os.getenv("MAX_RENDER_ROWS_ADMIN", st.secrets.get("MAX_RENDER_ROWS_ADMIN", "1000"))
+)
 
 # ---- CKW algorithm version (single source of truth) ----
 # Bump default when you change CKW logic; env can override.
@@ -118,8 +119,8 @@ BROWSE_COLUMNS = [
     "business_name",
     "category",
     "service",
-    "keywords",            # human-curated (ckw_manual_extra)
-    "computed_keywords",   # algorithm output
+    "keywords",  # human-curated (ckw_manual_extra)
+    "computed_keywords",  # algorithm output
     "contact_name",
     "phone",
     "email",
@@ -146,6 +147,7 @@ DEFAULT_COLUMN_WIDTHS_PX_ADMIN: Dict[str, int] = {
     "ckw": 360,
 }
 
+
 def _merge_widths_with_secrets(defaults: Dict[str, int]) -> Dict[str, int]:
     overrides: Dict[str, int] = {}
     try:
@@ -162,6 +164,7 @@ def _merge_widths_with_secrets(defaults: Dict[str, int]) -> Dict[str, int]:
     out.update(overrides)
     return out
 
+
 COLUMN_WIDTHS_PX_ADMIN = _merge_widths_with_secrets(DEFAULT_COLUMN_WIDTHS_PX_ADMIN)
 # Default visual order for Browse (aliases included)
 DEFAULT_ORDER = [
@@ -177,6 +180,7 @@ DEFAULT_ORDER = [
     "keywords",
     "ckw",
 ]
+
 
 def _order_from_secrets(default: list[str]) -> list[str]:
     try:
@@ -195,12 +199,26 @@ def _order_from_secrets(default: list[str]) -> list[str]:
         # Include tech/originals so secrets can intentionally unhide them.
         known = set(
             [
-                "business_name", "category", "service", "phone",
-                "contact name", "website", "address", "email address",
-                "notes", "keywords", "ckw",
+                "business_name",
+                "category",
+                "service",
+                "phone",
+                "contact name",
+                "website",
+                "address",
+                "email address",
+                "notes",
+                "keywords",
+                "ckw",
                 # Tech/originals that can be explicitly requested:
-                "id", "created_at", "updated_at", "ckw_locked", "ckw_version",
-                "contact_name", "email", "computed_keywords",
+                "id",
+                "created_at",
+                "updated_at",
+                "ckw_locked",
+                "ckw_version",
+                "contact_name",
+                "email",
+                "computed_keywords",
             ]
         )
         ordered = [c for c in cand if c in known]
@@ -250,43 +268,65 @@ CURATED_SEEDS_BY_SERVICE: dict[str, str] = {
 
 _STOP = {"and", "&", "the", "of", "for", "to", "a", "an", "in", "on", "at"}
 
+
 def _norm_token(s: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else " " for ch in s or "")
+
 
 def _split_tokens(s: str) -> list[str]:
     return [t for t in _norm_token(s).split() if t and t not in _STOP]
 
-# --- Window-coverings keyword packs (module scope) ---
-BLINDS_FAM = (
-    "wood blinds", "faux wood blinds", "vertical blinds", "mini blinds",
-    "aluminum blinds", "cordless blinds",
-)
-SHADES_FAM = (
-    "roller shades", "solar shades", "roman shades", "cellular shades",
-    "honeycomb shades", "pleated shades", "zebra shades", "blackout shades",
-    "sheer shades",
-)
-DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
-ACCESSORIES = ("valances", "cornices")
-ACTIONS     = ("design", "consultation", "design consultation", "measure",
-               "install", "installation", "in-home")
-MOTORIZED   = ("motorized shades", "motorized blinds", "motorized drapes")
 
-def _explode_phrases(phrases: list[str] | tuple[str, ...]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for ph in phrases:
-        phl = (ph or "").lower().strip()
-        if not phl:
-            continue
-        if phl not in seen:
-            out.append(phl)
-            seen.add(phl)
-        for t in _split_tokens(phl):
-            if t not in seen:
-                out.append(t)
-                seen.add(t)
-    return out
+# --- Window-coverings keyword packs (module scope) ---
+# Define once (safe if already defined earlier)
+if "BLINDS_FAM" not in globals():
+    BLINDS_FAM = (
+        "wood blinds",
+        "faux wood blinds",
+        "vertical blinds",
+        "mini blinds",
+        "aluminum blinds",
+        "cordless blinds",
+    )
+    SHADES_FAM = (
+        "roller shades",
+        "solar shades",
+        "roman shades",
+        "cellular shades",
+        "honeycomb shades",
+        "pleated shades",
+        "zebra shades",
+        "blackout shades",
+        "sheer shades",
+    )
+    DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
+    ACCESSORIES = ("valances", "cornices")
+    ACTIONS = (
+        "design",
+        "consultation",
+        "design consultation",
+        "measure",
+        "install",
+        "installation",
+        "in-home",
+    )
+    MOTORIZED = ("motorized shades", "motorized blinds", "motorized drapes")
+
+    def _explode_phrases(phrases: list[str] | tuple[str, ...]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for ph in phrases:
+            phl = (ph or "").lower().strip()
+            if not phl:
+                continue
+            if phl not in seen:
+                out.append(phl)
+                seen.add(phl)
+            for t in _split_tokens(phl):
+                if t not in seen:
+                    out.append(t)
+                    seen.add(t)
+        return out
 
 
 def _unique_join(parts: list[str]) -> str:
@@ -299,7 +339,14 @@ def _unique_join(parts: list[str]) -> str:
         out.append(p)
     return " ".join(out)
 
-def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list[str] | None, syn_category: list[str] | None) -> str:
+
+def _build_ckw(
+    row: dict[str, str],
+    *,
+    seed: list[str] | None,
+    syn_service: list[str] | None,
+    syn_category: list[str] | None,
+) -> str:
     base: list[str] = []
 
     # ---- 1) Core sources -----------------------------------------------
@@ -335,8 +382,12 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
     svc = (row.get("service") or "").lower()
     cat = (row.get("category") or "").lower()
     triggers = (
-        ("window" in svc) or ("window" in cat) or
-        any(k in svc or k in cat for k in ("treatment", "blinds", "shades", "drap", "curtain", "shutter"))
+        ("window" in svc)
+        or ("window" in cat)
+        or any(
+            k in svc or k in cat
+            for k in ("treatment", "blinds", "shades", "drap", "curtain", "shutter")
+        )
     )
     if triggers:
         base += _explode_phrases(BLINDS_FAM)
@@ -391,13 +442,16 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
 
     return " ".join(out)
 
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
 
 def _digits_only(s: str | None) -> str:
     if not s:
         return ""
     return "".join(ch for ch in str(s) if ch.isdigit())
+
 
 def _host_only(url: str | None) -> str:
     if not url:
@@ -410,6 +464,7 @@ def _host_only(url: str | None) -> str:
         return host
     except Exception:
         return ""
+
 
 def _tokenize_for_ckw(*parts: str) -> List[str]:
     tokens: List[str] = []
@@ -428,6 +483,7 @@ def _tokenize_for_ckw(*parts: str) -> List[str]:
             out.append(t)
     return out
 
+
 def get_ckw_seed(category: str | None, service: str | None) -> str:
     """
     Resolve best seed for (category, service) with fallback to category-wide ('').
@@ -438,10 +494,8 @@ def get_ckw_seed(category: str | None, service: str | None) -> str:
     if not cat and not svc:
         return ""
 
-    eng = get_engine()
-
     if cat and svc:
-        with eng.connect() as cx:
+        with get_engine().connect() as cx:
             row = cx.exec_driver_sql(
                 "SELECT seed FROM ckw_seeds WHERE category=:c AND service=:s",
                 {"c": cat, "s": svc},
@@ -450,7 +504,7 @@ def get_ckw_seed(category: str | None, service: str | None) -> str:
                 return row[0] or ""
 
     if cat:
-        with eng.connect() as cx:
+        with get_engine().connect() as cx:
             row = cx.exec_driver_sql(
                 "SELECT seed FROM ckw_seeds WHERE category=:c AND service=''",
                 {"c": cat},
@@ -460,12 +514,12 @@ def get_ckw_seed(category: str | None, service: str | None) -> str:
 
     return ""
 
+
 def ensure_ckw_seeds_table() -> str:
     """
     Create ckw_seeds if missing.
     Keys: (category, service). Use service='' to mean "category-wide" seed.
     """
-    eng = get_engine()
     ddl = """
     CREATE TABLE IF NOT EXISTS ckw_seeds (
         id INTEGER PRIMARY KEY,
@@ -476,16 +530,17 @@ def ensure_ckw_seeds_table() -> str:
     );
     """
     idx = "CREATE UNIQUE INDEX IF NOT EXISTS idx_ckw_seeds_cat_srv ON ckw_seeds(category, service);"
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql(ddl)
         cx.exec_driver_sql(idx)
-    with eng.connect() as cx:
+    with get_engine().connect() as cx:
         row = cx.exec_driver_sql(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='ckw_seeds'"
         ).first()
         if row is None:
             raise RuntimeError("ckw_seeds creation failed verification")
     return "ckw_seeds table present (created if missing)"
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Engine (cached)
@@ -500,6 +555,7 @@ def get_engine() -> Engine:
         pass
     return sa.create_engine(f"sqlite:///{DB_PATH}", future=True)
 
+
 # ──────────────────────────────────────────────────────────────────────────
 # Schema & bootstrap
 # ──────────────────────────────────────────────────────────────────────────
@@ -508,8 +564,7 @@ def ensure_schema_uncached() -> str:
     Create vendors table/indexes if missing; add missing columns; create lookups.
     Returns a short status string.
     """
-    eng = get_engine()
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql(
             """
             CREATE TABLE IF NOT EXISTS vendors (
@@ -544,18 +599,36 @@ def ensure_schema_uncached() -> str:
             if c not in cols:
                 cx.exec_driver_sql(stmt)
 
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_business_name ON vendors(business_name)"
+        )
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
+        )
         cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category ON vendors(category)")
         cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service ON vendors(service)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_business_name_nocase ON vendors(business_name COLLATE NOCASE)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_category_nocase ON vendors(category COLLATE NOCASE)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_service_nocase ON vendors(service COLLATE NOCASE)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc_nocase ON vendors(category COLLATE NOCASE, service COLLATE NOCASE)")
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc ON vendors(category, service)"
+        )
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_business_name_nocase ON vendors(business_name COLLATE NOCASE)"
+        )
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_category_nocase ON vendors(category COLLATE NOCASE)"
+        )
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_service_nocase ON vendors(service COLLATE NOCASE)"
+        )
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_cat_svc_nocase ON vendors(category COLLATE NOCASE, service COLLATE NOCASE)"
+        )
 
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw_version ON vendors(ckw_version)")
-        cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw_locked  ON vendors(ckw_locked)")
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_ckw_version ON vendors(ckw_version)"
+        )
+        cx.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS idx_vendors_ckw_locked  ON vendors(ckw_locked)"
+        )
 
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY)")
         cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY)")
@@ -572,6 +645,7 @@ def ensure_schema_uncached() -> str:
 
     return "Schema OK"
 
+
 def bootstrap_from_csv_if_needed() -> str | None:
     if not ALLOW_SEED_IMPORT:
         return None
@@ -579,8 +653,7 @@ def bootstrap_from_csv_if_needed() -> str | None:
     if not os.path.exists(csv_path):
         return None
 
-    eng = get_engine()
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         n = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
         if n > 0:
             return None
@@ -608,6 +681,7 @@ def bootstrap_from_csv_if_needed() -> str | None:
         placeholders = ", ".join([f":{c}" for c in rows[0].keys()])
         cx.exec_driver_sql(f"INSERT INTO vendors ({cols_sql}) VALUES ({placeholders})", rows)
         return f"Bootstrap inserted {len(rows)} rows"
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # CKW: compute & writebacks
@@ -642,15 +716,17 @@ def compute_ckw(row: Dict[str, Any]) -> str:
             out.append(t)
     return " ".join(out).strip()
 
+
 # >>> CKW recompute (engine-style) BEGIN ---------------------------------------
 
-def _preload_seed_map(eng) -> dict[tuple[str, str], str]:
+
+def _preload_seed_map() -> dict[tuple[str, str], str]:
     seed_map: dict[tuple[str, str], str] = {}
     try:
-        with eng.connect() as cx:
-            rows = cx.exec_driver_sql(
-                "SELECT category, service, seed FROM ckw_seeds"
-            ).mappings().all()
+        with get_engine().connect() as cx:
+            rows = (
+                cx.exec_driver_sql("SELECT category, service, seed FROM ckw_seeds").mappings().all()
+            )
             for r in rows:
                 cat = (r["category"] or "").strip()
                 svc = (r["service"] or "").strip()
@@ -662,7 +738,10 @@ def _preload_seed_map(eng) -> dict[tuple[str, str], str]:
         pass
     return seed_map
 
-def _resolve_seed(seed_map: dict[tuple[str, str], str], category: str | None, service: str | None) -> list[str]:
+
+def _resolve_seed(
+    seed_map: dict[tuple[str, str], str], category: str | None, service: str | None
+) -> list[str]:
     """Return a normalized list of seed phrases for (category, service), with category-wide fallback."""
     cat = (category or "").strip()
     svc = (service or "").strip()
@@ -675,27 +754,30 @@ def _resolve_seed(seed_map: dict[tuple[str, str], str], category: str | None, se
         return []
     return [p.strip().lower() for p in s.split(",") if p.strip()]
 
+
 def _row_for_builder(r: dict[str, Any]) -> dict[str, str]:
     """Normalize a DB row into the dict that _build_ckw expects."""
     return {
         "business_name": r.get("business_name") or "",
-        "category":      r.get("category") or "",
-        "service":       r.get("service") or "",
-        "notes":         r.get("notes") or "",
+        "category": r.get("category") or "",
+        "service": r.get("service") or "",
+        "notes": r.get("notes") or "",
         "ckw_manual_extra": r.get("ckw_manual_extra") or "",
     }
 
-def recompute_ckw_for_ids(eng: Engine, ids: list[int]) -> int:
+
+def recompute_ckw_for_ids(ids: list[int]) -> int:
     if not ids:
         return 0
 
-    seed_map = _preload_seed_map(eng)
+    seed_map = _preload_seed_map()
     placeholders = ",".join([":id" + str(i) for i in range(len(ids))])
     id_params = {("id" + str(i)): int(v) for i, v in enumerate(ids)}
 
-    with eng.connect() as cx:
-        rows = cx.exec_driver_sql(
-            f"""
+    with get_engine().connect() as cx:
+        rows = (
+            cx.exec_driver_sql(
+                f"""
             SELECT id, category, service, business_name, notes,
                    COALESCE(ckw_manual_extra,'') AS ckw_manual_extra,
                    COALESCE(computed_keywords,'') AS computed_keywords,
@@ -703,8 +785,11 @@ def recompute_ckw_for_ids(eng: Engine, ids: list[int]) -> int:
             FROM vendors
             WHERE id IN ({placeholders})
             """,
-            id_params,
-        ).mappings().all()
+                id_params,
+            )
+            .mappings()
+            .all()
+        )
 
     updates = []
     for r in rows:
@@ -725,7 +810,7 @@ def recompute_ckw_for_ids(eng: Engine, ids: list[int]) -> int:
     if not updates:
         return 0
 
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql(
             """
             UPDATE vendors
@@ -738,19 +823,24 @@ def recompute_ckw_for_ids(eng: Engine, ids: list[int]) -> int:
 
     return len(updates)
 
-def recompute_ckw_all(eng: Engine) -> int:
-    """Full recompute for all vendors, ignoring ckw_locked."""
-    seed_map = _preload_seed_map(eng)
 
-    with eng.connect() as cx:
-        rows = cx.exec_driver_sql(
-            """
+def recompute_ckw_all() -> int:
+    """Full recompute for all vendors, ignoring ckw_locked."""
+    seed_map = _preload_seed_map()
+
+    with get_engine().connect() as cx:
+        rows = (
+            cx.exec_driver_sql(
+                """
             SELECT id, category, service, business_name, notes,
                    COALESCE(ckw_manual_extra,'') AS ckw_manual_extra,
                    COALESCE(computed_keywords,'') AS computed_keywords
             FROM vendors
             """
-        ).mappings().all()
+            )
+            .mappings()
+            .all()
+        )
 
     updates = []
     for r in rows:
@@ -771,7 +861,7 @@ def recompute_ckw_all(eng: Engine) -> int:
     if not updates:
         return 0
 
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql(
             """
             UPDATE vendors
@@ -784,20 +874,25 @@ def recompute_ckw_all(eng: Engine) -> int:
 
     return len(updates)
 
-def recompute_ckw_all_respect_locks(eng: Engine) -> int:
-    """Full recompute for all vendors where ckw_locked=0 (respects locks)."""
-    seed_map = _preload_seed_map(eng)
 
-    with eng.connect() as cx:
-        rows = cx.exec_driver_sql(
-            """
+def recompute_ckw_all_respect_locks() -> int:
+    """Full recompute for all vendors where ckw_locked=0 (respects locks)."""
+    seed_map = _preload_seed_map()
+
+    with get_engine().connect() as cx:
+        rows = (
+            cx.exec_driver_sql(
+                """
             SELECT id, category, service, business_name, notes,
                    COALESCE(ckw_manual_extra,'') AS ckw_manual_extra,
                    COALESCE(computed_keywords,'') AS computed_keywords
             FROM vendors
             WHERE IFNULL(ckw_locked,0) = 0
             """
-        ).mappings().all()
+            )
+            .mappings()
+            .all()
+        )
 
     updates = []
     for r in rows:
@@ -818,7 +913,7 @@ def recompute_ckw_all_respect_locks(eng: Engine) -> int:
     if not updates:
         return 0
 
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql(
             """
             UPDATE vendors
@@ -830,6 +925,7 @@ def recompute_ckw_all_respect_locks(eng: Engine) -> int:
         )
 
     return len(updates)
+
 
 # <<< CKW recompute END ---------------------------------------------------------
 
@@ -837,9 +933,11 @@ def recompute_ckw_all_respect_locks(eng: Engine) -> int:
 # CKW helpers: seeds + synonyms (optional)
 # ──────────────────────────────────────────────────────────────────────────
 
+
 @st.cache_resource
 def _get_ckw_synonyms_map() -> dict:
     import json
+
     blob = os.getenv("CKW_SYNONYMS_JSON", "")
     if not blob:
         try:
@@ -852,12 +950,13 @@ def _get_ckw_synonyms_map() -> dict:
             if isinstance(m, dict):
                 m.setdefault("service", {})
                 m.setdefault("category", {})
-                m["service"]  = {str(k).lower(): v for k, v in m["service"].items()}
+                m["service"] = {str(k).lower(): v for k, v in m["service"].items()}
                 m["category"] = {str(k).lower(): v for k, v in m["category"].items()}
                 return m
         except Exception:
             pass
     return {"service": {}, "category": {}}
+
 
 def _load_synonyms_service(service: str | None) -> list[str]:
     name = (service or "").strip().lower()
@@ -866,6 +965,7 @@ def _load_synonyms_service(service: str | None) -> list[str]:
     vals = _get_ckw_synonyms_map().get("service", {}).get(name, [])
     return [str(x).strip() for x in vals if str(x).strip()]
 
+
 def _load_synonyms_category(category: str | None) -> list[str]:
     name = (category or "").strip().lower()
     if not name:
@@ -873,18 +973,21 @@ def _load_synonyms_category(category: str | None) -> list[str]:
     vals = _get_ckw_synonyms_map().get("category", {}).get(name, [])
     return [str(x).strip() for x in vals if str(x).strip()]
 
+
 # ──────────────────────────────────────────────────────────────────────────
 # Cached data functions used by Browse
 # ──────────────────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def _has_ckw_column(data_ver: int) -> bool:
-    eng = get_engine()
-    with eng.connect() as cx:
+    with get_engine().connect() as cx:
         try:
             rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
-            return any((r[1] if isinstance(r, tuple) else r["name"]) == "computed_keywords" for r in rows)
+            return any(
+                (r[1] if isinstance(r, tuple) else r["name"]) == "computed_keywords" for r in rows
+            )
         except Exception:
             return False
+
 
 @st.cache_data(show_spinner=False)
 def count_rows(q: str, data_ver: int = 0) -> int:
@@ -905,17 +1008,15 @@ def count_rows(q: str, data_ver: int = 0) -> int:
 """
         params["q"] = f"%{(q or '').strip().lower()}%"
     sql = f"SELECT COUNT(*) FROM vendors {where}"
-    eng = get_engine()
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         return int(cx.exec_driver_sql(sql, params).scalar() or 0)
 
 
 @st.cache_data(show_spinner=False)
 def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list[int]:
     """Return vendor IDs with CKW hits ranked before generic text hits; stable order otherwise."""
-    eng = get_engine()
     q_norm = (q or "").strip().lower()
-    with eng.connect() as cx:
+    with get_engine().connect() as cx:
         if q_norm:
             if _has_ckw_column(data_ver):
                 sql = sa.text(
@@ -948,7 +1049,12 @@ def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list
                     LIMIT :limit OFFSET :offset
                     """
                 )
-                params = {"q1": f"%{q_norm}%", "q2": f"%{q_norm}%", "limit": int(limit), "offset": int(offset)}
+                params = {
+                    "q1": f"%{q_norm}%",
+                    "q2": f"%{q_norm}%",
+                    "limit": int(limit),
+                    "offset": int(offset),
+                }
             else:
                 sql = sa.text(
                     """
@@ -980,32 +1086,34 @@ def search_ids_ckw_first(q: str, limit: int, offset: int, data_ver: int) -> list
             params = {"limit": int(limit), "offset": int(offset)}
         return [row[0] for row in cx.execute(sql, params).all()]
 
+
 @st.cache_data(show_spinner=False)
 def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
     """Fetch display columns for a given tuple of IDs. Empty-safe."""
     if not ids:
-        return pd.DataFrame(columns=[
-            "id",
-            "business_name",
-            "category",
-            "service",
-            "contact_name",
-            "phone",
-            "email",
-            "website",
-            "address",
-            "notes",
-            "created_at",
-            "updated_at",
-            "keywords",
-            "computed_keywords",
-            "ckw_locked",
-            "ckw_version",
-        ])
-    eng = get_engine()
+        return pd.DataFrame(
+            columns=[
+                "id",
+                "business_name",
+                "category",
+                "service",
+                "contact_name",
+                "phone",
+                "email",
+                "website",
+                "address",
+                "notes",
+                "created_at",
+                "updated_at",
+                "keywords",
+                "computed_keywords",
+                "ckw_locked",
+                "ckw_version",
+            ]
+        )
     placeholders = ",".join([f":id{i}" for i in range(len(ids))])
     params = {f"id{i}": v for i, v in enumerate(ids)}
-    with eng.connect() as cx:
+    with get_engine().connect() as cx:
         sql = sa.text(
             f"""
             SELECT
@@ -1025,10 +1133,11 @@ def fetch_rows_by_ids(ids: tuple[int, ...], data_ver: int) -> pd.DataFrame:
         df = df.sort_values(["business_name", "id"], kind="stable", ignore_index=True)
     return df
 
+
 # ──────────────────────────────────────────────────────────────────────────
 # CRUD helpers
 # ──────────────────────────────────────────────────────────────────────────
-def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
+def insert_vendor(data: Dict[str, Any]) -> int:
     """Insert a vendor row and return new id. Empty-safe & type-safe."""
     # Map UI/friendly keys → DB column names
     keymap = {
@@ -1049,11 +1158,19 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
     }
 
     allowed = [
-        "business_name", "category", "service",
-        "phone", "website", "address",
-        "notes", "email", "contact_name",
-        "ckw_manual_extra", "computed_keywords",
-        "ckw_locked", "ckw_version",
+        "business_name",
+        "category",
+        "service",
+        "phone",
+        "website",
+        "address",
+        "notes",
+        "email",
+        "contact_name",
+        "ckw_manual_extra",
+        "computed_keywords",
+        "ckw_locked",
+        "ckw_version",
     ]
 
     # Normalize → params
@@ -1083,10 +1200,11 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
     val_list = ", ".join(f":{c}" for c in cols)
 
     sql_returning = f"INSERT INTO vendors ({col_list}) VALUES ({val_list}) RETURNING id"
-    sql_basic     = f"INSERT INTO vendors ({col_list}) VALUES ({val_list})"
+    sql_basic = f"INSERT INTO vendors ({col_list}) VALUES ({val_list})"
 
     import sqlalchemy as sa
-    with eng.begin() as cx:
+
+    with get_engine().begin() as cx:
         try:
             res = cx.exec_driver_sql(sa.text(sql_returning).text, params)
             row = res.first()
@@ -1097,6 +1215,7 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
                 res = cx.exec_driver_sql(sa.text(sql_basic).text, params)
             except TypeError:
                 import os
+
                 if os.getenv("SHOW_DEBUG") == "1":
                     st.error("TypeError during INSERT (likely placeholder/params mismatch).")
                     st.code(
@@ -1114,10 +1233,9 @@ def insert_vendor(eng: Engine, data: Dict[str, Any]) -> int:
 
 
 def update_vendor(
-    eng: Engine,
     vendor_id: int,
     data: Dict[str, Any],
-    prev_updated: str | None = None,   # optional optimistic concurrency
+    prev_updated: str | None = None,  # optional optimistic concurrency
 ) -> int:
     """
     Update a vendor row by id. Returns number of rows changed (0 = no-op/stale).
@@ -1146,11 +1264,19 @@ def update_vendor(
         "ckw_version": "ckw_version",
     }
     allowed = {
-        "business_name", "category", "service",
-        "phone", "website", "address",
-        "notes", "email", "contact_name",
-        "ckw_manual_extra", "computed_keywords",
-        "ckw_locked", "ckw_version",
+        "business_name",
+        "category",
+        "service",
+        "phone",
+        "website",
+        "address",
+        "notes",
+        "email",
+        "contact_name",
+        "ckw_manual_extra",
+        "computed_keywords",
+        "ckw_locked",
+        "ckw_version",
     }
 
     # Normalize inputs
@@ -1186,6 +1312,7 @@ def update_vendor(
 
     # Always bump updated_at
     from datetime import datetime, timezone
+
     params["updated_at"] = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     set_clauses.append("updated_at = :updated_at")
 
@@ -1197,7 +1324,8 @@ def update_vendor(
     sql = f"UPDATE vendors SET {', '.join(set_clauses)} WHERE {where_clause}"
 
     import sqlalchemy as sa
-    with eng.begin() as cx:
+
+    with get_engine().begin() as cx:
         res = cx.exec_driver_sql(sa.text(sql).text, params)
         changed = int(res.rowcount or 0)
 
@@ -1206,28 +1334,32 @@ def update_vendor(
 
     return changed
 
+
 # ──────────────────────────────────────────────────────────────────────────
 # Lookup helpers
 # ──────────────────────────────────────────────────────────────────────────
-def list_categories(eng: Engine) -> List[str]:
-    with eng.begin() as cx:
+def list_categories() -> List[str]:
+    with get_engine().begin() as cx:
         rows = cx.exec_driver_sql("SELECT name FROM categories ORDER BY name COLLATE NOCASE").all()
     return [r[0] for r in rows]
 
-def list_services(eng: Engine) -> List[str]:
-    with eng.begin() as cx:
+
+def list_services() -> List[str]:
+    with get_engine().begin() as cx:
         rows = cx.exec_driver_sql("SELECT name FROM services ORDER BY name COLLATE NOCASE").all()
     return [r[0] for r in rows]
 
-def ensure_lookup_value(eng: Engine, table: str, name: str) -> None:
+
+def ensure_lookup_value(table: str, name: str) -> None:
     if not name:
         return
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql(f"INSERT OR IGNORE INTO {table}(name) VALUES (:n)", {"n": name.strip()})
 
-def refresh_lookups(eng: Engine) -> None:
+
+def refresh_lookups() -> None:
     """Idempotent refresh of categories/services from vendors."""
-    with eng.begin() as cx:
+    with get_engine().begin() as cx:
         cx.exec_driver_sql("""
             INSERT OR IGNORE INTO categories(name)
             SELECT DISTINCT COALESCE(TRIM(category),'')
@@ -1241,294 +1373,297 @@ def refresh_lookups(eng: Engine) -> None:
             WHERE COALESCE(TRIM(service),'') <> ''
         """)
 
+
 # ──────────────────────────────────────────────────────────────────────────
 # UI helpers
 # ──────────────────────────────────────────────────────────────────────────
-def _has_table(eng: Engine, name: str) -> bool:
+def _has_table(name: str) -> bool:
     try:
-        with eng.connect() as cx:
+        with get_engine().connect() as cx:
             rows = cx.exec_driver_sql(f"PRAGMA table_info({name})").all()
         return bool(rows)
     except Exception:
         return False
+
+
 # --- One-shot clearing helpers -------------------------------------------
 def _pop_keys(keys: list[str]) -> None:
     for k in keys:
         st.session_state.pop(k, None)
 
+
 def _clear_after(scope: str) -> None:
     st.session_state["_after_action_clear"] = scope
     st.rerun()
+
+    # Render Add/Edit/Delete inside its tab
+    render_add_edit_delete(tab_manage)
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────
 def main() -> None:
+    st.caption("Admin starting…")
+    # --- Always create tabs so UI is visible even if DB is not ready ---
+    tab_browse, tab_manage, tab_maint = st.tabs(
+        ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
+    )
+
+    # --- DEBUG: Always-visible skeleton UI (remove after diagnosis) ---
+    st.write("DEBUG: basic UI alive; DB_READY =", st.session_state.get("DB_READY"))
+    t_browse, t_maint = st.tabs(["Browse (debug)", "Maintenance (debug)"])
+    with t_browse:
+        st.write("Browse placeholder. If this renders, UI pipeline is OK.")
+    with t_maint:
+        st.write("Maintenance placeholder. Real panels may be gated below.")
+
     # ---- DATA_VER init (cache-buster for @st.cache_data) ----
     if "DATA_VER" not in st.session_state:
         st.session_state["DATA_VER"] = 0
-    DATA_VER = st.session_state["DATA_VER"]
 
     # ---- Build engine early and ensure schema BEFORE any queries ----
-    eng = get_engine()
-    try:
-        msg_schema = ensure_schema_uncached()
-        if os.getenv("SHOW_STATUS") == "1":
-            st.caption(msg_schema)
-    except Exception as e:
-        st.warning(f"Schema check failed: {e}")
-
-    # Optional seed if empty (safe no-op otherwise)
-    try:
-        msg_seed = bootstrap_from_csv_if_needed()
-        if msg_seed and os.getenv("SHOW_STATUS") == "1":
-            st.caption(msg_seed)
-    except Exception as e:
-        st.warning(f"Bootstrap skipped: {e}")
-
-    # Build fingerprint (for Maintenance tab only)
-    try:
-        this_file = Path(__file__).resolve()
-        ADMIN_FILE = str(this_file)
-        ADMIN_SHA  = hashlib.sha256(this_file.read_bytes()).hexdigest()[:12]
-    except Exception:
-        ADMIN_FILE = None
-        ADMIN_SHA  = None
-    # --- Runtime drift guard (optional; warn or block if mismatched) ---
-    EXPECTED_APP_VER = os.getenv("EXPECTED_APP_VER", str(st.secrets.get("EXPECTED_APP_VER", "")))
-    EXPECTED_ADMIN_SHA = os.getenv("EXPECTED_ADMIN_SHA", str(st.secrets.get("EXPECTED_ADMIN_SHA", ""))).strip()
-
-    if EXPECTED_APP_VER:
-        if APP_VER != EXPECTED_APP_VER:
-            st.warning(f"Runtime drift: APP_VER running '{APP_VER}' != expected '{EXPECTED_APP_VER}' (secrets).")
-
-    if EXPECTED_ADMIN_SHA and ADMIN_SHA:
-        if ADMIN_SHA != EXPECTED_ADMIN_SHA[:12]:
-            st.error(f"Runtime drift: file sha {ADMIN_SHA} != expected {EXPECTED_ADMIN_SHA[:12]}.")
-            # Uncomment to hard-block instead of warn:
-            # st.stop()
 
 
-    # ---- DB readiness probe (vendors table exists?) ----
-    try:
-        with eng.connect() as _cx:
-            _row = _cx.exec_driver_sql(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='vendors'"
-            ).first()
-        DB_READY = bool(_row)
-    except Exception:
-        DB_READY = False
-    st.session_state["DB_READY"] = DB_READY
+try:
+    DB_READY = _has_table("vendors")
+    if not DB_READY:
+        try:
+            msg_seed = bootstrap_from_csv_if_needed()
+            if msg_seed and os.getenv("SHOW_STATUS") == "1":
+                st.caption(msg_seed)
+            DB_READY = _has_table("vendors")
+        except Exception as e:
+            st.warning(f"Bootstrap skipped: {e}")
+except Exception as e:
+    st.warning(f"Schema initialization failed: {e}")
 
-    # Tabs
-    tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
-        ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
+st.session_state["DB_READY"] = bool(DB_READY)
+
+# Tabs (create them now so downstream code can render into each)
+tab_browse, tab_manage, tab_maint = st.tabs(
+    ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
+)
+
+# ─────────────────────────────────────────────────────────────────────
+# Browse (Admin)
+# ─────────────────────────────────────────────────────────────────────
+with tab_browse:
+    # --- Search bar (single-click Clear) ---
+    c1, c2, _ = st.columns([0.5, 0.12, 0.38])
+    q = c1.text_input(
+        label="Search",
+        key="q",
+        placeholder="Search name, category, service, notes, phone, website…",
+        label_visibility="collapsed",
     )
-    # Now that tabs exist, render the Add/Edit/Delete tab
-    render_add_edit_delete(tab_manage)
+    if c2.button("Clear", use_container_width=True):
+        if "q" in st.session_state:
+            del st.session_state["q"]
+        st.rerun()
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Browse (Admin)
-    # ─────────────────────────────────────────────────────────────────────
-    with tab_browse:
-        # --- Search bar (single-click Clear) ---
-        c1, c2, _ = st.columns([0.5, 0.12, 0.38])
-        q = c1.text_input(
-            label="Search",
-            key="q",
-            placeholder="Search name, category, service, notes, phone, website…",
-            label_visibility="collapsed",
+    q = st.session_state.get("q", "")
+
+    # Count matching rows
+    try:
+        total = count_rows(q=q, data_ver=st.session_state.get("DATA_VER", 0))
+    except Exception as e:
+        st.error(f"Browse failed (count): {e}")
+        st.stop()
+
+    # Resolve IDs and load rows
+    try:
+        ids = search_ids_ckw_first(
+            q=q,
+            limit=PAGE_SIZE,
+            offset=0,
+            data_ver=st.session_state.get("DATA_VER", 0),
         )
-        if c2.button("Clear", use_container_width=True):
-            if "q" in st.session_state:
-                del st.session_state["q"]
-            st.rerun()
-    
-        q = st.session_state.get("q", "")
-    
-        # Count matching rows
-        try:
-            total = count_rows(q=q, data_ver=DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (count): {e}")
-            st.stop()
-    
-        # Resolve IDs and load rows
-        try:
-            ids = search_ids_ckw_first(q=q, limit=PAGE_SIZE, offset=0, data_ver=DATA_VER)
-            if not ids:
-                df = pd.DataFrame()
-            else:
-                df = fetch_rows_by_ids(tuple(ids), DATA_VER)
-        except Exception as e:
-            st.error(f"Browse failed (load): {e}")
-            st.stop()
-    
-        # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
-        _base_cols = list(BROWSE_COLUMNS)
-        for c in ORDER:
-            if c not in _base_cols:
-                _base_cols.append(c)
-    
-        if df.empty:
-            df = pd.DataFrame(columns=_base_cols)
+        if not ids:
+            df = pd.DataFrame()
         else:
-            for col in _base_cols:
-                if col not in df.columns:
-                    df[col] = ""
-            df = df.reindex(columns=_base_cols, fill_value="")
-    
-        # Hide heavy/internal columns and originals replaced with aliases
-        _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
-        _ALIAS_ORIGS = {"contact_name", "email", "computed_keywords"}  # originals replaced by friendly aliases
-        _hide = set(_TECH_COLS | _ALIAS_ORIGS)
-    
-        # If a tech/original column is explicitly requested in ORDER, don't hide it.
-        for col in list(_hide):
-            if col in ORDER:
-                _hide.discard(col)
-    
-        def _is_ckw_control(col: str) -> bool:
-            # Only hide ckw_* controls if they're NOT explicitly requested in ORDER
-            return col.startswith("ckw_") and col not in ORDER
-    
-        # Create alias columns (idempotent)
-        _src = df.copy()
-        if not _src.empty:
-            if "contact name" not in _src.columns and "contact_name" in _src.columns:
-                _src["contact name"] = _src["contact_name"].fillna("")
-            if "email address" not in _src.columns and "email" in _src.columns:
-                _src["email address"] = _src["email"].fillna("")
-            if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
-                _src["keywords"] = _src["ckw_manual_extra"].fillna("")
-            if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
-                _src["ckw"] = _src["computed_keywords"].fillna("")
-    
-        # Visible columns and enforced order
-        _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
-        _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
-    
-        # Hidden/control-char scanning + sanitization helpers
-        import json as _json
-        from datetime import datetime as _dt
-        _HIDDEN_RX = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
-    
-        def _to_str_safe(x):
-            if x is None:
-                return ""
-            if isinstance(x, _dt):
-                return x.isoformat(sep=" ", timespec="seconds")
-            if isinstance(x, (bytes, bytearray)):
-                try:
-                    x = x.decode("utf-8", errors="replace")
-                except Exception:
-                    return str(x)
-            if isinstance(x, dict):
-                try:
-                    return _json.dumps(x, ensure_ascii=False)
-                except Exception:
-                    return str(x)
-            if isinstance(x, (list, tuple, set)):
-                return ", ".join("" if (v is None) else str(v) for v in x)
+            df = fetch_rows_by_ids(tuple(ids), st.session_state.get("DATA_VER", 0))
+    except Exception as e:
+        st.error(f"Browse failed (load): {e}")
+        st.stop()
+
+    # Base frame: include BROWSE_COLUMNS + anything explicitly requested in ORDER
+    _base_cols = list(BROWSE_COLUMNS)
+    for c in ORDER:
+        if c not in _base_cols:
+            _base_cols.append(c)
+
+    if df.empty:
+        df = pd.DataFrame(columns=_base_cols)
+    else:
+        for col in _base_cols:
+            if col not in df.columns:
+                df[col] = ""
+        df = df.reindex(columns=_base_cols, fill_value="")
+
+    # Hide heavy/internal columns and originals replaced with aliases
+    _TECH_COLS = {"id", "created_at", "updated_at", "ckw_locked", "ckw_version"}
+    _ALIAS_ORIGS = {
+        "contact_name",
+        "email",
+        "computed_keywords",
+    }  # originals replaced by friendly aliases
+    _hide = set(_TECH_COLS | _ALIAS_ORIGS)
+
+    # If a tech/original column is explicitly requested in ORDER, don't hide it.
+    for col in list(_hide):
+        if col in ORDER:
+            _hide.discard(col)
+
+    def _is_ckw_control(col: str) -> bool:
+        # Only hide ckw_* controls if they're NOT explicitly requested in ORDER
+        return col.startswith("ckw_") and col not in ORDER
+
+    # Create alias columns (idempotent)
+    _src = df.copy()
+    if not _src.empty:
+        if "contact name" not in _src.columns and "contact_name" in _src.columns:
+            _src["contact name"] = _src["contact_name"].fillna("")
+        if "email address" not in _src.columns and "email" in _src.columns:
+            _src["email address"] = _src["email"].fillna("")
+        if "keywords" not in _src.columns and "ckw_manual_extra" in _src.columns:
+            _src["keywords"] = _src["ckw_manual_extra"].fillna("")
+        if "ckw" not in _src.columns and "computed_keywords" in _src.columns:
+            _src["ckw"] = _src["computed_keywords"].fillna("")
+
+    # Visible columns and enforced order
+    _visible = [c for c in _src.columns if c not in _hide and not _is_ckw_control(c)]
+    _ordered = [c for c in ORDER if c in _visible] + [c for c in _visible if c not in ORDER]
+
+    # Hidden/control-char scanning + sanitization helpers
+    import json as _json
+    from datetime import datetime as _dt
+    import re as _re
+
+    _HIDDEN_RX = _re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\u200B-\u200F\u202A-\u202E\u2060]")
+
+    def _to_str_safe(x):
+        if x is None:
+            return ""
+        if isinstance(x, _dt):
+            return x.isoformat(sep=" ", timespec="seconds")
+        if isinstance(x, (bytes, bytearray)):
             try:
-                return "" if pd.isna(x) else str(x)
+                x = x.decode("utf-8", errors="replace")
             except Exception:
                 return str(x)
-    
-        def _strip_hidden(s: str) -> str:
-            return _HIDDEN_RX.sub("", s)
-    
-        # Build the view and normalize
-        _view = _src.loc[:, _ordered] if not _src.empty else _src
-        _view_safe = _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
-    
-        # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
+        if isinstance(x, dict):
+            try:
+                return _json.dumps(x, ensure_ascii=False)
+            except Exception:
+                return str(x)
+        if isinstance(x, (list, tuple, set)):
+            return ", ".join("" if (v is None) else str(v) for v in x)
         try:
-            from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+            return "" if pd.isna(x) else str(x)
         except Exception:
-            st.error("Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3")
-        else:
-            # Respect final ordered columns that actually exist in the DataFrame
-            _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
-            _df = _view_safe[_cols_present] if _cols_present else _view_safe
-    
-            # Read exact widths from secrets (ints); fallback to 160 if missing/bad
-            _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    
-            gb = GridOptionsBuilder.from_dataframe(
-                _df,
-                enableValue=False,
-                enableRowGroup=False,
-                enablePivot=False,
+            return str(x)
+
+    def _strip_hidden(s: str) -> str:
+        return _HIDDEN_RX.sub("", s)
+
+    # Build the view and normalize
+    _view = _src.loc[:, _ordered] if not _src.empty else _src
+    _view_safe = (
+        _view.applymap(lambda v: _strip_hidden(_to_str_safe(v))) if not _view.empty else _view
+    )
+
+    # Render (AgGrid with exact pixel widths + autosize-to-contents on first render)
+    try:
+        from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+    except Exception:
+        st.error(
+            "Missing dependency: streamlit-aggrid. Add to requirements.txt: streamlit-aggrid==0.3.4.post3"
+        )
+    else:
+        # Respect final ordered columns that actually exist in the DataFrame
+        _cols_present = [c for c in _ordered if (not _view_safe.empty and c in _view_safe.columns)]
+        _df = _view_safe[_cols_present] if _cols_present else _view_safe
+
+        # Read exact widths from secrets (ints); fallback to 160 if missing/bad
+        _px_map = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+
+        gb = GridOptionsBuilder.from_dataframe(
+            _df,
+            enableValue=False,
+            enableRowGroup=False,
+            enablePivot=False,
+        )
+        go = gb.build()
+
+        # Auto-size columns to fit contents (runs once on first data render)
+        go["onFirstDataRendered"] = JsCode("""
+        function(params) {
+          var all = params.columnApi.getAllDisplayedColumns().map(c => c.getColId());
+          params.columnApi.autoSizeColumns(all, false);
+        }
+        """)
+
+        # Default column behavior: resizable, no wrap, bounded widths
+        go["defaultColDef"] = {
+            "resizable": True,
+            "wrapText": False,
+            "autoHeight": False,
+            "minWidth": 60,
+            "maxWidth": 1000,
+        }
+
+        # Apply per-column pixel widths and common options (+ tooltips)
+        for col in go.get("columnDefs", []):
+            name = col.get("field")
+            width_px = 160
+            if name in _px_map:
+                try:
+                    width_px = int(_px_map[name])
+                except Exception:
+                    pass
+            col["width"] = width_px
+            col["resizable"] = True
+            col["sortable"] = True
+            col["wrapText"] = False
+            col["autoHeight"] = False
+            col["tooltipField"] = name
+
+        # Do NOT auto-stretch to container; keep your exact pixels
+        go["suppressSizeToFit"] = True
+        go["domLayout"] = "normal"
+
+        AgGrid(
+            _df,
+            gridOptions=go,
+            update_mode=GridUpdateMode.NO_UPDATE,
+            height=520,
+            fit_columns_on_grid_load=False,  # keep exact widths; allow horizontal scroll
+            allow_unsafe_jscode=True,  # required for JsCode callback
+        )
+
+    # ---- Bottom toolbar: CSV + Help ----
+    bt1, bt2 = st.columns([0.22, 0.78])
+
+    if not _view_safe.empty:
+        _export_df = _view_safe
+        with bt1:
+            st.download_button(
+                "Download CSV",
+                data=_export_df.to_csv(index=False),
+                file_name="providers.csv",
+                mime="text/csv",
+                use_container_width=True,
             )
-            go = gb.build()
-    
-            # Auto-size columns to fit contents (runs once on first data render)
-            go["onFirstDataRendered"] = JsCode("""
-            function(params) {
-              var all = params.columnApi.getAllDisplayedColumns().map(c => c.getColId());
-              params.columnApi.autoSizeColumns(all, false);
-            }
-            """)
-    
-            # Default column behavior: resizable, no wrap, bounded widths
-            go["defaultColDef"] = {
-              "resizable": True,
-              "wrapText": False,
-              "autoHeight": False,
-              "minWidth": 60,
-              "maxWidth": 1000
-            }
-    
-            # Apply per-column pixel widths and common options (+ tooltips)
-            for col in go.get("columnDefs", []):
-                name = col.get("field")
-                width_px = 160
-                if name in _px_map:
-                    try:
-                        width_px = int(_px_map[name])
-                    except Exception:
-                        pass
-                col["width"] = width_px
-                col["resizable"] = True
-                col["sortable"] = True
-                col["wrapText"] = False
-                col["autoHeight"] = False
-                col["tooltipField"] = name
-    
-            # Do NOT auto-stretch to container; keep your exact pixels
-            go["suppressSizeToFit"] = True
-            go["domLayout"] = "normal"
-    
-            AgGrid(
-                _df,
-                gridOptions=go,
-                update_mode=GridUpdateMode.NO_UPDATE,
-                height=520,
-                fit_columns_on_grid_load=False,   # keep exact widths; allow horizontal scroll
-                allow_unsafe_jscode=True,         # required for JsCode callback
-            )
-    
-        # ---- Bottom toolbar: CSV + Help ----
-        bt1, bt2 = st.columns([0.22, 0.78])
-    
-        if not _view_safe.empty:
-            _export_df = _view_safe
-            with bt1:
-                st.download_button(
-                    "Download CSV",
-                    data=_export_df.to_csv(index=False),
-                    file_name="providers.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-    
-        with st.expander("Help — How to use Browse (click to open)", expanded=False):
-            st.markdown(HELP_MD)
+
+    with st.expander("Help — How to use Browse (click to open)", expanded=False):
+        st.markdown(HELP_MD)
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
     # ─────────────────────────────────────────────────────────────────────
+
+
 def render_add_edit_delete(tab_manage):
     with tab_manage:
         # --- One-shot post-action clearing (runs before any widgets are created) ---
@@ -1536,19 +1671,34 @@ def render_add_edit_delete(tab_manage):
 
         if _clear == "add":
             for k in (
-                "bn_add", "cat_add_sel", "srv_add_sel",
-                "contact_add", "phone_add", "email_add",
-                "website_add", "address_add", "notes_add",
-                "kw_add", "btn_add_provider",
+                "bn_add",
+                "cat_add_sel",
+                "srv_add_sel",
+                "contact_add",
+                "phone_add",
+                "email_add",
+                "website_add",
+                "address_add",
+                "notes_add",
+                "kw_add",
+                "btn_add_provider",
             ):
                 st.session_state.pop(k, None)
 
         elif _clear == "edit":
             for k in (
-                "pick_edit_sel", "bn_edit", "cat_edit_sel", "srv_edit_sel",
-                "contact_edit", "phone_edit", "email_edit",
-                "website_edit", "address_edit", "notes_edit",
-                "kw_edit", "save_changes_btn",
+                "pick_edit_sel",
+                "bn_edit",
+                "cat_edit_sel",
+                "srv_edit_sel",
+                "contact_edit",
+                "phone_edit",
+                "email_edit",
+                "website_edit",
+                "address_edit",
+                "notes_edit",
+                "kw_edit",
+                "save_changes_btn",
             ):
                 st.session_state.pop(k, None)
 
@@ -1556,18 +1706,19 @@ def render_add_edit_delete(tab_manage):
             st.session_state.pop("del_select_id", None)
 
         if not st.session_state.get("DB_READY"):
-            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+            st.info(
+                "Database not ready — skipping Add/Edit/Delete because required tables are missing."
+            )
             return
 
         eng = get_engine()
         lc, rc = st.columns([1, 1], gap="large")
 
-
         # ---------- Add ----------
         with lc:
             # TODO: replace with your real Add form
             st.caption("Add Provider (placeholder)")
-    
+
         # ---------- Edit ----------
         with rc:
             st.subheader("Edit Provider")
@@ -1575,7 +1726,7 @@ def render_add_edit_delete(tab_manage):
                 rows = cx.exec_driver_sql(
                     "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
                 ).all()
-    
+
             if not rows:
                 st.info("No providers yet.")
             else:
@@ -1588,18 +1739,22 @@ def render_add_edit_delete(tab_manage):
                 sel_id = int(rows[labels.index(sel)][0])
 
                 with eng.begin() as cx:
-                    r = cx.exec_driver_sql(
-                        "SELECT business_name,category,service,contact_name,phone,email,website,"
-                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
-                        {"id": sel_id},
-                    ).mappings().first()
-    
+                    r = (
+                        cx.exec_driver_sql(
+                            "SELECT business_name,category,service,contact_name,phone,email,website,"
+                            "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
+                            {"id": sel_id},
+                        )
+                        .mappings()
+                        .first()
+                    )
+
                 if r:
                     bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
-    
+
                     cats = list_categories(eng)
                     srvs = list_services(eng)
-    
+
                     e_c1, e_c2 = st.columns([1, 1])
                     cat_choice_e = e_c1.selectbox(
                         "Category *",
@@ -1613,17 +1768,25 @@ def render_add_edit_delete(tab_manage):
                         index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
                         key="srv_edit_sel",
                     )
-    
+
                     category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
-                    service_e  = r["service"]  if srv_choice_e == "— Select —" else srv_choice_e
-    
-                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                    phone_e        = st.text_input("Phone",        value=r["phone"] or "",         key="phone_edit")
-                    email_e        = st.text_input("Email",        value=r["email"] or "",         key="email_edit")
-                    website_e      = st.text_input("Website",      value=r["website"] or "",       key="website_edit")
-                    address_e      = st.text_input("Address",      value=r["address"] or "",       key="address_edit")
-                    notes_e        = st.text_area ("Notes",        value=r["notes"] or "", height=100, key="notes_edit")
-    
+                    service_e = r["service"] if srv_choice_e == "— Select —" else srv_choice_e
+
+                    contact_name_e = st.text_input(
+                        "Contact Name", value=r["contact_name"] or "", key="contact_edit"
+                    )
+                    phone_e = st.text_input("Phone", value=r["phone"] or "", key="phone_edit")
+                    email_e = st.text_input("Email", value=r["email"] or "", key="email_edit")
+                    website_e = st.text_input(
+                        "Website", value=r["website"] or "", key="website_edit"
+                    )
+                    address_e = st.text_input(
+                        "Address", value=r["address"] or "", key="address_edit"
+                    )
+                    notes_e = st.text_area(
+                        "Notes", value=r["notes"] or "", height=100, key="notes_edit"
+                    )
+
                     keywords_manual_e = st.text_area(
                         "Keywords",
                         value=(r.get("ckw_manual_extra") or ""),
@@ -1631,7 +1794,7 @@ def render_add_edit_delete(tab_manage):
                         height=80,
                         key="kw_edit",
                     )
-    
+
                     if st.button("Save Changes", type="primary", key="save_changes_btn"):
                         data = {
                             "business_name": bn_e.strip(),
@@ -1648,30 +1811,27 @@ def render_add_edit_delete(tab_manage):
                         update_vendor(eng, sel_id, data)
                         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                         _clear_after("edit")
-                        st.success(f"Saved changes to provider #{sel_id}. — run \"Recompute ALL\" to apply keywords.")
-    
+                        st.success(
+                            f'Saved changes to provider #{sel_id}. — run "Recompute ALL" to apply keywords.'
+                        )
+
                 # ---------- Delete ----------
                 st.markdown("### Delete Provider")
                 st.caption("Danger zone: Permanently removes a record from **vendors**.")
-    
-                # Build options: use Browse df if available; otherwise query minimal list
+
+                # Build options directly from DB (no dependency on Browse df)
                 try:
-                    options: list[tuple[int, str]] = []
-                    if "vdf" in locals() and isinstance(vdf, pd.DataFrame) and not vdf.empty:
-                        ids   = vdf["id"].astype(int).tolist() if "id" in vdf.columns else []
-                        names = vdf["business_name"].astype(str).tolist() if "business_name" in vdf.columns else []
-                        for _id, _nm in zip(ids, names):
-                            options.append((_id, f"{_id} — {_nm}"))
-                    else:
-                        with get_engine().connect() as cx:
-                            rows = cx.exec_driver_sql(
-                                "SELECT id, business_name FROM vendors "
-                                "ORDER BY business_name COLLATE NOCASE, id"
-                            ).fetchall()
-                            options = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
+                    with get_engine().connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, business_name FROM vendors "
+                            "ORDER BY business_name COLLATE NOCASE, id"
+                        ).fetchall()
+                    options: list[tuple[int, str]] = [
+                        (int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows
+                    ]
                 except Exception:
                     options = []
-    
+
                 selected_id = st.selectbox(
                     "Select provider to delete",
                     options=[o[0] for o in options],
@@ -1692,7 +1852,9 @@ def render_add_edit_delete(tab_manage):
                                         "DELETE FROM vendors WHERE id = :id",
                                         {"id": int(selected_id)},
                                     )
-                                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                                st.session_state["DATA_VER"] = (
+                                    st.session_state.get("DATA_VER", 0) + 1
+                                )
                                 st.success(f"Deleted provider id={selected_id}.")
                                 _clear_after("delete")  # sets flag + reruns
                             except Exception as e:
@@ -1724,6 +1886,7 @@ def render_add_edit_delete(tab_manage):
             st.rerun()  # immediately re-run to reflect cleared caches
         except Exception as e:
             st.error(f"Clear cache_data failed: {e}")
+
 
 if __name__ == "__main__":
     main()
