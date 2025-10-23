@@ -255,6 +255,39 @@ def _norm_token(s: str) -> str:
 def _split_tokens(s: str) -> list[str]:
     return [t for t in _norm_token(s).split() if t and t not in _STOP]
 
+# --- Window-coverings keyword packs (module scope) ---
+BLINDS_FAM = (
+    "wood blinds", "faux wood blinds", "vertical blinds", "mini blinds",
+    "aluminum blinds", "cordless blinds",
+)
+SHADES_FAM = (
+    "roller shades", "solar shades", "roman shades", "cellular shades",
+    "honeycomb shades", "pleated shades", "zebra shades", "blackout shades",
+    "sheer shades",
+)
+DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
+ACCESSORIES = ("valances", "cornices")
+ACTIONS     = ("design", "consultation", "design consultation", "measure",
+               "install", "installation", "in-home")
+MOTORIZED   = ("motorized shades", "motorized blinds", "motorized drapes")
+
+def _explode_phrases(phrases: list[str] | tuple[str, ...]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for ph in phrases:
+        phl = (ph or "").lower().strip()
+        if not phl:
+            continue
+        if phl not in seen:
+            out.append(phl)
+            seen.add(phl)
+        for t in _split_tokens(phl):
+            if t not in seen:
+                out.append(t)
+                seen.add(t)
+    return out
+
+
 def _unique_join(parts: list[str]) -> str:
     seen, out = set(), []
     for p in parts:
@@ -266,7 +299,7 @@ def _unique_join(parts: list[str]) -> str:
     return " ".join(out)
 
 def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list[str] | None, syn_category: list[str] | None) -> str:
-    base = []
+    base: list[str] = []
 
     # ---- 1) Core sources -----------------------------------------------
     base += _split_tokens(row.get("business_name", ""))
@@ -283,9 +316,7 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
     # Seeds (phrases → phrase + headwords)
     if seed:
         for kw in seed:
-            if not kw:
-                continue
-            kw_l = kw.lower().strip()
+            kw_l = (kw or "").lower().strip()
             if kw_l:
                 base.append(kw_l)
                 base += _split_tokens(kw_l)
@@ -299,58 +330,22 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
             base.append(piece_l)
             base += _split_tokens(piece_l)
 
-    # ---- 2) Rule-based expansions for window coverings -------------------
+    # ---- 2) Rule-based expansions for window coverings (additive) -------
     svc = (row.get("service") or "").lower()
     cat = (row.get("category") or "").lower()
-    triggers = "window" in svc or "window" in cat or any(
-        k in svc or k in cat for k in ("treatment", "blinds", "shades", "drap", "curtain", "shutter")
+    triggers = (
+        ("window" in svc) or ("window" in cat) or
+        any(k in svc or k in cat for k in ("treatment", "blinds", "shades", "drap", "curtain", "shutter"))
     )
-
     if triggers:
-# --- constants (module scope; all flush-left) ---
-BLINDS_FAM = (
-    "wood blinds", "faux wood blinds", "vertical blinds", "mini blinds",
-    "aluminum blinds", "cordless blinds",
-)
-SHADES_FAM = (
-    "roller shades", "solar shades", "roman shades", "cellular shades",
-    "honeycomb shades", "pleated shades", "zebra shades", "blackout shades",
-    "sheer shades",
-)
-DRAPERY_FAM = ("curtains", "drapes", "curtain rod", "drapery hardware")
-ACCESSORIES = ("valances", "cornices")
-ACTIONS     = ("design", "consultation", "design consultation", "measure",
-               "install", "installation", "in-home")
-MOTORIZED   = ("motorized shades", "motorized blinds", "motorized drapes")
+        base += _explode_phrases(BLINDS_FAM)
+        base += _explode_phrases(SHADES_FAM)
+        base += _explode_phrases(DRAPERY_FAM)
+        base += _explode_phrases(ACCESSORIES)
+        base += _explode_phrases(ACTIONS)
+        base += _explode_phrases(MOTORIZED)
 
-def _explode(phrases: list[str] | tuple[str, ...]) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for ph in phrases:
-        phl = (ph or "").lower().strip()
-        if not phl:
-            continue
-        if phl not in seen:
-            out.append(phl)
-            seen.add(phl)
-        for t in _split_tokens(phl):
-            if t not in seen:
-                out.append(t)
-                seen.add(t)
-    return out
-
-# --- build base only when needed ---
-if triggers:
-    base: list[str] = []
-    base += _explode(BLINDS_FAM)
-    base += _explode(SHADES_FAM)
-    base += _explode(DRAPERY_FAM)
-    base += _explode(ACCESSORIES)
-    base += _explode(ACTIONS)
-    base += _explode(MOTORIZED)
-
-
-    # ---- 3) Filter junk + stable de-dup + budgeted trim ------------------
+    # ---- 3) Filter junk + stable de-dup + budgeted trim -----------------
     def _is_junk(tok: str) -> bool:
         if not tok:
             return True
@@ -368,6 +363,7 @@ if triggers:
             seen.add(t)
             uniq.append(t)
 
+    # Tiering keeps the most valuable terms first; then cap to budget
     TIERS = ([], [], [], [], [])  # 0..4
     for t in uniq:
         if (" shades" in t) or (" blinds" in t) or t in {"shades", "blinds", "shutters"}:
@@ -393,7 +389,6 @@ if triggers:
             break
 
     return " ".join(out)
-
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1299,7 +1294,6 @@ def main() -> None:
         ADMIN_FILE = None
         ADMIN_SHA  = None
 
-render_add_edit_delete(tab_manage)
 
     # ---- DB readiness probe (vendors table exists?) ----
     try:
@@ -1316,6 +1310,8 @@ render_add_edit_delete(tab_manage)
     tab_browse, tab_manage, tab_catsvc, tab_maint = st.tabs(
         ["Browse", "Add / Edit / Delete", "Category / Service", "Maintenance"]
     )
+    # Now that tabs exist, render the Add/Edit/Delete tab
+    render_add_edit_delete(tab_manage)
 
 # ─────────────────────────────────────────────────────────────────────
 # Browse (Admin)
