@@ -1386,6 +1386,8 @@ def main() -> None:
     tab_browse, tab_manage, tab_maint = st.tabs(
         ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
     )
+    # Render Add/Edit/Delete inside its tab
+    render_add_edit_delete(tab_manage)
 
     # --- DEBUG: Always-visible skeleton UI (remove after diagnosis) ---
     st.write("DEBUG: basic UI alive; DB_READY =", st.session_state.get("DB_READY"))
@@ -1419,9 +1421,6 @@ st.session_state["DB_READY"] = bool(DB_READY)
 tab_browse, tab_manage, tab_maint = st.tabs(
     ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
 )
-
-# Render the Add/Edit/Delete UI inside its tab
-render_add_edit_delete(tab_manage)
 
 # ─────────────────────────────────────────────────────────────────────
 # Browse (Admin)
@@ -1760,9 +1759,10 @@ def render_add_edit_delete(tab_manage):
                 # Build options: use Browse df if available; otherwise query minimal list
                 try:
                     options: list[tuple[int, str]] = []
-                    if "vdf" in locals() and isinstance(vdf, pd.DataFrame) and not vdf.empty:
-                        ids   = vdf["id"].astype(int).tolist() if "id" in vdf.columns else []
-                        names = vdf["business_name"].astype(str).tolist() if "business_name" in vdf.columns else []
+                    _vdf = locals().get("vdf", None)
+                    if isinstance(_vdf, pd.DataFrame) and not _vdf.empty:
+                        ids   = _vdf["id"].astype(int).tolist() if "id" in _vdf.columns else []
+                        names = _vdf["business_name"].astype(str).tolist() if "business_name" in _vdf.columns else []
                         for _id, _nm in zip(ids, names):
                             options.append((_id, f"{_id} — {_nm}"))
                     else:
@@ -1774,6 +1774,7 @@ def render_add_edit_delete(tab_manage):
                             options = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
                 except Exception:
                     options = []
+
     
                 selected_id = st.selectbox(
                     "Select provider to delete",
