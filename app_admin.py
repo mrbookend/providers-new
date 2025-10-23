@@ -1541,71 +1541,95 @@ def render_add_edit_delete(tab_manage):
         elif _clear == "delete":
             st.session_state.pop("del_select_id", None)
 
-        if not st.session_state.get("DB_READY"):
-            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+       if not st.session_state.get("DB_READY"):
+    st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+else:
+    eng = get_engine()
+    lc, rc = st.columns([1, 1], gap="large")
+
+    # ---------- Add ----------
+    with lc:
+        # TODO: replace with your real Add form
+        st.caption("Add Provider (placeholder)")
+
+    # ---------- Edit ----------
+    with rc:
+        st.subheader("Edit Provider")
+        with eng.begin() as cx:
+            rows = cx.exec_driver_sql(
+                "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+            ).all()
+
+        if not rows:
+            st.info("No providers yet.")
         else:
-            eng = get_engine()
-            lc, rc = st.columns([1, 1], gap="large")
+            labels = [f"#{i} — {n}" for (i, n) in rows]
+            sel = st.selectbox("Pick a provider", options=labels, key="pick_edit_sel")
+            sel_id = int(rows[labels.index(sel)][0])
 
-            # ---------- Add ----------
-with lc:
-    st.subheader("Add Provider")
-    cats = list_categories(eng) if _has_table(eng, "categories") else []
-    srvs = list_services(eng)    if _has_table(eng, "services")   else []
+            with eng.begin() as cx:
+                r = cx.exec_driver_sql(
+                    "SELECT business_name,category,service,contact_name,phone,email,website,"
+                    "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
+                    {"id": sel_id},
+                ).mappings().first()
 
-    bn = st.text_input("Business Name *", key="bn_add")
+            if r:
+                bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
 
-    # If we have lookup values, use selectboxes; otherwise allow free text
-    if cats:
-        ccol1, ccol2 = st.columns([1, 1])
-        cat_choice = ccol1.selectbox("Category *", options=["— Select —"] + cats, key="cat_add_sel")
-        category = cat_choice if cat_choice != "— Select —" else ""
-    else:
-        category = st.text_input("Category *", key="cat_add_text")
+                cats = list_categories(eng)
+                srvs = list_services(eng)
 
-    if srvs:
-        srv_choice = st.selectbox("Service *", options=["— Select —"] + srvs, key="srv_add_sel")
-        service = srv_choice if srv_choice != "— Select —" else ""
-    else:
-        service = st.text_input("Service *", key="srv_add_text")
+                e_c1, e_c2 = st.columns([1, 1])
+                cat_choice_e = e_c1.selectbox(
+                    "Category *",
+                    options=["— Select —"] + cats,
+                    index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                    key="cat_edit_sel",
+                )
+                srv_choice_e = e_c2.selectbox(
+                    "Service *",
+                    options=["— Select —"] + srvs,
+                    index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                    key="srv_edit_sel",
+                )
 
-    contact_name = st.text_input("Contact Name", key="contact_add")
-    phone        = st.text_input("Phone",        key="phone_add")
-    email        = st.text_input("Email",        key="email_add")
-    website      = st.text_input("Website",      key="website_add")
-    address      = st.text_input("Address",      key="address_add")
-    notes        = st.text_area ("Notes", height=100, key="notes_add")
+                category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
+                service_e  = r["service"]  if srv_choice_e == "— Select —" else srv_choice_e
 
-    keywords_manual = st.text_area(
-        "Keywords",
-        value="",
-        help="Optional, comma/pipe/semicolon-separated phrases to always include. Example: garage door, torsion spring, opener repair",
-        height=80,
-        key="kw_add",
-    )
+                contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+                phone_e        = st.text_input("Phone",        value=r["phone"] or "",         key="phone_edit")
+                email_e        = st.text_input("Email",        value=r["email"] or "",         key="email_edit")
+                website_e      = st.text_input("Website",      value=r["website"] or "",       key="website_edit")
+                address_e      = st.text_input("Address",      value=r["address"] or "",       key="address_edit")
+                notes_e        = st.text_area ("Notes",        value=r["notes"] or "", height=100, key="notes_edit")
 
-    disabled = not (bn.strip() and category.strip() and service.strip())
+                keywords_manual_e = st.text_area(
+                    "Keywords",
+                    value=(r.get("ckw_manual_extra") or ""),
+                    help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
+                    height=80,
+                    key="kw_edit",
+                )
 
-    if st.button("Add Provider", type="primary", disabled=disabled, key="btn_add_provider"):
-        data = {
-            "business_name": bn.strip(),
-            "category": category.strip(),
-            "service": service.strip(),
-            "contact_name": contact_name.strip(),
-            "phone": phone.strip(),
-            "email": email.strip(),
-            "website": website.strip(),
-            "address": address.strip(),
-            "notes": notes.strip(),
-            "ckw_manual_extra": (keywords_manual or "").strip(),
-        }
-        vid = insert_vendor(eng, data)
-        # add the new values to lookups so subsequent adds can use selectboxes
-        ensure_lookup_value(eng, "categories", category.strip())
-        ensure_lookup_value(eng, "services",   service.strip())
-        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-        _clear_after("add")
-        st.success(f"Added provider #{vid}: {data['business_name']} — run “Recompute ALL” to apply keywords.")
+                if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                    data = {
+                        "business_name": bn_e.strip(),
+                        "category": category_e.strip(),
+                        "service": service_e.strip(),
+                        "contact_name": contact_name_e.strip(),
+                        "phone": phone_e.strip(),
+                        "email": email_e.strip(),
+                        "website": website_e.strip(),
+                        "address": address_e.strip(),
+                        "notes": notes_e.strip(),
+                        "ckw_manual_extra": (keywords_manual_e or "").strip(),
+                    }
+                    update_vendor(eng, sel_id, data)
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    _clear_after("edit")
+                    st.success(f"Saved changes to provider #{sel_id}. — run \"Recompute ALL\" to apply keywords.")
+
 
             # ---------- Edit ----------
             with rc:
