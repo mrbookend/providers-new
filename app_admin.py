@@ -321,22 +321,21 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
         ACTIONS = ("design", "consultation", "design consultation", "measure", "install", "installation", "in-home")
         MOTORIZED = ("motorized shades", "motorized blinds", "motorized drapes")
 
-        def _explode(phrases: list[str] | tuple[str, ...]) -> list[str]:
+def _explode(phrases: list[str] | tuple[str, ...]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for ph in phrases:
-    phl = (ph or "").lower().strip()
-    if not phl:
-        continue
-    if phl not in seen:
-        out.append(phl)
-        seen.add(phl)
-    for t in _split_tokens(phl):
-        if t not in seen:
-            out.append(t)
-            seen.add(t)
-return out
-
+        phl = (ph or "").lower().strip()
+        if not phl:
+            continue
+        if phl not in seen:
+            out.append(phl)
+            seen.add(phl)
+        for t in _split_tokens(phl):
+            if t not in seen:
+                out.append(t)
+                seen.add(t)
+    return out
 
 
         base += _explode(BLINDS_FAM)
