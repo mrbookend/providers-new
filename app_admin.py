@@ -325,17 +325,17 @@ def _build_ckw(row: dict[str, str], *, seed: list[str] | None, syn_service: list
     out: list[str] = []
     seen: set[str] = set()
     for ph in phrases:
-        phl = (ph or "").lower().strip()
-        if not phl:
-            continue
-        if phl not in seen:
-            out.append(phl)
-            seen.add(phl)
-        for t in _split_tokens(phl):
-            if t not in seen:
-                out.append(t)
-                seen.add(t)
-    return out
+    phl = (ph or "").lower().strip()
+    if not phl:
+        continue
+    if phl not in seen:
+        out.append(phl)
+        seen.add(phl)
+    for t in _split_tokens(phl):
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
+return out
 
 
 
