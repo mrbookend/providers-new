@@ -1382,6 +1382,174 @@ def _clear_after(scope: str) -> None:
 # ──────────────────────────────────────────────────────────────────────────
 # Main App
 # ──────────────────────────────────────────────────────────────────────────
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Add / Edit / Delete
+    # ─────────────────────────────────────────────────────────────────────
+def render_add_edit_delete(tab_manage):
+    with tab_manage:
+        # --- One-shot post-action clearing (runs before any widgets are created) ---
+        _clear = st.session_state.pop("_after_action_clear", None)
+
+        if _clear == "add":
+            for k in (
+                "bn_add", "cat_add_sel", "srv_add_sel",
+                "contact_add", "phone_add", "email_add",
+                "website_add", "address_add", "notes_add",
+                "kw_add", "btn_add_provider",
+            ):
+                st.session_state.pop(k, None)
+
+        elif _clear == "edit":
+            for k in (
+                "pick_edit_sel", "bn_edit", "cat_edit_sel", "srv_edit_sel",
+                "contact_edit", "phone_edit", "email_edit",
+                "website_edit", "address_edit", "notes_edit",
+                "kw_edit", "save_changes_btn",
+            ):
+                st.session_state.pop(k, None)
+
+        elif _clear == "delete":
+            st.session_state.pop("del_select_id", None)
+
+        if not st.session_state.get("DB_READY"):
+            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
+            return
+
+        eng = get_engine()
+        lc, rc = st.columns([1, 1], gap="large")
+
+
+        # ---------- Add ----------
+        with lc:
+            # TODO: replace with your real Add form
+            st.caption("Add Provider (placeholder)")
+    
+        # ---------- Edit ----------
+        with rc:
+            st.subheader("Edit Provider")
+            with eng.begin() as cx:
+                rows = cx.exec_driver_sql(
+                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
+                ).all()
+    
+            if not rows:
+                st.info("No providers yet.")
+            else:
+                labels = [f"#{i} — {n}" for (i, n) in rows]
+                sel = st.selectbox(
+                    "Pick a provider",
+                    options=labels,
+                    key="edit_pick_provider",
+                )
+                sel_id = int(rows[labels.index(sel)][0])
+
+                with eng.begin() as cx:
+                    r = cx.exec_driver_sql(
+                        "SELECT business_name,category,service,contact_name,phone,email,website,"
+                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
+                        {"id": sel_id},
+                    ).mappings().first()
+    
+                if r:
+                    bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
+    
+                    cats = list_categories(eng)
+                    srvs = list_services(eng)
+    
+                    e_c1, e_c2 = st.columns([1, 1])
+                    cat_choice_e = e_c1.selectbox(
+                        "Category *",
+                        options=["— Select —"] + cats,
+                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
+                        key="cat_edit_sel",
+                    )
+                    srv_choice_e = e_c2.selectbox(
+                        "Service *",
+                        options=["— Select —"] + srvs,
+                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
+                        key="srv_edit_sel",
+                    )
+    
+                    category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
+                    service_e  = r["service"]  if srv_choice_e == "— Select —" else srv_choice_e
+    
+                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
+                    phone_e        = st.text_input("Phone",        value=r["phone"] or "",         key="phone_edit")
+                    email_e        = st.text_input("Email",        value=r["email"] or "",         key="email_edit")
+                    website_e      = st.text_input("Website",      value=r["website"] or "",       key="website_edit")
+                    address_e      = st.text_input("Address",      value=r["address"] or "",       key="address_edit")
+                    notes_e        = st.text_area ("Notes",        value=r["notes"] or "", height=100, key="notes_edit")
+    
+                    keywords_manual_e = st.text_area(
+                        "Keywords",
+                        value=(r.get("ckw_manual_extra") or ""),
+                        help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
+                        height=80,
+                        key="kw_edit",
+                    )
+    
+                    if st.button("Save Changes", type="primary", key="save_changes_btn"):
+                        data = {
+                            "business_name": bn_e.strip(),
+                            "category": category_e.strip(),
+                            "service": service_e.strip(),
+                            "contact_name": contact_name_e.strip(),
+                            "phone": phone_e.strip(),
+                            "email": email_e.strip(),
+                            "website": website_e.strip(),
+                            "address": address_e.strip(),
+                            "notes": notes_e.strip(),
+                            "ckw_manual_extra": (keywords_manual_e or "").strip(),
+                        }
+                        update_vendor(eng, sel_id, data)
+                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                        _clear_after("edit")
+                        st.success(f"Saved changes to provider #{sel_id}. — run \"Recompute ALL\" to apply keywords.")
+    
+                # ---------- Delete ----------
+                st.markdown("### Delete Provider")
+                st.caption("Danger zone: Permanently removes a record from **vendors**.")
+    
+                # Build options directly from DB (no dependency on Browse df)
+                try:
+                    with get_engine().connect() as cx:
+                        rows = cx.exec_driver_sql(
+                            "SELECT id, business_name FROM vendors "
+                            "ORDER BY business_name COLLATE NOCASE, id"
+                        ).fetchall()
+                    options: list[tuple[int, str]] = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
+                except Exception:
+                    options = []
+
+
+    
+                selected_id = st.selectbox(
+                    "Select provider to delete",
+                    options=[o[0] for o in options],
+                    format_func=lambda _id: dict(options).get(_id, str(_id)),
+                    index=0 if options else None,
+                    key="delete_select_id",
+                )
+
+                col_del, _ = st.columns([0.25, 0.75])
+                with col_del:
+                    if st.button("Delete Provider", type="primary", use_container_width=True):
+                        if selected_id is None:
+                            st.warning("No provider selected.")
+                        else:
+                            try:
+                                with get_engine().begin() as cx3:
+                                    cx3.exec_driver_sql(
+                                        "DELETE FROM vendors WHERE id = :id",
+                                        {"id": int(selected_id)},
+                                    )
+                                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                                st.success(f"Deleted provider id={selected_id}.")
+                                _clear_after("delete")  # sets flag + reruns
+                            except Exception as e:
+                                st.error(f"Delete failed: {e}")
+
 def main() -> None:
     st.caption("Admin starting…")
     # --- Always create tabs so UI is visible even if DB is not ready ---
@@ -1628,172 +1796,6 @@ with tab_browse:
         st.markdown(HELP_MD)
 
 
-    # ─────────────────────────────────────────────────────────────────────
-    # Add / Edit / Delete
-    # ─────────────────────────────────────────────────────────────────────
-def render_add_edit_delete(tab_manage):
-    with tab_manage:
-        # --- One-shot post-action clearing (runs before any widgets are created) ---
-        _clear = st.session_state.pop("_after_action_clear", None)
-
-        if _clear == "add":
-            for k in (
-                "bn_add", "cat_add_sel", "srv_add_sel",
-                "contact_add", "phone_add", "email_add",
-                "website_add", "address_add", "notes_add",
-                "kw_add", "btn_add_provider",
-            ):
-                st.session_state.pop(k, None)
-
-        elif _clear == "edit":
-            for k in (
-                "pick_edit_sel", "bn_edit", "cat_edit_sel", "srv_edit_sel",
-                "contact_edit", "phone_edit", "email_edit",
-                "website_edit", "address_edit", "notes_edit",
-                "kw_edit", "save_changes_btn",
-            ):
-                st.session_state.pop(k, None)
-
-        elif _clear == "delete":
-            st.session_state.pop("del_select_id", None)
-
-        if not st.session_state.get("DB_READY"):
-            st.info("Database not ready — skipping Add/Edit/Delete because required tables are missing.")
-            return
-
-        eng = get_engine()
-        lc, rc = st.columns([1, 1], gap="large")
-
-
-        # ---------- Add ----------
-        with lc:
-            # TODO: replace with your real Add form
-            st.caption("Add Provider (placeholder)")
-    
-        # ---------- Edit ----------
-        with rc:
-            st.subheader("Edit Provider")
-            with eng.begin() as cx:
-                rows = cx.exec_driver_sql(
-                    "SELECT id, business_name FROM vendors ORDER BY business_name COLLATE NOCASE"
-                ).all()
-    
-            if not rows:
-                st.info("No providers yet.")
-            else:
-                labels = [f"#{i} — {n}" for (i, n) in rows]
-                sel = st.selectbox(
-                    "Pick a provider",
-                    options=labels,
-                    key="edit_pick_provider",
-                )
-                sel_id = int(rows[labels.index(sel)][0])
-
-                with eng.begin() as cx:
-                    r = cx.exec_driver_sql(
-                        "SELECT business_name,category,service,contact_name,phone,email,website,"
-                        "address,notes,ckw_manual_extra FROM vendors WHERE id=:id",
-                        {"id": sel_id},
-                    ).mappings().first()
-    
-                if r:
-                    bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
-    
-                    cats = list_categories(eng)
-                    srvs = list_services(eng)
-    
-                    e_c1, e_c2 = st.columns([1, 1])
-                    cat_choice_e = e_c1.selectbox(
-                        "Category *",
-                        options=["— Select —"] + cats,
-                        index=(cats.index(r["category"]) + 1) if r["category"] in cats else 0,
-                        key="cat_edit_sel",
-                    )
-                    srv_choice_e = e_c2.selectbox(
-                        "Service *",
-                        options=["— Select —"] + srvs,
-                        index=(srvs.index(r["service"]) + 1) if r["service"] in srvs else 0,
-                        key="srv_edit_sel",
-                    )
-    
-                    category_e = r["category"] if cat_choice_e == "— Select —" else cat_choice_e
-                    service_e  = r["service"]  if srv_choice_e == "— Select —" else srv_choice_e
-    
-                    contact_name_e = st.text_input("Contact Name", value=r["contact_name"] or "", key="contact_edit")
-                    phone_e        = st.text_input("Phone",        value=r["phone"] or "",         key="phone_edit")
-                    email_e        = st.text_input("Email",        value=r["email"] or "",         key="email_edit")
-                    website_e      = st.text_input("Website",      value=r["website"] or "",       key="website_edit")
-                    address_e      = st.text_input("Address",      value=r["address"] or "",       key="address_edit")
-                    notes_e        = st.text_area ("Notes",        value=r["notes"] or "", height=100, key="notes_edit")
-    
-                    keywords_manual_e = st.text_area(
-                        "Keywords",
-                        value=(r.get("ckw_manual_extra") or ""),
-                        help="Optional, comma/pipe/semicolon-separated phrases that will be UNIONED during recompute.",
-                        height=80,
-                        key="kw_edit",
-                    )
-    
-                    if st.button("Save Changes", type="primary", key="save_changes_btn"):
-                        data = {
-                            "business_name": bn_e.strip(),
-                            "category": category_e.strip(),
-                            "service": service_e.strip(),
-                            "contact_name": contact_name_e.strip(),
-                            "phone": phone_e.strip(),
-                            "email": email_e.strip(),
-                            "website": website_e.strip(),
-                            "address": address_e.strip(),
-                            "notes": notes_e.strip(),
-                            "ckw_manual_extra": (keywords_manual_e or "").strip(),
-                        }
-                        update_vendor(eng, sel_id, data)
-                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                        _clear_after("edit")
-                        st.success(f"Saved changes to provider #{sel_id}. — run \"Recompute ALL\" to apply keywords.")
-    
-                # ---------- Delete ----------
-                st.markdown("### Delete Provider")
-                st.caption("Danger zone: Permanently removes a record from **vendors**.")
-    
-                # Build options directly from DB (no dependency on Browse df)
-                try:
-                    with get_engine().connect() as cx:
-                        rows = cx.exec_driver_sql(
-                            "SELECT id, business_name FROM vendors "
-                            "ORDER BY business_name COLLATE NOCASE, id"
-                        ).fetchall()
-                    options: list[tuple[int, str]] = [(int(r[0]), f"{int(r[0])} — {str(r[1])}") for r in rows]
-                except Exception:
-                    options = []
-
-
-    
-                selected_id = st.selectbox(
-                    "Select provider to delete",
-                    options=[o[0] for o in options],
-                    format_func=lambda _id: dict(options).get(_id, str(_id)),
-                    index=0 if options else None,
-                    key="delete_select_id",
-                )
-
-                col_del, _ = st.columns([0.25, 0.75])
-                with col_del:
-                    if st.button("Delete Provider", type="primary", use_container_width=True):
-                        if selected_id is None:
-                            st.warning("No provider selected.")
-                        else:
-                            try:
-                                with get_engine().begin() as cx3:
-                                    cx3.exec_driver_sql(
-                                        "DELETE FROM vendors WHERE id = :id",
-                                        {"id": int(selected_id)},
-                                    )
-                                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                                st.success(f"Deleted provider id={selected_id}.")
-                                _clear_after("delete")  # sets flag + reruns
-                            except Exception as e:
-                                st.error(f"Delete failed: {e}")
 
     # ─────────────────────────────────────────────────────────────────────
     # Category / Service management
