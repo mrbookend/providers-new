@@ -1429,23 +1429,14 @@ def main() -> None:
     st.session_state["DB_READY"] = bool(DB_READY)
 
     # ---- Single set of tabs for in-function rendering (we'll remove top-level duplicates in next step) ----
-    tab_browse, tab_manage, tab_maint = st.tabs(
-        ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
-    )
+    # [removed] duplicate top-level tabs — lifecycle now in main()
+
 
     # ---- TEMP: simple captions so you can see the tabs are alive from main() ----
-    with tab_browse:
-        st.caption("Browse (placeholder from main) — will move full AgGrid block here in next step.")
-    with tab_maint:
-        st.caption("Maintenance (placeholder from main) — will restore full tools next step.")
-
-    # ---- Add / Edit / Delete ----
-    render_add_edit_delete(tab_manage)
-
-# ─────────────────────────────────────────────────────────────────────
-# Browse (Admin)
-# ─────────────────────────────────────────────────────────────────────
 with tab_browse:
+    # ─────────────────────────────────────────────────────────────────────
+    # Browse (Admin)
+    # ─────────────────────────────────────────────────────────────────────
     # --- Search bar (single-click Clear) ---
     c1, c2, _ = st.columns([0.5, 0.12, 0.38])
     q = c1.text_input(
@@ -1655,6 +1646,14 @@ with tab_browse:
 
     with st.expander("Help — How to use Browse (click to open)", expanded=False):
         st.markdown(HELP_MD)
+
+    with tab_maint:
+        st.caption("Maintenance (placeholder from main) — will restore full tools next step.")
+
+    # ---- Add / Edit / Delete ----
+    render_add_edit_delete(tab_manage)
+
+# [removed] duplicate top-level Browse — Browse now rendered inside main()
 
     # ─────────────────────────────────────────────────────────────────────
     # Add / Edit / Delete
