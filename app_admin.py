@@ -2080,20 +2080,8 @@ def render_add_edit_delete(tab_manage):
     # Removed here to avoid NameError: tab_maint (this tab is rendered in main()).
     # The canonical Maintenance UI lives in the main() block below.
 
-    # ---------- Cache Clear ----------
-    st.markdown("**Caches**")
-    clicked_clear_cache = st.button(
-        "Clear @st.cache_data (force Browse refresh)",
-        key="clear_cache_data",
-    )
+    # [removed] duplicate top-level cache clear — now lives in Maintenance tab
 
-    if clicked_clear_cache:
-        try:
-            st.cache_data.clear()
-            st.success("Cleared cache_data.")
-            st.rerun()  # immediately re-run to reflect cleared caches
-        except Exception as e:
-            st.error(f"Clear cache_data failed: {e}")
 
 
 if __name__ == "__main__":
