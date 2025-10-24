@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-# SOT: mrbookend/providers-new · branch main · app_admin.py
+# SOT: mrbookend/providers-new · branch main · app_admin.# ---------- Add ----------
 # Any behavior change must bump APP_VER and pass CI guards.
 
 # ── Streamlit page config MUST be the first Streamlit command ─────────────
@@ -1832,8 +1832,92 @@ def render_add_edit_delete(tab_manage):
 
         # ---------- Add ----------
         with lc:
-            # TODO: replace with your real Add form
-            st.caption("Add Provider (placeholder)")
+            st.subheader("Add Provider")
+
+            cats = ["— Select —"] + list_categories()
+            srvs = ["— Select —"] + list_services()
+
+            a_c1, a_c2 = st.columns([1, 1])
+            bn_add = st.text_input("Business Name *", key="bn_add")
+            cat_add = a_c1.selectbox("Category *", options=cats, key="cat_add_sel")
+            srv_add = a_c2.selectbox("Service *", options=srvs, key="srv_add_sel")
+
+            contact_add = st.text_input("Contact Name", key="contact_add")
+            phone_add = st.text_input("Phone", key="phone_add")
+            email_add = st.text_input("Email", key="email_add")
+            website_add = st.text_input("Website", key="website_add")
+            address_add = st.text_input("Address", key="address_add")
+            notes_add = st.text_area("Notes", key="notes_add", height=100)
+
+            kw_add = st.text_area(
+                "Keywords (manual extras; comma/pipe/semicolon separated; optional)",
+                key="kw_add",
+                height=80,
+                help="These manual terms will be UNIONED with algorithm output during full recompute.",
+            )
+
+            col_add_btn, _ = st.columns([0.35, 0.65])
+            with col_add_btn:
+                if st.button("Add Provider", type="primary", key="btn_add_provider", use_container_width=True):
+                    # ---- Validation ----
+                    name = (bn_add or "").strip()
+                    category = (cat_add or "").strip()
+                    service = (srv_add or "").strip()
+                    if not name:
+                        st.warning("Business Name is required.")
+                        st.stop()
+                    if category == "— Select —" or not category:
+                        st.warning("Pick a Category.")
+                        st.stop()
+                    if service == "— Select —" or not service:
+                        st.warning("Pick a Service.")
+                        st.stop()
+
+                    # ---- Normalize + build initial row ----
+                    data = {
+                        "business_name": name,
+                        "category": category,
+                        "service": service,
+                        "contact_name": (contact_add or "").strip(),
+                        "phone": (phone_add or "").strip(),
+                        "email": (email_add or "").strip(),
+                        "website": (website_add or "").strip(),
+                        "address": (address_add or "").strip(),
+                        "notes": (notes_add or "").strip(),
+                        "ckw_manual_extra": (kw_add or "").strip(),
+                    }
+
+                    # Initial CKW so new records are searchable immediately
+                    try:
+                        data["computed_keywords"] = compute_ckw(data)
+                        data["ckw_version"] = 1  # initial tag; maintenance can bump later
+                    except Exception:
+                        # Non-fatal: allow insert even if CKW compute fails
+                        pass
+
+                    # ---- Insert ----
+                    try:
+                        new_id = insert_vendor(data)
+                    except Exception as e:
+                        st.error(f"Insert failed: {e}")
+                        st.stop()
+
+                    # ---- Post-insert housekeeping ----
+                    try:
+                        ensure_lookup_value("categories", category)
+                        ensure_lookup_value("services", service)
+                        refresh_lookups()
+                    except Exception:
+                        # not fatal
+                        pass
+
+                    # ---- Refresh UI state ----
+                    st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                    _clear_after("add")  # sets flag and reruns
+
+                    st.success(f"Added provider #{new_id}: {name}")
+                    st.toast("Tip: Use Maintenance → Recompute CKW to apply curated seeds.", icon="ℹ️")
+
 
         # ---------- Edit ----------
         with rc:
