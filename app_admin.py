@@ -606,36 +606,92 @@ def ensure_schema(engine: Engine) -> None:
         for s in stmts:
             conn.execute(sql_text(s))
 # ---------- Seed if empty (one-time) ----------
-try:
-    allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
-    seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
-    with eng.begin() as cx:
-        cnt = cx.exec_driver_sql("SELECT COUNT(1) FROM vendors").scalar()
-    if allow and cnt == 0:
-        import pandas as pd, os
-        if os.path.exists(seed_csv):
-            df = pd.read_csv(seed_csv)
-            df = df.rename(columns={"contact name":"contact_name", "email address":"email"})
-            keep = ["category","service","business_name","contact_name","phone","address","website","notes","keywords"]
-            df = df[[c for c in keep if c in df.columns]].fillna("")
-            rows = df.to_dict("records")
-            if rows:
-                with eng.begin() as cx:
-                    cx.exec_driver_sql("""
-                        INSERT INTO vendors
-                        (category,service,business_name,contact_name,phone,address,website,notes,keywords,
-                         created_at,updated_at,updated_by)
-                        VALUES
-                        (:category,:service,:business_name,:contact_name,:phone,:address,:website,:notes,:keywords,
-                         CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'seed')
-                    """, rows)
-                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-                st.success(f"Seeded {len(rows)} rows from {seed_csv}.")
-        else:
+def _seed_if_empty() -> None:
+    """Seed vendors from CSV when table exists but has 0 rows."""
+    try:
+        allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
+        if not allow:
+            return
+        seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
+
+        # Get an engine without relying on outer-scope variables.
+        eng = None
+        try:
+            eng = get_engine()  # preferred if present
+        except Exception:
+            try:
+                eng = build_engine()  # fallback if your app exposes this
+            except Exception as e:
+                st.warning(f"Seed-if-empty skipped (no engine): {e}")
+                return
+        if eng is None:
+            st.warning("Seed-if-empty skipped: engine not available.")
+            return
+
+        with eng.begin() as cx:
+            cnt = cx.exec_driver_sql("SELECT COUNT(1) FROM vendors").scalar()
+        if cnt and int(cnt) > 0:
+            return  # already has data
+
+        import os, pandas as pd
+        if not os.path.exists(seed_csv):
             st.warning(f"SEED_CSV not found: {seed_csv}")
-except Exception as e:
-    st.warning(f"Seed-if-empty skipped: {e}")
+            return
+
+        df = pd.read_csv(seed_csv)
+
+        # Map CSV headers to table columns as needed
+        rename_map = {
+            "contact name": "contact_name",
+            "email address": "email",  # safe: will be dropped if column doesn't exist
+        }
+        df = df.rename(columns=rename_map)
+
+        # Keep only columns known to exist in your table
+        keep = [
+            "category",
+            "service",
+            "business_name",
+            "contact_name",
+            "phone",
+            "address",
+            "website",
+            "notes",
+            "keywords",
+        ]
+        have = [c for c in keep if c in df.columns]
+        df = df[have].copy().fillna("")
+
+        rows = df.to_dict(orient="records")
+        if not rows:
+            st.warning("Seed CSV has no rows after filtering expected columns.")
+            return
+
+        with eng.begin() as cx:
+            cx.exec_driver_sql(
+                """
+                INSERT INTO vendors
+                (category, service, business_name, contact_name, phone,
+                 address, website, notes, keywords,
+                 created_at, updated_at, updated_by)
+                VALUES
+                (:category, :service, :business_name, :contact_name, :phone,
+                 :address, :website, :notes, :keywords,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'seed')
+                """,
+                rows,
+            )
+
+        st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
+        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+
+    except Exception as e:
+        st.warning(f"Seed-if-empty skipped: {e}")
+
+# Call once during startup, after ensure_schema()
+_seed_if_empty()
 # ---------- end seed-if-empty ----------
+
 
 
 def _normalize_phone(val: str | None) -> str:
