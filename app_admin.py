@@ -68,8 +68,6 @@ def _commit_sync_probe() -> Dict:
     return {"facts": facts, "checks": checks}
 
 
-import pandas as pd
-import streamlit as st
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
     try:
@@ -82,9 +80,6 @@ if not globals().get("_PAGE_CFG_DONE"):
         pass
     globals()["_PAGE_CFG_DONE"] = True
 # ---------------------------------------------------------------------------
-
-import hashlib
-import subprocess
 
 
 def _debug_where_am_i():
