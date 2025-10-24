@@ -753,7 +753,30 @@ with _tabs[0]:
                 "keywords",
             ]
         ]
-        df["_blob"] = pd.concat(parts, axis=1).agg(" ".join, axis=1).str.lower()
+_cols_for_blob = [
+    "business_name",
+    "category",
+    "service",
+    "phone",
+    "contact name",
+    "website",
+    "email address",
+    "address",
+    "notes",
+    "keywords",
+    "computed_keywords",
+]
+_cols_present = [c for c in _cols_for_blob if c in df.columns]
+if _cols_present:
+    _blob_df = df[_cols_present].applymap(_to_str_safe)
+    df["_blob"] = (
+        _blob_df.agg(" ".join, axis=1)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.strip()
+        .str.lower()
+    )
+else:
+    df["_blob"] = ""
 
     # --- Search input at 25% width (table remains full width) ---
     left, right = st.columns([1, 3])  # 25% / 75% split for this row only
