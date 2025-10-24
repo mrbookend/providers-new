@@ -2305,3 +2305,4 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # Expose callable so main() can invoke it in a one-liner later.
 _st_patch7.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 # ─────────────────────────────────────────────────────────────────────────────
+st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)
