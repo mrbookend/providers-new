@@ -2028,3 +2028,35 @@ with _tabs[5]:
             },
         }
     )
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
+# This is additive and safe: it injects CSS to allow horizontal scroll globally.
+# ─────────────────────────────────────────────────────────────────────────────
+import streamlit as st as _st_patch1  # safe alias to avoid name shadowing
+
+def _enable_horizontal_scroll() -> None:
+    try:
+        _st_patch1.markdown(
+            """
+            <style>
+            /* Make Streamlit dataframes and table containers horizontally scrollable */
+            div[data-testid="stHorizontalBlock"] div[aria-live="polite"] > div:has(div[data-testid="stDataFrame"]),
+            div[data-testid="stHorizontalBlock"] div[aria-live="polite"] > div:has(table) {
+                overflow-x: auto !important;
+                overscroll-behavior-x: contain;
+                -webkit-overflow-scrolling: touch;
+            }
+            /* Prevent cells from forcing extreme widths; allow wrap or clip */
+            div[data-testid="stDataFrame"] .st-emotion-cache-1y4p8pa,  /* table scroller */
+            div[data-testid="stDataFrame"] .st-emotion-cache-1wmy9hl {
+                overflow-x: auto !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        pass
+
+_enable_horizontal_scroll()
+# ─────────────────────────────────────────────────────────────────────────────
