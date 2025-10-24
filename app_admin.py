@@ -486,9 +486,10 @@ def build_engine() -> Tuple[Engine, Dict]:
     )
 
     if not url:
-        # No remote configured → plain local file DB
+        # No remote configured → use DB_PATH from secrets/env (defaults to vendors.db)
+        db_path = _resolve_str("DB_PATH", "vendors.db") or "vendors.db"
         eng = create_engine(
-            "sqlite:///vendors.db",
+            f"sqlite:///{db_path}",
             pool_pre_ping=True,
             pool_recycle=300,
             pool_reset_on_return="commit",
@@ -496,12 +497,13 @@ def build_engine() -> Tuple[Engine, Dict]:
         info.update(
             {
                 "using_remote": False,
-                "sqlalchemy_url": "sqlite:///vendors.db",
+                "sqlalchemy_url": f"sqlite:///{db_path}",
                 "dialect": eng.dialect.name,
                 "driver": getattr(eng.dialect, "driver", ""),
             }
         )
         return eng, info
+
 
     # Embedded replica: local file that syncs to your remote Turso DB
     try:
@@ -640,9 +642,9 @@ def _seed_if_empty() -> None:
             with eng.begin() as cx:
                 cx.exec_driver_sql("""
                     CREATE TABLE IF NOT EXISTS vendors (
-                        id INTEGER PRIMARY KEY,
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                         category TEXT NOT NULL,
-                        service  TEXT NOT NULL,
+                        service  TEXT,
                         business_name TEXT NOT NULL,
                         contact_name  TEXT,
                         phone   TEXT,
@@ -650,11 +652,12 @@ def _seed_if_empty() -> None:
                         website TEXT,
                         notes   TEXT,
                         keywords TEXT,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        created_at TEXT,
+                        updated_at TEXT,
                         updated_by TEXT
                     );
                 """)
+
                 cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);")
                 cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services   (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);")
                 cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_bus ON vendors(business_name);")
@@ -747,8 +750,8 @@ def _seed_if_empty() -> None:
     except Exception as e:
         st.warning(f"Seed-if-empty skipped: {e}")
 
-# Call once during startup, after ensure_schema()
-_seed_if_empty()
+# (moved) _seed_if_empty() will be invoked after ensure_schema(engine) below.
+
 # ---------- end seed-if-empty ----------
 
 
@@ -951,6 +954,8 @@ def _execute_append_only(
 # -----------------------------
 engine, engine_info = build_engine()
 ensure_schema(engine)
+_seed_if_empty()
+
 
 # Apply WAL PRAGMAs for local SQLite (not libsql driver)
 try:
