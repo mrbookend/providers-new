@@ -62,6 +62,19 @@ def _commit_sync_probe() -> Dict:
 
 import pandas as pd
 import streamlit as st
+# --- Page config MUST be the first Streamlit call ---------------------------
+if not globals().get("_PAGE_CFG_DONE"):
+    try:
+        st.set_page_config(
+            page_title="Providers — Admin",
+            layout="wide",
+            initial_sidebar_state="expanded",
+        )
+    except Exception:
+        pass
+    globals()["_PAGE_CFG_DONE"] = True
+# ---------------------------------------------------------------------------
+
 import hashlib
 import subprocess
 
