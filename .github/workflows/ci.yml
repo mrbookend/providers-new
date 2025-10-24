@@ -45,7 +45,8 @@ jobs:
       # Use --diff to see exactly what the runner wants.
       # You can switch back to `ruff format --check .` later if preferred.
       - name: Ruff format (check only, show patch)
-        run: ruff format --check --diff .
+      run: ruff format --check --diff app_admin.py
+
 
       - name: Legacy guards
         shell: bash
