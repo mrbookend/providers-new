@@ -2148,3 +2148,73 @@ def _apply_exact_column_widths_from_secrets() -> None:
 
 _apply_exact_column_widths_from_secrets()
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 3 (2025-10-24): Help — Browse helper (secrets-driven, reusable)
+# Reads:
+#   SHOW_BROWSE_HELP (bool/int)
+#   BROWSE_HELP_MD (inline markdown string, ~one page)
+#   BROWSE_HELP_FILE (path relative to repo root to a .md file)
+# This patch only defines helpers and registers a callable in session_state.
+# A later patch will insert a one-liner in the Browse tab to render it in-place.
+# ─────────────────────────────────────────────────────────────────────────────
+import os as _os_patch3
+import io as _io_patch3
+import streamlit as _st_patch3
+
+def _as_bool_patch3(v, default=False):
+    try:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v != 0
+        if isinstance(v, str):
+            s = v.strip().lower()
+            return s in {"1","true","yes","y","on"}
+        return default
+    except Exception:
+        return default
+
+def _read_text_file_patch3(path: str) -> str:
+    try:
+        if not path:
+            return ""
+        # Resolve relative to repo root / CWD
+        if not _os_patch3.path.isabs(path):
+            path = _os_patch3.path.abspath(path)
+        if not _os_patch3.path.exists(path):
+            return ""
+        with _io_patch3.open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except Exception:
+        return ""
+
+def _load_browse_help_md() -> str:
+    try:
+        sec = _st_patch3.secrets
+    except Exception:
+        return ""
+    inline_md = str(sec.get("BROWSE_HELP_MD", "") or "").strip()
+    file_hint = str(sec.get("BROWSE_HELP_FILE", "") or "").strip()
+    file_md = _read_text_file_patch3(file_hint) if file_hint else ""
+    # Precedence: file > inline
+    content = file_md.strip() or inline_md
+    return content
+
+def render_browse_help_expander() -> None:
+    """Render the Help — Browse expander if SHOW_BROWSE_HELP is true and content exists."""
+    try:
+        sec = _st_patch3.secrets
+    except Exception:
+        return
+    show = _as_bool_patch3(sec.get("SHOW_BROWSE_HELP", False), default=False)
+    if not show:
+        return
+    md = _load_browse_help_md()
+    if not md:
+        return
+    with _st_patch3.expander("Help — Browse", expanded=False):
+        _st_patch3.markdown(md)
+
+# Expose a callable so main/Browse can invoke without re-import details.
+_st_patch3.session_state["_browse_help_render"] = render_browse_help_expander
+# ─────────────────────────────────────────────────────────────────────────────
