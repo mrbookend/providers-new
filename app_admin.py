@@ -31,8 +31,6 @@ from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 
 APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
-
-
 def _sha256_of_this_file() -> str:
     try:
         import hashlib
@@ -79,8 +77,6 @@ def _commit_sync_probe() -> Dict:
         checks["app_ver_match"] = APP_VER == expected_ver
 
     return {"facts": facts, "checks": checks}
-
-
 def _debug_where_am_i():
     """
     Show the runtime file path, md5, mtime, CWD, and git branch/commit (if available).
