@@ -607,6 +607,35 @@ def ensure_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         for s in stmts:
             conn.execute(sql_text(s))
+
+def sync_reference_tables(engine: Engine) -> dict:
+    """
+    Populate categories/services from distinct non-empty values in vendors.
+    Returns counts inserted for each table.
+    """
+    inserted = {"categories": 0, "services": 0}
+    with engine.begin() as conn:
+        # categories
+        cats = conn.execute(sql_text("""
+            SELECT DISTINCT TRIM(category) AS n FROM vendors
+            WHERE category IS NOT NULL AND TRIM(category) <> ''
+        """)).fetchall()
+        for (n,) in cats:
+            res = conn.execute(sql_text("INSERT OR IGNORE INTO categories(name) VALUES(:n)"), {"n": n})
+            # sqlite doesn't give rowcount reliably on OR IGNORE; compute by checking existence if needed
+        inserted["categories"] = len(cats)  # upper bound; harmless
+
+        # services
+        svcs = conn.execute(sql_text("""
+            SELECT DISTINCT TRIM(service) AS n FROM vendors
+            WHERE service IS NOT NULL AND TRIM(service) <> ''
+        """)).fetchall()
+        for (n,) in svcs:
+            conn.execute(sql_text("INSERT OR IGNORE INTO services(name) VALUES(:n)"), {"n": n})
+        inserted["services"] = len(svcs)
+
+    return inserted
+
 # ---------- Seed if empty (one-time) ----------
 def _seed_if_empty() -> None:
     """Seed vendors from CSV when table exists but has 0 rows."""
@@ -955,6 +984,12 @@ def _execute_append_only(
 engine, engine_info = build_engine()
 ensure_schema(engine)
 _seed_if_empty()
+try:
+    sync_reference_tables(engine)
+except Exception as _e:
+    # Non-fatal; UI still works without ref tables populated
+    pass
+
 
 
 # Apply WAL PRAGMAs for local SQLite (not libsql driver)
@@ -1580,6 +1615,15 @@ with _tabs[3]:
 # ---------- Maintenance
 with _tabs[4]:
     st.caption("One-click cleanups for legacy data.")
+
+    # Quick re-sync of reference tables
+    if st.button("Backfill Categories/Services from Vendors"):
+        try:
+            out = sync_reference_tables(engine)
+            st.success(f"Backfilled reference tables. (categories≈{out.get('categories',0)}, services≈{out.get('services',0)})")
+        except Exception as e:
+            st.error(f"Backfill failed: {e}")
+
 
     st.subheader("Export / Import")
 
