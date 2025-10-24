@@ -1112,52 +1112,53 @@ with _tabs[0]:
         else:
             df["_blob"] = ""
 
-    # --- Search row (25%) ---
-      left, _right = st.columns([1, 3])
-      with left:
-          _ = st.text_input(
-              "Search",
-              placeholder="Search providers… (press Enter)",
-              label_visibility="collapsed",
-              key="q",
-          )
+# --- Search row (25%) ---
+with _tabs[0]:
+    left, _right = st.columns([1, 3])
+    with left:
+        _ = st.text_input(
+            "Search",
+            placeholder="Search providers… (press Enter)",
+            label_visibility="collapsed",
+            key="q",
+        )
 
-          # Fast local filter (no regex)
-          qq = (st.session_state.get("q") or "").strip().lower()
-          filtered = _filter_df_by_query(df, qq)
+        # Fast local filter (no regex)
+        qq = (st.session_state.get("q") or "").strip().lower()
+        filtered = _filter_df_by_query(df, qq)
 
-          # Columns to show (guard against missing)
-          view_cols_all = [
-              "id",
-              "category",
-              "service",
-              "business_name",
-              "contact_name",
-              "phone_fmt",
-              "address",
-              "website",
-              "notes",
-              "keywords",
-          ]
+        # Columns to show (guard against missing)
+        view_cols_all = [
+            "id",
+            "category",
+            "service",
+            "business_name",
+            "contact_name",
+            "phone_fmt",
+            "address",
+            "website",
+            "notes",
+            "keywords",
+        ]
+        view_cols = [c for c in view_cols_all if c in filtered.columns]
 
-          view_cols = [c for c in view_cols_all if c in filtered.columns]
+    # Rename phone_fmt → phone for display
+    df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
 
-      # Rename phone_fmt → phone for display
-      df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
+    # Read-only table with linkified website
+    st.dataframe(
+        df_view,
+        use_container_width=False,  # allow horizontal scroll; Patch 2 enforces widths
+        hide_index=True,
+        height=(lambda n: max(240, min(2000, 48 + int(n)*28)))(get_page_size()),
+        column_config={
+            "business_name": st.column_config.TextColumn("Provider"),
+            "website": st.column_config.LinkColumn("website", display_text="website"),
+            "notes": st.column_config.TextColumn(width=420),
+            "keywords": st.column_config.TextColumn(width=300),
+        },
+    )
 
-      # Read-only table with linkified website
-      st.dataframe(
-          df_view,
-          use_container_width=False,  # allow horizontal scroll; Patch 2 enforces widths
-          hide_index=True,
-          height=(lambda n: max(240, min(2000, 48 + int(n)*28)))(get_page_size()),
-          column_config={
-              "business_name": st.column_config.TextColumn("Provider"),
-              "website": st.column_config.LinkColumn("website", display_text="website"),
-              "notes": st.column_config.TextColumn(width=420),
-              "keywords": st.column_config.TextColumn(width=300),
-          },
-      )
 
           hide_index=True,
           height=(lambda n: max(240, min(2000, 48 + int(n)*28)))(get_page_size()),
