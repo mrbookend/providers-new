@@ -11,7 +11,8 @@ from typing import List, Tuple, Dict
 from datetime import datetime
 from typing import List, Tuple, Dict
 
-APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
+APP_VER = "admin-2025-10-24.2"
+
 
 def _sha256_of_this_file() -> str:
     try:
@@ -473,6 +474,47 @@ else:
 # DB helpers
 # -----------------------------
 REQUIRED_VENDOR_COLUMNS: List[str] = ["business_name", "category"]  # service optional
+# ---------- CKW: schema ensure + backfill (Step 1) ----------
+CURRENT_CKW_VER = 1  # bump when we change the generation algorithm
+
+def _has_column(eng, table: str, col: str) -> bool:
+    with eng.connect() as cx:
+        rows = cx.exec_driver_sql(
+            "SELECT 1 FROM pragma_table_info(:t) WHERE name = :c",
+            {"t": table, "c": col},
+        ).fetchall()
+    return bool(rows)
+
+def ensure_ckw_column(eng) -> None:
+    # 1) add column if missing
+    if not _has_column(eng, "vendors", "computed_keywords"):
+        with eng.begin() as cx:
+            cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT")
+        # Optional: small index helps LIKE queries later
+        try:
+            with eng.begin() as cx:
+                cx.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
+                )
+        except Exception:
+            pass
+
+    # 2) one-time backfill (simple seed) where NULL or empty
+    with eng.begin() as cx:
+        cx.exec_driver_sql(
+            """
+            UPDATE vendors
+            SET computed_keywords = TRIM(
+                COALESCE(computed_keywords, '') || ' ' ||
+                COALESCE(business_name, '')     || ' ' ||
+                COALESCE(category, '')          || ' ' ||
+                COALESCE(service, '')           || ' ' ||
+                COALESCE(keywords, '')
+            )
+            WHERE computed_keywords IS NULL OR computed_keywords = ''
+            """
+        )
+# ---------- end CKW: schema ensure + backfill (Step 1) ----------
 
 
 def build_engine() -> Tuple[Engine, Dict]:
@@ -607,6 +649,8 @@ def ensure_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         for s in stmts:
             conn.execute(sql_text(s))
+# After your engine is built and vendors table exists/has been ensured:
+ensure_ckw_column(get_engine())
 
 def sync_reference_tables(engine: Engine) -> dict:
     """
