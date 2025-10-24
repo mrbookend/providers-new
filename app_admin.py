@@ -8,6 +8,50 @@ import time
 import uuid
 from datetime import datetime
 from typing import List, Tuple, Dict
+from datetime import datetime
+from typing import List, Tuple, Dict
+
+APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
+
+def _sha256_of_this_file() -> str:
+    try:
+        import hashlib, pathlib
+        p = pathlib.Path(__file__)
+        return hashlib.sha256(p.read_bytes()).hexdigest()
+    except Exception:
+        return ""
+
+def _mtime_of_this_file() -> str:
+    try:
+        import pathlib, datetime as _dt, os as _os
+        p = pathlib.Path(__file__)
+        ts = _os.path.getmtime(str(p))
+        return _dt.datetime.utcfromtimestamp(ts).isoformat(timespec="seconds") + "Z"
+    except Exception:
+        return ""
+
+def _commit_sync_probe() -> Dict:
+    """
+    Returns a dict with file facts and PASS/FAIL checks against optional secrets:
+      - EXPECTED_SHA256
+      - EXPECTED_APP_VER
+    """
+    facts = {
+        "app_ver": APP_VER,
+        "file_path": __file__,
+        "file_sha256": _sha256_of_this_file(),
+        "file_mtime_utc": _mtime_of_this_file(),
+    }
+    expected_sha = _get_secret("EXPECTED_SHA256", None)
+    expected_ver = _get_secret("EXPECTED_APP_VER", None)
+
+    checks = {}
+    if expected_sha:
+        checks["sha256_match"] = (facts["file_sha256"] == expected_sha)
+    if expected_ver:
+        checks["app_ver_match"] = (APP_VER == expected_ver)
+
+    return {"facts": facts, "checks": checks}
 
 import pandas as pd
 import streamlit as st
@@ -789,48 +833,48 @@ with _tabs[0]:
 with _tabs[0]:
     df = load_df(engine)
 
-# --- Build a lowercase search blob once (guarded) ---
-if "_blob" not in df.columns:
-_cols_for_blob = [
-"business_name",
-"category",
-"service",
-"contact_name",
-"phone",
-"phone_fmt",
-"address",
-"website",
-"notes",
-"keywords",
-]
-_cols_present = [c for c in _cols_for_blob if c in df.columns]
-if _cols_present:
-    # Coerce to string dtype, join row-wise to a Series, then normalize via map
-    _blob_df = df[_cols_present].astype("string").fillna("")
-    _joined = _blob_df.apply(lambda r: " ".join(map(str, r)), axis=1)
-    df["_blob"] = _joined.map(lambda s: " ".join(str(s).split()).lower())
-else:
-    df["_blob"] = ""
+    # --- Build a lowercase search blob once (guarded) ---
+    if "_blob" not in df.columns:
+        _cols_for_blob = [
+            "business_name",
+            "category",
+            "service",
+            "contact_name",
+            "phone",
+            "phone_fmt",
+            "address",
+            "website",
+            "notes",
+            "keywords",
+        ]
+        _cols_present = [c for c in _cols_for_blob if c in df.columns]
+        if _cols_present:
+            # Coerce to string, join row-wise, collapse whitespace, lowercase
+            _blob_df = df[_cols_present].astype("string").fillna("")
+            _joined = _blob_df.apply(lambda r: " ".join(map(str, r)), axis=1)
+            df["_blob"] = _joined.map(lambda s: " ".join(str(s).split()).lower())
+        else:
+            df["_blob"] = ""
 
-
-    # --- Search input at 25% width (table remains full width) ---
-    left, right = st.columns([1, 3])  # 25% / 75% split for this row only
+    # --- Search row (25%) ---
+    left, _right = st.columns([1, 3])
     with left:
-        q = st.text_input(
+        _ = st.text_input(
             "Search",
             placeholder="Search providers… (press Enter)",
             label_visibility="collapsed",
             key="q",
         )
 
-    # Fast local filter using the prebuilt blob (no regex)
+    # Fast local filter (no regex)
     qq = (st.session_state.get("q") or "").strip().lower()
     if qq:
         filtered = df[df["_blob"].str.contains(qq, regex=False, na=False)]
     else:
         filtered = df
 
-    view_cols = [
+    # Columns to show (guard against missing)
+    view_cols_all = [
         "id",
         "category",
         "service",
@@ -842,29 +886,33 @@ else:
         "notes",
         "keywords",
     ]
+    view_cols = [c for c in view_cols_all if c in filtered.columns]
 
-    df = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
+    # Rename phone_fmt → phone for display
+    df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
 
-    # Read-only table with clickable website links
+    # Read-only table with linkified website
     st.dataframe(
-        df,
+        df_view,
         use_container_width=True,
         hide_index=True,
         column_config={
             "business_name": st.column_config.TextColumn("Provider"),
-            "website": st.column_config.LinkColumn("website"),
+            "website": st.column_config.LinkColumn("website", display_text="website"),
             "notes": st.column_config.TextColumn(width=420),
             "keywords": st.column_config.TextColumn(width=300),
         },
     )
 
+    # CSV export of the filtered view
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     st.download_button(
         "Download filtered view (CSV)",
-        data=df.to_csv(index=False).encode("utf-8"),
+        data=df_view.to_csv(index=False).encode("utf-8"),
         file_name=f"providers_{ts}.csv",
         mime="text/csv",
     )
+
 
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
@@ -1649,6 +1697,23 @@ with _tabs[5]:
 
 with _tabs[5]:
     st.subheader("Status & Secrets (debug)")
+
+    # --- Commit / file sync inspector ---
+    sync = _commit_sync_probe()
+    facts = sync.get("facts", {})
+    checks = sync.get("checks", {})
+    colL, colR = st.columns([2, 1])
+    with colL:
+        st.caption("File facts (prove we’re on the same build)")
+        st.json(facts)
+    with colR:
+        st.caption("Checks vs. secrets (EXPECTED_SHA256 / EXPECTED_APP_VER)")
+        if not checks:
+            st.info("No EXPECTED_* secrets set.")
+        else:
+            st.json(checks)
+
+    # Existing engine info
     st.json(engine_info)
 
     with engine.begin() as conn:
