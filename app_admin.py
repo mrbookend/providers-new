@@ -767,22 +767,25 @@ _cols_for_blob = [
     "computed_keywords",
 ]
 _cols_present = [c for c in _cols_for_blob if c in df.columns]
-if _cols_present:
-    def _to_str_safe_local(v):
-        if v is None:
-            return ""
-        return v if isinstance(v, str) else str(v)
+          if _cols_present:
+              def _to_str_safe_local(v):
+                  if v is None:
+                      return ""
+                  return v if isinstance(v, str) else str(v)
 
-    _blob_df = df[_cols_present].applymap(_to_str_safe_local)
-    df["_blob"] = (
-        _blob_df.agg(" ".join, axis=1)
-        .str.replace(r"\s+", " ", regex=True)
-        .str.strip()
-        .str.lower()
-    )
+              _blob_df = df[_cols_present].applymap(_to_str_safe_local)
+              # Make absolutely sure we have a Series before using .str:
+              _joined = _blob_df.astype("string").fillna("").agg(" ".join, axis=1)
 
-else:
-    df["_blob"] = ""
+              df["_blob"] = (
+                  _joined
+                  .str.replace(r"\s+", " ", regex=True)
+                  .str.strip()
+                  .str.lower()
+              )
+          else:
+              df["_blob"] = ""
+
 
     # --- Search input at 25% width (table remains full width) ---
     left, right = st.columns([1, 3])  # 25% / 75% split for this row only
