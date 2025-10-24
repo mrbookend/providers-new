@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-# SOT: mrbookend/providers-new · branch main · app_admin.# ---------- Add ----------
+# SOT: mrbookend/providers-new · branch main · app_admin.py
 # Any behavior change must bump APP_VER and pass CI guards.
+
 
 # ── Streamlit page config MUST be the first Streamlit command ─────────────
 import streamlit as st
@@ -82,7 +83,7 @@ from sqlalchemy.engine import Engine
 # ──────────────────────────────────────────────────────────────────────────
 # Globals / constants
 # ──────────────────────────────────────────────────────────────────────────
-APP_VER = "admin-2025-10-22.1"
+APP_VER = "admin-2025-10-23.0"
 DB_PATH = os.getenv("DB_PATH", st.secrets.get("DB_PATH", "providers.db"))
 SEED_CSV = os.getenv("SEED_CSV", "data/providers_seed.csv")
 ALLOW_SEED_IMPORT = int(os.getenv("ALLOW_SEED_IMPORT", "1"))
@@ -1432,7 +1433,6 @@ def main() -> None:
     # [removed] duplicate top-level tabs — lifecycle now in main()
 
 
-    # ---- TEMP: simple captions so you can see the tabs are alive from main() ----
 with tab_browse:
     # ─────────────────────────────────────────────────────────────────────
     # Browse (Admin)
