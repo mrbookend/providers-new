@@ -614,7 +614,7 @@ def _seed_if_empty() -> None:
             return
         seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
 
-        # --- get an Engine and unwrap if a tuple/dict is returned ---
+# --- get an Engine and unwrap if a tuple/dict is returned ---
         eng = None
         try:
             eng = get_engine()
@@ -635,9 +635,44 @@ def _seed_if_empty() -> None:
             st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
             return
 
+        # --- ensure minimal schema BEFORE any queries (idempotent) ---
+        try:
+            with eng.begin() as cx:
+                cx.exec_driver_sql("""
+                    CREATE TABLE IF NOT EXISTS vendors (
+                        id INTEGER PRIMARY KEY,
+                        category TEXT NOT NULL,
+                        service  TEXT NOT NULL,
+                        business_name TEXT NOT NULL,
+                        contact_name  TEXT,
+                        phone   TEXT,
+                        address TEXT,
+                        website TEXT,
+                        notes   TEXT,
+                        keywords TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_by TEXT
+                    );
+                """)
+                cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);")
+                cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services   (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);")
+                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_bus ON vendors(business_name);")
+                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat ON vendors(category);")
+                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_svc ON vendors(service);")
+                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_kw  ON vendors(keywords);")
+        except Exception as e:
+            st.warning(f"Seed-if-empty skipped (schema create failed): {e}")
+            return
+
         # --- proceed only if table exists and is empty ---
-        with eng.begin() as cx:
-            cnt = cx.exec_driver_sql("SELECT COUNT(1) FROM vendors").scalar()
+        try:
+            with eng.begin() as cx:
+                cnt = cx.exec_driver_sql("SELECT COUNT(1) FROM vendors").scalar()
+        except Exception as e:
+            st.warning(f"Seed-if-empty skipped (cannot COUNT vendors): {e}")
+            return
+
         if cnt and int(cnt) > 0:
             return  # already has rows
 
@@ -681,6 +716,7 @@ def _seed_if_empty() -> None:
 
         st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+
 
     except Exception as e:
         st.warning(f"Seed-if-empty skipped: {e}")
