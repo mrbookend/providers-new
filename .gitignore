@@ -22,3 +22,7 @@ app_admin.py.bak-*
 app_admin.py.bak.*
 # sqlite junk
 providers.db*
+
+# SQLite WAL/SHM
+*.db-wal
+*.db-shm
