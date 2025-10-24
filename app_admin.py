@@ -738,51 +738,28 @@ with _tabs[0]:
     df = load_df(engine)
 
     # --- Build a lowercase search blob once (guarded) ---
-    if "_blob" not in df.columns:
-        parts = [
-            df.get(c, pd.Series("", index=df.index)).astype(str)
-            for c in [
-                "business_name",
-                "category",
-                "service",
-                "contact_name",
-                "phone",
-                "address",
-                "website",
-                "notes",
-                "keywords",
-            ]
-        ]
+# --- Build a lowercase search blob once (guarded) ---
+if "_blob" not in df.columns:
 _cols_for_blob = [
-    "business_name",
-    "category",
-    "service",
-    "phone",
-    "contact name",
-    "website",
-    "email address",
-    "address",
-    "notes",
-    "keywords",
-    "computed_keywords",
+"business_name",
+"category",
+"service",
+"contact_name",
+"phone",
+"phone_fmt",
+"address",
+"website",
+"notes",
+"keywords",
 ]
 _cols_present = [c for c in _cols_for_blob if c in df.columns]
 if _cols_present:
-    # Coerce to pandas "string" dtype and fill nulls
     _blob_df = df[_cols_present].astype("string").fillna("")
-
-    # Join row values into a single string (returns a Series)
-    _joined = _blob_df.apply(
-        lambda r: " ".join([v if isinstance(v, str) else str(v) for v in r]),
-        axis=1,
-    )
-
-    # Normalize whitespace and lowercase WITHOUT using .str on a DataFrame
-    _joined = _joined.apply(lambda s: " ".join(s.split()).lower())
-
-    df["_blob"] = _joined
+    _joined = _blob_df.apply(lambda r: " ".join(map(str, r)), axis=1)
+    df["_blob"] = _joined.map(lambda s: " ".join(str(s).split()).lower())
 else:
     df["_blob"] = ""
+
 
 
 
