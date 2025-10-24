@@ -2,9 +2,12 @@ name: ci
 
 on:
   push:
-    branches: [ main, fix/*, chore/*, feature/* ]
+    branches: [ main, fix/*, chore/*, feature/*, revert/* ]
   pull_request:
     branches: [ main ]
+
+permissions:
+  contents: read
 
 jobs:
   lint-and-guards:
@@ -17,20 +20,26 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install deps
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install "ruff==0.6.9"
+          pip install "ruff==0.14.2"
+
+      - name: Show versions
+        run: |
+          set -euo pipefail
+          python --version
+          ruff --version
 
       - name: Ruff lint
         run: ruff check --output-format=github .
 
-      - name: Ruff format (check only)
-        run: ruff format --check .
+      - name: Ruff format (check only, show patch)
+        run: ruff format --check --diff .
 
       - name: Legacy guards
         shell: bash
