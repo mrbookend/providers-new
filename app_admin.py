@@ -11,6 +11,55 @@ from typing import List, Tuple, Dict
 
 import pandas as pd
 import streamlit as st
+import hashlib
+import subprocess
+
+def _debug_where_am_i():
+    """
+    Show the runtime file path, md5, mtime, CWD, and git branch/commit (if available).
+    This lets us confirm the Streamlit process is running THIS file.
+    """
+    try:
+        path = __file__
+    except NameError:
+        path = "(no __file__)"
+    try:
+        with open(__file__, "rb") as f:
+            md5 = hashlib.md5(f.read()).hexdigest()
+    except Exception:
+        md5 = "(md5 failed)"
+    try:
+        mtime = os.path.getmtime(__file__)
+    except Exception:
+        mtime = 0
+    try:
+        cwd = os.getcwd()
+    except Exception:
+        cwd = "(no cwd)"
+
+    # git info (best-effort; safe if not a repo)
+    try:
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+    except Exception:
+        branch = "(no git)"
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+    except Exception:
+        commit = "(no git)"
+
+    st.caption("RUNNING FILE INSPECTOR")
+    st.code(
+        {
+            "file": path,
+            "md5": md5,
+            "mtime": mtime,
+            "cwd": cwd,
+            "git_branch": branch,
+            "git_commit": commit,
+        },
+        language="json",
+    )
+
 
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
@@ -732,6 +781,9 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+# Show a one-line runtime banner on the first tab for quick verification
+with _tabs[0]:
+    _debug_where_am_i()
 
 # ---------- Browse
 with _tabs[0]:
@@ -1591,6 +1643,10 @@ with _tabs[4]:
             st.error(f"Trim failed: {e}")
 
 # ---------- Debug
+with _tabs[5]:
+    _debug_where_am_i()
+    st.subheader("Status & Secrets (debug)")
+
 with _tabs[5]:
     st.subheader("Status & Secrets (debug)")
     st.json(engine_info)
