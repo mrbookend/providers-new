@@ -1064,6 +1064,9 @@ except Exception:
     pass
 
 _tabs = st.tabs(
+with _tabs[0]:
+    st.session_state.get("_browse_help_render", lambda: None)()
+
     [
         "Browse Vendors",
         "Add / Edit / Delete Vendor",
