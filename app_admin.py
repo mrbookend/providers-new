@@ -1404,28 +1404,18 @@ def _clear_after(scope: str) -> None:
 # Main App
 # ──────────────────────────────────────────────────────────────────────────
 def main() -> None:
-    st.caption("Admin starting…")
-    # --- Always create tabs so UI is visible even if DB is not ready ---
-    tab_browse, tab_manage, tab_maint = st.tabs(
-        ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
-    )
-
-    # --- DEBUG: Always-visible skeleton UI (remove after diagnosis) ---
-    st.write("DEBUG: basic UI alive; DB_READY =", st.session_state.get("DB_READY"))
-    t_browse, t_maint = st.tabs(["Browse (debug)", "Maintenance (debug)"])
-    with t_browse:
-        st.write("Browse placeholder. If this renders, UI pipeline is OK.")
-    with t_maint:
-        st.write("Maintenance placeholder. Real panels may be gated below.")
-
-    # ---- DATA_VER init (cache-buster for @st.cache_data) ----
+    # ---- Cache-buster init ----
     if "DATA_VER" not in st.session_state:
         st.session_state["DATA_VER"] = 0
 
-    # ---- Build engine early and ensure schema BEFORE any queries ----
+    # ---- Ensure schema + optional CSV bootstrap (only once if empty) ----
+    try:
+        msg_schema = ensure_schema_uncached()
+        if os.getenv("SHOW_STATUS") == "1":
+            st.caption(msg_schema)
+    except Exception as e:
+        st.warning(f"Schema check failed: {e}")
 
-
-try:
     DB_READY = _has_table("vendors")
     if not DB_READY:
         try:
@@ -1435,15 +1425,22 @@ try:
             DB_READY = _has_table("vendors")
         except Exception as e:
             st.warning(f"Bootstrap skipped: {e}")
-except Exception as e:
-    st.warning(f"Schema initialization failed: {e}")
 
-st.session_state["DB_READY"] = bool(DB_READY)
+    st.session_state["DB_READY"] = bool(DB_READY)
 
-# Tabs (create them now so downstream code can render into each)
-tab_browse, tab_manage, tab_maint = st.tabs(
-    ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
-)
+    # ---- Single set of tabs for in-function rendering (we'll remove top-level duplicates in next step) ----
+    tab_browse, tab_manage, tab_maint = st.tabs(
+        ["Browse", "Add / Edit / Delete", "Maintenance — Diagnostics & CKW"]
+    )
+
+    # ---- TEMP: simple captions so you can see the tabs are alive from main() ----
+    with tab_browse:
+        st.caption("Browse (placeholder from main) — will move full AgGrid block here in next step.")
+    with tab_maint:
+        st.caption("Maintenance (placeholder from main) — will restore full tools next step.")
+
+    # ---- Add / Edit / Delete ----
+    render_add_edit_delete(tab_manage)
 
 # ─────────────────────────────────────────────────────────────────────
 # Browse (Admin)
