@@ -614,24 +614,32 @@ def _seed_if_empty() -> None:
             return
         seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
 
-        # Get an engine without relying on outer-scope variables.
+        # --- get an Engine and unwrap if a tuple/dict is returned ---
         eng = None
         try:
-            eng = get_engine()  # preferred if present
+            eng = get_engine()
         except Exception:
             try:
-                eng = build_engine()  # fallback if your app exposes this
+                eng = build_engine()
             except Exception as e:
                 st.warning(f"Seed-if-empty skipped (no engine): {e}")
                 return
-        if eng is None:
-            st.warning("Seed-if-empty skipped: engine not available.")
+
+        # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
+        if isinstance(eng, tuple) and len(eng) > 0:
+            eng = eng[0]
+        elif isinstance(eng, dict) and "engine" in eng:
+            eng = eng["engine"]
+
+        if not hasattr(eng, "begin"):
+            st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
             return
 
+        # --- proceed only if table exists and is empty ---
         with eng.begin() as cx:
             cnt = cx.exec_driver_sql("SELECT COUNT(1) FROM vendors").scalar()
         if cnt and int(cnt) > 0:
-            return  # already has data
+            return  # already has rows
 
         import os, pandas as pd
         if not os.path.exists(seed_csv):
@@ -641,23 +649,15 @@ def _seed_if_empty() -> None:
         df = pd.read_csv(seed_csv)
 
         # Map CSV headers to table columns as needed
-        rename_map = {
+        df = df.rename(columns={
             "contact name": "contact_name",
-            "email address": "email",  # safe: will be dropped if column doesn't exist
-        }
-        df = df.rename(columns=rename_map)
+            "email address": "email",  # harmless if vendors has no 'email' column (we won't insert it)
+        })
 
-        # Keep only columns known to exist in your table
+        # Keep only columns that exist in your vendors table
         keep = [
-            "category",
-            "service",
-            "business_name",
-            "contact_name",
-            "phone",
-            "address",
-            "website",
-            "notes",
-            "keywords",
+            "category", "service", "business_name", "contact_name",
+            "phone", "address", "website", "notes", "keywords",
         ]
         have = [c for c in keep if c in df.columns]
         df = df[have].copy().fillna("")
@@ -668,8 +668,7 @@ def _seed_if_empty() -> None:
             return
 
         with eng.begin() as cx:
-            cx.exec_driver_sql(
-                """
+            cx.exec_driver_sql("""
                 INSERT INTO vendors
                 (category, service, business_name, contact_name, phone,
                  address, website, notes, keywords,
@@ -678,9 +677,7 @@ def _seed_if_empty() -> None:
                 (:category, :service, :business_name, :contact_name, :phone,
                  :address, :website, :notes, :keywords,
                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'seed')
-                """,
-                rows,
-            )
+            """, rows)
 
         st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
