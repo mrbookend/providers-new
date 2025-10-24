@@ -771,11 +771,11 @@ with _tabs[0]:
         "keywords",
     ]
 
-    vdf = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
+    df = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
 
     # Read-only table with clickable website links
     st.dataframe(
-        vdf,
+        df,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -789,7 +789,7 @@ with _tabs[0]:
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     st.download_button(
         "Download filtered view (CSV)",
-        data=vdf.to_csv(index=False).encode("utf-8"),
+        data=df.to_csv(index=False).encode("utf-8"),
         file_name=f"providers_{ts}.csv",
         mime="text/csv",
     )
