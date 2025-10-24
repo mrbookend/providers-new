@@ -2060,3 +2060,91 @@ def _enable_horizontal_scroll() -> None:
 
 _enable_horizontal_scroll()
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 2 (2025-10-24): Secrets-driven exact pixel column widths (global)
+# Reads COLUMN_WIDTHS_PX_ADMIN from st.secrets and enforces header widths
+# for Streamlit dataframes/tables via a small MutationObserver.
+# Keys should match the final header labels as rendered (case-sensitive).
+# Example in secrets.toml:
+# [COLUMN_WIDTHS_PX_ADMIN]
+# business_name = 240
+# category = 120
+# service = 220
+# phone = 120
+# contact_name = 180
+# website = 220
+# notes = 420
+# keywords = 260
+# ckw = 260
+# id = 60
+# created_at = 140
+# updated_at = 140
+# ckw_locked = 110
+# ckw_version = 110
+# ─────────────────────────────────────────────────────────────────────────────
+import json as _json_patch2
+import streamlit as _st_patch2
+
+def _apply_exact_column_widths_from_secrets() -> None:
+    try:
+        cfg = dict(_st_patch2.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        if not cfg:
+            return
+        # Serialize once; provide both raw and lower-cased maps for tolerant matching
+        cfg_lower = {str(k).lower(): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
+        cfg_raw = {str(k): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
+        _st_patch2.markdown(
+            f"""
+<script>
+(function() {{
+  const cfgRaw = {_json_patch2.dumps(cfg_raw)};
+  const cfgLow = {_json_patch2.dumps({k.lower(): v for k,v in cfg_raw.items()})};
+  // Utility: set width on a TH cell if its text matches a key
+  function setWidth(th) {{
+    if (!th) return;
+    const label = (th.innerText || "").trim();
+    if (!label) return;
+    const keyRaw = label;
+    const keyLow = label.toLowerCase();
+    let px = cfgRaw[keyRaw];
+    if (px === undefined) px = cfgLow[keyLow];
+    if (typeof px === "number" && px > 0) {{
+      th.style.width = px + "px";
+      th.style.minWidth = px + "px";
+      th.style.maxWidth = px + "px";
+      // Also try parent container to restrict column growth
+      if (th.parentElement) {{
+        th.parentElement.style.width = px + "px";
+        th.parentElement.style.minWidth = px + "px";
+        th.parentElement.style.maxWidth = px + "px";
+      }}
+    }}
+  }}
+  // Scan all visible header cells
+  function scan() {{
+    // st.dataframe header THs
+    document.querySelectorAll('div[data-testid="stDataFrame"] th').forEach(setWidth);
+    // Fallback: any table headers in app (for st.table)
+    document.querySelectorAll('table thead th').forEach(setWidth);
+  }}
+  // Observe DOM changes in the main app root
+  const root = document.querySelector('div[data-testid="stAppViewContainer"]') || document.body;
+  const obs = new MutationObserver((muts) => {{
+    // Debounce by simple next-tick
+    clearTimeout(window.__stColWidthTimer);
+    window.__stColWidthTimer = setTimeout(scan, 0);
+  }});
+  obs.observe(root, {{ childList: true, subtree: true }});
+  // Initial pass
+  scan();
+}})();
+</script>
+""",
+            unsafe_allow_html=True,
+        )
+    except Exception:
+        # Never break the app on UI-only helpers
+        pass
+
+_apply_exact_column_widths_from_secrets()
+# ─────────────────────────────────────────────────────────────────────────────
