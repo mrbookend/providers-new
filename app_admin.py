@@ -1,13 +1,21 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import re
-import hmac
+import subprocess
 import time
 import uuid
 from datetime import datetime
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
+
+import pandas as pd
+import streamlit as st
+from sqlalchemy import create_engine, text as sql_text
+from sqlalchemy.engine import Engine
+
 
 APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
 
@@ -140,8 +148,6 @@ if not globals().get("_PAGE_CFG_DONE"):
         pass
     globals()["_PAGE_CFG_DONE"] = True
 # ---------------------------------------------------------------------------
-from sqlalchemy import create_engine, text as sql_text
-from sqlalchemy.engine import Engine
 
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
 try:
