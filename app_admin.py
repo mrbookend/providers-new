@@ -8,28 +8,33 @@ import time
 import uuid
 from datetime import datetime
 from typing import List, Tuple, Dict
-from datetime import datetime
-from typing import List, Tuple, Dict
 
-APP_VER = "admin-2025-10-24.2"
+APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
 
 
 def _sha256_of_this_file() -> str:
     try:
-        import hashlib, pathlib
+        import hashlib
+        import pathlib
+
         p = pathlib.Path(__file__)
         return hashlib.sha256(p.read_bytes()).hexdigest()
     except Exception:
         return ""
 
+
 def _mtime_of_this_file() -> str:
     try:
-        import pathlib, datetime as _dt, os as _os
+        import pathlib
+        import datetime as _dt
+        import os as _os
+
         p = pathlib.Path(__file__)
         ts = _os.path.getmtime(str(p))
         return _dt.datetime.utcfromtimestamp(ts).isoformat(timespec="seconds") + "Z"
     except Exception:
         return ""
+
 
 def _commit_sync_probe() -> Dict:
     """
@@ -48,16 +53,18 @@ def _commit_sync_probe() -> Dict:
 
     checks = {}
     if expected_sha:
-        checks["sha256_match"] = (facts["file_sha256"] == expected_sha)
+        checks["sha256_match"] = facts["file_sha256"] == expected_sha
     if expected_ver:
-        checks["app_ver_match"] = (APP_VER == expected_ver)
+        checks["app_ver_match"] = APP_VER == expected_ver
 
     return {"facts": facts, "checks": checks}
+
 
 import pandas as pd
 import streamlit as st
 import hashlib
 import subprocess
+
 
 def _debug_where_am_i():
     """
@@ -84,7 +91,9 @@ def _debug_where_am_i():
 
     # git info (best-effort; safe if not a repo)
     try:
-        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
+        ).strip()
     except Exception:
         branch = "(no git)"
     try:
@@ -474,47 +483,6 @@ else:
 # DB helpers
 # -----------------------------
 REQUIRED_VENDOR_COLUMNS: List[str] = ["business_name", "category"]  # service optional
-# ---------- CKW: schema ensure + backfill (Step 1) ----------
-CURRENT_CKW_VER = 1  # bump when we change the generation algorithm
-
-def _has_column(eng, table: str, col: str) -> bool:
-    with eng.connect() as cx:
-        rows = cx.exec_driver_sql(
-            "SELECT 1 FROM pragma_table_info(:t) WHERE name = :c",
-            {"t": table, "c": col},
-        ).fetchall()
-    return bool(rows)
-
-def ensure_ckw_column(eng) -> None:
-    # 1) add column if missing
-    if not _has_column(eng, "vendors", "computed_keywords"):
-        with eng.begin() as cx:
-            cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT")
-        # Optional: small index helps LIKE queries later
-        try:
-            with eng.begin() as cx:
-                cx.exec_driver_sql(
-                    "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
-                )
-        except Exception:
-            pass
-
-    # 2) one-time backfill (simple seed) where NULL or empty
-    with eng.begin() as cx:
-        cx.exec_driver_sql(
-            """
-            UPDATE vendors
-            SET computed_keywords = TRIM(
-                COALESCE(computed_keywords, '') || ' ' ||
-                COALESCE(business_name, '')     || ' ' ||
-                COALESCE(category, '')          || ' ' ||
-                COALESCE(service, '')           || ' ' ||
-                COALESCE(keywords, '')
-            )
-            WHERE computed_keywords IS NULL OR computed_keywords = ''
-            """
-        )
-# ---------- end CKW: schema ensure + backfill (Step 1) ----------
 
 
 def build_engine() -> Tuple[Engine, Dict]:
@@ -545,7 +513,6 @@ def build_engine() -> Tuple[Engine, Dict]:
             }
         )
         return eng, info
-
 
     # Embedded replica: local file that syncs to your remote Turso DB
     try:
@@ -649,8 +616,7 @@ def ensure_schema(engine: Engine) -> None:
     with engine.begin() as conn:
         for s in stmts:
             conn.execute(sql_text(s))
-# After your engine is built and vendors table exists/has been ensured:
-ensure_ckw_column(get_engine())
+
 
 def sync_reference_tables(engine: Engine) -> dict:
     """
@@ -660,25 +626,30 @@ def sync_reference_tables(engine: Engine) -> dict:
     inserted = {"categories": 0, "services": 0}
     with engine.begin() as conn:
         # categories
-        cats = conn.execute(sql_text("""
+        cats = conn.execute(
+            sql_text("""
             SELECT DISTINCT TRIM(category) AS n FROM vendors
             WHERE category IS NOT NULL AND TRIM(category) <> ''
-        """)).fetchall()
+        """)
+        ).fetchall()
         for (n,) in cats:
-            res = conn.execute(sql_text("INSERT OR IGNORE INTO categories(name) VALUES(:n)"), {"n": n})
+            conn.execute(sql_text("INSERT OR IGNORE INTO categories(name) VALUES(:n)"), {"n": n})
             # sqlite doesn't give rowcount reliably on OR IGNORE; compute by checking existence if needed
         inserted["categories"] = len(cats)  # upper bound; harmless
 
         # services
-        svcs = conn.execute(sql_text("""
+        svcs = conn.execute(
+            sql_text("""
             SELECT DISTINCT TRIM(service) AS n FROM vendors
             WHERE service IS NOT NULL AND TRIM(service) <> ''
-        """)).fetchall()
+        """)
+        ).fetchall()
         for (n,) in svcs:
             conn.execute(sql_text("INSERT OR IGNORE INTO services(name) VALUES(:n)"), {"n": n})
         inserted["services"] = len(svcs)
 
     return inserted
+
 
 # ---------- Seed if empty (one-time) ----------
 def _seed_if_empty() -> None:
@@ -689,10 +660,10 @@ def _seed_if_empty() -> None:
             return
         seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
 
-# --- get an Engine and unwrap if a tuple/dict is returned ---
+        # --- get an Engine and unwrap if a tuple/dict is returned ---
         eng = None
         try:
-            eng = get_engine()
+            eng = get_engine()  # noqa: F821
         except Exception:
             try:
                 eng = build_engine()
@@ -731,12 +702,24 @@ def _seed_if_empty() -> None:
                     );
                 """)
 
-                cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);")
-                cx.exec_driver_sql("CREATE TABLE IF NOT EXISTS services   (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);")
-                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_bus ON vendors(business_name);")
-                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_cat ON vendors(category);")
-                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_svc ON vendors(service);")
-                cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_kw  ON vendors(keywords);")
+                cx.exec_driver_sql(
+                    "CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);"
+                )
+                cx.exec_driver_sql(
+                    "CREATE TABLE IF NOT EXISTS services   (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);"
+                )
+                cx.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_vendors_bus ON vendors(business_name);"
+                )
+                cx.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_vendors_cat ON vendors(category);"
+                )
+                cx.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_vendors_svc ON vendors(service);"
+                )
+                cx.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_vendors_kw  ON vendors(keywords);"
+                )
         except Exception as e:
             st.warning(f"Seed-if-empty skipped (schema create failed): {e}")
             return
@@ -752,7 +735,9 @@ def _seed_if_empty() -> None:
         if cnt and int(cnt) > 0:
             return  # already has rows
 
-        import os, pandas as pd
+        import os
+        import pandas as pd
+
         if not os.path.exists(seed_csv):
             st.warning(f"SEED_CSV not found: {seed_csv}")
             return
@@ -760,15 +745,24 @@ def _seed_if_empty() -> None:
         df = pd.read_csv(seed_csv)
 
         # Map CSV headers to table columns as needed
-        df = df.rename(columns={
-            "contact name": "contact_name",
-            "email address": "email",  # harmless if vendors has no 'email' column (we won't insert it)
-        })
+        df = df.rename(
+            columns={
+                "contact name": "contact_name",
+                "email address": "email",  # harmless if vendors has no 'email' column (we won't insert it)
+            }
+        )
 
         # Columns we will insert into the vendors table
         keep = [
-            "category", "service", "business_name", "contact_name",
-            "phone", "address", "website", "notes", "keywords",
+            "category",
+            "service",
+            "business_name",
+            "contact_name",
+            "phone",
+            "address",
+            "website",
+            "notes",
+            "keywords",
         ]
 
         # Ensure every required column exists; fill missing with ""
@@ -781,6 +775,7 @@ def _seed_if_empty() -> None:
 
         # Normalize phone to digits-only strings (handles floats like 2105380777.0)
         import re
+
         def _digits_only(x):
             s = str(x).strip()
             if s.endswith(".0"):
@@ -791,7 +786,16 @@ def _seed_if_empty() -> None:
             df["phone"] = df["phone"].apply(_digits_only)
 
         # Force strings for text columns
-        for col in ["category","service","business_name","contact_name","address","website","notes","keywords"]:
+        for col in [
+            "category",
+            "service",
+            "business_name",
+            "contact_name",
+            "address",
+            "website",
+            "notes",
+            "keywords",
+        ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
 
@@ -805,7 +809,8 @@ def _seed_if_empty() -> None:
             return
 
         with eng.begin() as cx:
-            cx.exec_driver_sql("""
+            cx.exec_driver_sql(
+                """
                 INSERT INTO vendors
                 (category, service, business_name, contact_name, phone,
                  address, website, notes, keywords,
@@ -814,19 +819,20 @@ def _seed_if_empty() -> None:
                 (:category, :service, :business_name, :contact_name, :phone,
                  :address, :website, :notes, :keywords,
                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'seed')
-            """, rows)
+            """,
+                rows,
+            )
 
         st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
 
-
     except Exception as e:
         st.warning(f"Seed-if-empty skipped: {e}")
+
 
 # (moved) _seed_if_empty() will be invoked after ensure_schema(engine) below.
 
 # ---------- end seed-if-empty ----------
-
 
 
 def _normalize_phone(val: str | None) -> str:
@@ -1035,7 +1041,6 @@ except Exception as _e:
     pass
 
 
-
 # Apply WAL PRAGMAs for local SQLite (not libsql driver)
 try:
     if not engine_info.get("using_remote", False) and engine_info.get("driver", "") != "libsql":
@@ -1058,7 +1063,9 @@ _tabs = st.tabs(
 # Show a one-line runtime banner on the first tab for quick verification
 with _tabs[0]:
     _debug_where_am_i()
-    st.caption(f"DB in use: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}")
+    st.caption(
+        f"DB in use: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
+    )
 
 
 # ---------- Browse
@@ -1666,10 +1673,11 @@ with _tabs[4]:
     if st.button("Backfill Categories/Services from Vendors"):
         try:
             out = sync_reference_tables(engine)
-            st.success(f"Backfilled reference tables. (categories≈{out.get('categories',0)}, services≈{out.get('services',0)})")
+            st.success(
+                f"Backfilled reference tables. (categories≈{out.get('categories', 0)}, services≈{out.get('services', 0)})"
+            )
         except Exception as e:
             st.error(f"Backfill failed: {e}")
-
 
     st.subheader("Export / Import")
 
@@ -1934,7 +1942,9 @@ with _tabs[4]:
 # ---------- Debug
 with _tabs[5]:
     _debug_where_am_i()
-    st.info(f"Active DB: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}")
+    st.info(
+        f"Active DB: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
+    )
     st.subheader("Status & Secrets (debug)")
 
 
