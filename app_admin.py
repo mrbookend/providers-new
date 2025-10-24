@@ -753,10 +753,9 @@ _cols_for_blob = [
 ]
 _cols_present = [c for c in _cols_for_blob if c in df.columns]
 if _cols_present:
-    # Coerce to strings and join per-row => returns a Series
+    # Coerce to string dtype, join row-wise to a Series, then normalize via map
     _blob_df = df[_cols_present].astype("string").fillna("")
     _joined = _blob_df.apply(lambda r: " ".join(map(str, r)), axis=1)
-    # Normalize whitespace + lowercase via Series.map (no .str on a DataFrame)
     df["_blob"] = _joined.map(lambda s: " ".join(str(s).split()).lower())
 else:
     df["_blob"] = ""
