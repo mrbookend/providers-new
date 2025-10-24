@@ -1124,10 +1124,8 @@ with _tabs[0]:
 
     # Fast local filter (no regex)
     qq = (st.session_state.get("q") or "").strip().lower()
-    if qq:
-        filtered = df[df["_blob"].str.contains(qq, regex=False, na=False)]
-    else:
-        filtered = df
+      filtered = _filter_df_by_query(df, qq)
+
 
     # Columns to show (guard against missing)
     view_cols_all = [
