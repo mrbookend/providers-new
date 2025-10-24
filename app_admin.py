@@ -1122,10 +1122,9 @@ with _tabs[0]:
             key="q",
         )
 
-    # Fast local filter (no regex)
-    qq = (st.session_state.get("q") or "").strip().lower()
+      # Fast local filter (no regex)
+      qq = (st.session_state.get("q") or "").strip().lower()
       filtered = _filter_df_by_query(df, qq)
-
 
     # Columns to show (guard against missing)
     view_cols_all = [
