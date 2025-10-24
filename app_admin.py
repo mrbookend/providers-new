@@ -1147,17 +1147,19 @@ with _tabs[0]:
     df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
 
     # Read-only table with linkified website
-    st.dataframe(
-        df_view,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "business_name": st.column_config.TextColumn("Provider"),
-            "website": st.column_config.LinkColumn("website", display_text="website"),
-            "notes": st.column_config.TextColumn(width=420),
-            "keywords": st.column_config.TextColumn(width=300),
-        },
-    )
+      st.dataframe(
+          df_view,
+          use_container_width=False,  # allow horizontal scroll; widths enforced by Patch 2
+          hide_index=True,
+          height=(lambda n: max(240, min(2000, 48 + int(n)*28)))(get_page_size()),
+          column_config={
+              "business_name": st.column_config.TextColumn("Provider"),
+              "website": st.column_config.LinkColumn("website", display_text="website"),
+              "notes": st.column_config.TextColumn(width=420),
+              "keywords": st.column_config.TextColumn(width=300),
+          },
+      )
+
 
     # CSV export of the filtered view
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
