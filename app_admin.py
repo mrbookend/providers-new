@@ -737,7 +737,6 @@ _tabs = st.tabs(
 with _tabs[0]:
     df = load_df(engine)
 
-    # --- Build a lowercase search blob once (guarded) ---
 # --- Build a lowercase search blob once (guarded) ---
 if "_blob" not in df.columns:
 _cols_for_blob = [
@@ -754,13 +753,13 @@ _cols_for_blob = [
 ]
 _cols_present = [c for c in _cols_for_blob if c in df.columns]
 if _cols_present:
+    # Coerce to strings and join per-row => returns a Series
     _blob_df = df[_cols_present].astype("string").fillna("")
     _joined = _blob_df.apply(lambda r: " ".join(map(str, r)), axis=1)
+    # Normalize whitespace + lowercase via Series.map (no .str on a DataFrame)
     df["_blob"] = _joined.map(lambda s: " ".join(str(s).split()).lower())
 else:
     df["_blob"] = ""
-
-
 
 
     # --- Search input at 25% width (table remains full width) ---
