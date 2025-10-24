@@ -2350,3 +2350,65 @@ def _filter_df_by_query(df: _pd_p9.DataFrame, qq: str) -> _pd_p9.DataFrame:
             pass
         return df
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
+# Later defs override earlier ones at import-time; existing call sites will use
+# this version. Behavior: prefer 'computed_keywords' when non-empty, else
+# fallback to '_blob', else minimal join of selected text columns. Matching is
+# done against a lowercased, whitespace-collapsed source string.
+# ─────────────────────────────────────────────────────────────────────────────
+import pandas as _pd_p11
+import streamlit as _st_p11
+
+def _filter_df_by_query(df, qq):
+    try:
+        if df is None or not hasattr(df, "empty") or df.empty:
+            return df
+        s = "" if qq is None else str(qq).strip().lower()
+        if s == "":
+            return df
+
+        cols = set(map(str, getattr(df, "columns", [])))
+
+        def _minimal_src(_df):
+            pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
+            if pick:
+                ser = (
+                    _df[pick]
+                    .astype("string")
+                    .fillna("")
+                    .agg(" ".join, axis=1)
+                )
+            else:
+                ser = _pd_p11.Series([""] * len(_df), index=_df.index, dtype="string")
+            return ser
+
+        if "computed_keywords" in cols:
+            ckw = df["computed_keywords"].astype("string").fillna("")
+            if "_blob" in cols:
+                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
+            else:
+                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
+        elif "_blob" in cols:
+            base = df["_blob"].astype("string").fillna("")
+        else:
+            base = _minimal_src(df)
+
+        # Normalize source: lowercase, collapse internal whitespace
+        src = (
+            base.astype("string")
+            .fillna("")
+            .str.lower()
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+
+        mask = src.str.contains(s, regex=False, na=False)
+        return df[mask]
+    except Exception as _e:
+        try:
+            _st_p11.session_state["_filter_df_error"] = str(_e)
+        except Exception:
+            pass
+        return df
+# ─────────────────────────────────────────────────────────────────────────────
