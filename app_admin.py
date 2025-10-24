@@ -1115,12 +1115,13 @@ with _tabs[0]:
     # --- Search row (25%) ---
     left, _right = st.columns([1, 3])
     with left:
-        _ = st.text_input(
-            "Search",
-            placeholder="Search providers… (press Enter)",
-            label_visibility="collapsed",
-            key="q",
-        )
+      _ = st.text_input(
+          "Search",
+          placeholder="Search providers… (press Enter)",
+          label_visibility="collapsed",
+          key="q",
+      )
+
       # Fast local filter (no regex)
       qq = (st.session_state.get("q") or "").strip().lower()
       filtered = _filter_df_by_query(df, qq)
@@ -1139,7 +1140,8 @@ with _tabs[0]:
           "keywords",
       ]
 
-    view_cols = [c for c in view_cols_all if c in filtered.columns]
+      view_cols = [c for c in view_cols_all if c in filtered.columns]
+
 
     # Rename phone_fmt → phone for display
     df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
