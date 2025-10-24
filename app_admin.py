@@ -2090,10 +2090,10 @@ def _apply_exact_column_widths_from_secrets() -> None:
         cfg = dict(_st_patch2.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
         if not cfg:
             return
-        # Serialize once; provide both raw and lower-cased maps for tolerant matching
-        cfg_lower = {str(k).lower(): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
+        # Serialize once; provide raw map; lower-cased map is generated inline in JS
         cfg_raw = {str(k): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
         _st_patch2.markdown(
+
             f"""
 <script>
 (function() {{
