@@ -1065,8 +1065,6 @@ except Exception:
     pass
 
 _tabs = st.tabs(
-with _tabs[0]:
-    st.session_state.get("_browse_help_render", lambda: None)()
 
     [
         "Browse Vendors",
@@ -1083,6 +1081,8 @@ with _tabs[0]:
     st.caption(
         f"DB in use: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
     )
+with _tabs[0]:
+    st.session_state.get("_browse_help_render", lambda: None)()
 
 
 # ---------- Browse
