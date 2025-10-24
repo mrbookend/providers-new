@@ -2306,3 +2306,50 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # Expose callable so main() can invoke it in a one-liner later.
 _st_patch7.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 9 (2025-10-24): query filter helper preferring computed_keywords
+# If qq is empty/blank: returns df unchanged.
+# If 'computed_keywords' exists and is non-empty for a row, use that; else fallback to '_blob'.
+# Defensive: no exceptions; always returns a DataFrame.
+# ─────────────────────────────────────────────────────────────────────────────
+import pandas as _pd_p9
+import streamlit as _st_p9
+
+def _filter_df_by_query(df: _pd_p9.DataFrame, qq: str) -> _pd_p9.DataFrame:
+    try:
+        if df is None or not isinstance(df, _pd_p9.DataFrame) or df.empty:
+            return df
+        s = "" if qq is None else str(qq)
+        s = s.strip()
+        if s == "":
+            return df
+        cols = set(df.columns.astype(str))
+        # Choose the search source per row:
+        # prefer non-empty 'computed_keywords', else fallback to '_blob' if present,
+        # else build a minimal blob from visible text columns.
+        if "computed_keywords" in cols:
+            ckw = df["computed_keywords"].astype("string").fillna("")
+            if "_blob" in cols:
+                src = _pd_p9.Series(_pd_p9.NA, index=df.index).astype("string")
+                src = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
+            else:
+                # minimal fallback if _blob is missing
+                pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
+                base = df[pick].astype("string").fillna("") if pick else _pd_p9.DataFrame({"_z": _pd_p9.Series([""]*len(df))})
+                src = base.apply(lambda r: " ".join(r.values.astype(str)), axis=1).astype("string")
+        elif "_blob" in cols:
+            src = df["_blob"].astype("string").fillna("")
+        else:
+            # last-resort minimal blob
+            pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
+            base = df[pick].astype("string").fillna("") if pick else _pd_p9.DataFrame({"_z": _pd_p9.Series([""]*len(df))})
+            src = base.apply(lambda r: " ".join(r.values.astype(str)), axis=1).astype("string")
+        mask = src.str.contains(s, regex=False, na=False)
+        return df[mask]
+    except Exception as _e:
+        try:
+            _st_p9.session_state["_filter_df_error"] = str(_e)
+        except Exception:
+            pass
+        return df
+# ─────────────────────────────────────────────────────────────────────────────
