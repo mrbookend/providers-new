@@ -11,6 +11,19 @@ from typing import List, Tuple, Dict
 
 import pandas as pd
 import streamlit as st
+
+# --- Page config MUST be the first Streamlit call ---------------------------
+if not globals().get("_PAGE_CFG_DONE"):
+    try:
+        st.set_page_config(
+            page_title="Providers — Admin",
+            layout="wide",
+            initial_sidebar_state="expanded",
+        )
+    except Exception:
+        pass
+    globals()["_PAGE_CFG_DONE"] = True
+# ---------------------------------------------------------------------------
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 
@@ -313,7 +326,8 @@ def _queue_svc_reset():
 # -----------------------------
 PAGE_TITLE = _resolve_str("page_title", "Vendors Admin") or "Vendors Admin"
 SIDEBAR_STATE = _resolve_str("sidebar_state", "expanded") or "expanded"
-st.set_page_config(page_title=PAGE_TITLE, layout="wide", initial_sidebar_state=SIDEBAR_STATE)
+# set_page_config already called above; keep a marker
+_PAGE_CFG_DONE = True
 
 LEFT_PAD_PX = int(_resolve_str("page_left_padding_px", "40") or "40")
 
