@@ -689,15 +689,41 @@ def _seed_if_empty() -> None:
             "email address": "email",  # harmless if vendors has no 'email' column (we won't insert it)
         })
 
-        # Keep only columns that exist in your vendors table
+        # Columns we will insert into the vendors table
         keep = [
             "category", "service", "business_name", "contact_name",
             "phone", "address", "website", "notes", "keywords",
         ]
-        have = [c for c in keep if c in df.columns]
-        df = df[have].copy().fillna("")
+
+        # Ensure every required column exists; fill missing with ""
+        for col in keep:
+            if col not in df.columns:
+                df[col] = ""
+
+        # Basic cleanup + type coercions
+        df = df.fillna("")
+
+        # Normalize phone to digits-only strings (handles floats like 2105380777.0)
+        import re
+        def _digits_only(x):
+            s = str(x).strip()
+            if s.endswith(".0"):
+                s = s[:-2]
+            return re.sub(r"\D+", "", s)
+
+        if "phone" in df.columns:
+            df["phone"] = df["phone"].apply(_digits_only)
+
+        # Force strings for text columns
+        for col in ["category","service","business_name","contact_name","address","website","notes","keywords"]:
+            if col in df.columns:
+                df[col] = df[col].astype(str)
+
+        # Final column order to match INSERT
+        df = df[keep].copy()
 
         rows = df.to_dict(orient="records")
+
         if not rows:
             st.warning("Seed CSV has no rows after filtering expected columns.")
             return
