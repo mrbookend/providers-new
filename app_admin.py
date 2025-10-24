@@ -1752,10 +1752,11 @@ def render_add_edit_delete(tab_manage):
                 if r:
                     bn_e = st.text_input("Business Name *", value=r["business_name"], key="bn_edit")
 
-                    cats = list_categories(eng)
-                    srvs = list_services(eng)
+                    cats = list_categories()
+                    srvs = list_services()
 
                     e_c1, e_c2 = st.columns([1, 1])
+
                     cat_choice_e = e_c1.selectbox(
                         "Category *",
                         options=["— Select —"] + cats,
@@ -1808,6 +1809,13 @@ def render_add_edit_delete(tab_manage):
                             "notes": notes_e.strip(),
                             "ckw_manual_extra": (keywords_manual_e or "").strip(),
                         }
+                        update_vendor(sel_id, data)
+                        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                        _clear_after("edit")
+                        st.success(
+                            f'Saved changes to provider #{sel_id}. — run "Recompute ALL" to apply keywords.'
+                        )
+
                         update_vendor(eng, sel_id, data)
                         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
                         _clear_after("edit")
