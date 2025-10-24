@@ -767,24 +767,23 @@ _cols_for_blob = [
     "computed_keywords",
 ]
 _cols_present = [c for c in _cols_for_blob if c in df.columns]
-          if _cols_present:
-              def _to_str_safe_local(v):
-                  if v is None:
-                      return ""
-                  return v if isinstance(v, str) else str(v)
+if _cols_present:
+    # Coerce to pandas "string" dtype and fill nulls
+    _blob_df = df[_cols_present].astype("string").fillna("")
 
-              _blob_df = df[_cols_present].applymap(_to_str_safe_local)
-              # Make absolutely sure we have a Series before using .str:
-              _joined = _blob_df.astype("string").fillna("").agg(" ".join, axis=1)
+    # Join row values into a single string (returns a Series)
+    _joined = _blob_df.apply(
+        lambda r: " ".join([v if isinstance(v, str) else str(v) for v in r]),
+        axis=1,
+    )
 
-              df["_blob"] = (
-                  _joined
-                  .str.replace(r"\s+", " ", regex=True)
-                  .str.strip()
-                  .str.lower()
-              )
-          else:
-              df["_blob"] = ""
+    # Normalize whitespace and lowercase WITHOUT using .str on a DataFrame
+    _joined = _joined.apply(lambda s: " ".join(s.split()).lower())
+
+    df["_blob"] = _joined
+else:
+    df["_blob"] = ""
+
 
 
     # --- Search input at 25% width (table remains full width) ---
