@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 
 
-APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
+APP_VER = "admin-2025-10-24.2"
 
 
 def _sha256_of_this_file() -> str:
@@ -663,6 +663,53 @@ def sync_reference_tables(engine: Engine) -> dict:
         inserted["services"] = len(svcs)
 
     return inserted
+# ---------- CKW: schema ensure + backfill (Step 1) ----------
+CURRENT_CKW_VER = 1  # bump if generation changes
+
+def _has_column(engine: Engine, table: str, col: str) -> bool:
+    try:
+        with engine.connect() as cx:
+            rows = cx.exec_driver_sql(
+                "SELECT 1 FROM pragma_table_info(:t) WHERE name = :c",
+                {"t": table, "c": col},
+            ).fetchall()
+        return bool(rows)
+    except Exception:
+        return False
+
+def ensure_ckw_column(engine: Engine) -> None:
+    """Add computed_keywords column if missing; create basic index; one-time seed."""
+    try:
+        if not _has_column(engine, "vendors", "computed_keywords"):
+            with engine.begin() as cx:
+                cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT")
+            # Best-effort index (non-unique)
+            try:
+                with engine.begin() as cx:
+                    cx.exec_driver_sql(
+                        "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
+                    )
+            except Exception:
+                pass
+
+        # One-time naïve backfill where NULL/empty
+        with engine.begin() as cx:
+            cx.exec_driver_sql(
+                """
+                UPDATE vendors
+                   SET computed_keywords = TRIM(
+                       COALESCE(computed_keywords,'') || ' ' ||
+                       COALESCE(business_name,'')     || ' ' ||
+                       COALESCE(category,'')          || ' ' ||
+                       COALESCE(service,'')           || ' ' ||
+                       COALESCE(keywords,'')
+                   )
+                 WHERE computed_keywords IS NULL OR computed_keywords='';
+                """
+            )
+    except Exception as e:
+        st.warning(f"ensure_ckw_column failed: {e}")
+# ---------- end CKW: schema ensure + backfill (Step 1) ----------
 
 
 # ---------- Seed if empty (one-time) ----------
@@ -1047,6 +1094,8 @@ def _execute_append_only(
 # -----------------------------
 engine, engine_info = build_engine()
 ensure_schema(engine)
+ensure_ckw_column(engine)  # CKW step 1: add column + safe seed
+
 _seed_if_empty()
 try:
     sync_reference_tables(engine)
@@ -1692,6 +1741,44 @@ with _tabs[4]:
             )
         except Exception as e:
             st.error(f"Backfill failed: {e}")
+    st.subheader("Computed Keywords (CKW)")
+
+    def _normalize_tokens(*parts: str) -> str:
+        raw = " ".join([p or "" for p in parts])
+        # lower, collapse whitespace, strip punctuation-ish runs to spaces
+        s = re.sub(r"[\s/|,;]+", " ", raw.lower()).strip()
+        # de-dup tokens but preserve rough order
+        seen = set()
+        out = []
+        for t in s.split():
+            if t not in seen:
+                seen.add(t)
+                out.append(t)
+        return " ".join(out)
+
+    if st.button("Recompute CKW for all vendors"):
+        try:
+            with engine.begin() as conn:
+                rows = conn.execute(sql_text(
+                    "SELECT id, business_name, category, service, keywords FROM vendors"
+                )).mappings().all()
+
+                payload = []
+                for r in rows:
+                    ckw = _normalize_tokens(
+                        r.get("business_name"), r.get("category"),
+                        r.get("service"), r.get("keywords")
+                    )
+                    payload.append({"id": int(r["id"]), "ckw": ckw})
+
+                if payload:
+                    conn.execute(
+                        sql_text("UPDATE vendors SET computed_keywords=:ckw WHERE id=:id"),
+                        payload,
+                    )
+            st.success(f"Recomputed CKW for {len(payload)} row(s).")
+        except Exception as e:
+            st.error(f"CKW recompute failed: {e}")
 
     st.subheader("Export / Import")
 
