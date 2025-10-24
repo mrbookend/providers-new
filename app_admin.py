@@ -29,7 +29,6 @@ if not globals().get("_PAGE_CFG_DONE"):
 
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
-
 APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
 def _sha256_of_this_file() -> str:
     try:
