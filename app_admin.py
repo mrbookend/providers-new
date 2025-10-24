@@ -2261,3 +2261,47 @@ def get_page_size() -> int:
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch 7 (2025-10-24): CKW schema helpers (additive only; no auto-exec)
+# Adds safe helpers to ensure the 'computed_keywords' column and index exist.
+# Next step will insert a one-liner after ensure_schema(engine) to invoke this.
+# ─────────────────────────────────────────────────────────────────────────────
+from typing import Any as _Any_patch7
+import streamlit as _st_patch7
+
+def _vendors_has_column(eng, col: str) -> bool:
+    try:
+        with eng.connect() as cx:
+            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
+        names = {str(r[1]).lower() for r in rows}  # r[1] = column name in SQLite PRAGMA
+        return col.lower() in names
+    except Exception:
+        return False
+
+def _ensure_ckw_column_and_index(eng) -> bool:
+    """
+    Ensure vendors.computed_keywords exists (TEXT, default ''), and an index exists.
+    Returns True if any schema change was applied, else False.
+    """
+    changed = False
+    try:
+        have_col = _vendors_has_column(eng, "computed_keywords")
+        if not have_col:
+            with eng.begin() as cx:
+                # Add the new column with default '' (keeps existing NULLs out)
+                cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT DEFAULT ''")
+            changed = True
+        # Create an index to speed up CKW filtering; idempotent for SQLite/libsql
+        with eng.begin() as cx:
+            cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+    except Exception as _e:
+        # Should never crash the app; surface in debug if needed
+        try:
+            _st_patch7.session_state["_ckw_schema_error"] = str(_e)
+        except Exception:
+            pass
+    return changed
+
+# Expose callable so main() can invoke it in a one-liner later.
+_st_patch7.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
+# ─────────────────────────────────────────────────────────────────────────────
