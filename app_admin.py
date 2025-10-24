@@ -1647,8 +1647,128 @@ with tab_browse:
     with st.expander("Help — How to use Browse (click to open)", expanded=False):
         st.markdown(HELP_MD)
 
-    with tab_maint:
-        st.caption("Maintenance (placeholder from main) — will restore full tools next step.")
+with tab_maint:
+    # ─────────────────────────────────────────────────────────────────────
+    # Maintenance — Diagnostics & CKW
+    # ─────────────────────────────────────────────────────────────────────
+
+    # ---- CKW recompute tools -------------------------------------------------
+    st.subheader("Computed Keywords (CKW)")
+    ckw_col1, ckw_col2 = st.columns([0.35, 0.65])
+
+    with ckw_col1:
+        if st.button("Recompute CKW (respect locks)", type="primary", use_container_width=True, key="btn_ckw_respect"):
+            try:
+                changed = recompute_ckw_all_respect_locks()
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.success(f"Recomputed {changed} vendor(s) (ckw_locked respected).")
+            except Exception as e:
+                st.error(f"CKW recompute failed: {e}")
+
+    with ckw_col2:
+        if st.button("Force Recompute ALL (override locks)", use_container_width=True, key="btn_ckw_all"):
+            try:
+                changed = recompute_ckw_all()
+                st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+                st.warning(f"Force-recomputed {changed} vendor(s). Locks overridden.")
+            except Exception as e:
+                st.error(f"CKW force recompute failed: {e}")
+
+    # ---- CKW seed admin / coverage ------------------------------------------
+    st.markdown("### CKW Seeds (curated baseline)")
+    try:
+        msg = ensure_ckw_seeds_table()
+        st.caption(msg)
+    except Exception as e:
+        st.error(f"Seed table check failed: {e}")
+
+    try:
+        # Coverage: how many (category, service) combos present in vendors vs seeds defined
+        with get_engine().connect() as cx:
+            combos = cx.exec_driver_sql("""
+                SELECT DISTINCT
+                    COALESCE(TRIM(category),'') AS category,
+                    COALESCE(TRIM(service),'')  AS service
+                FROM vendors
+                WHERE COALESCE(TRIM(category),'') <> '' AND COALESCE(TRIM(service),'') <> ''
+            """).mappings().all()
+            combo_count = len(combos)
+            seed_count  = cx.exec_driver_sql("SELECT COUNT(*) FROM ckw_seeds").scalar() or 0
+        st.caption(f"Seed coverage: {seed_count} / {combo_count} (category, service) combos have seeds.")
+    except Exception as e:
+        st.warning(f"Coverage probe failed: {e}")
+
+    # ---- Quick diagnostics ----------------------------------------------------
+    st.subheader("Diagnostics")
+    try:
+        import json as _json
+        from collections import OrderedDict
+
+        with get_engine().connect() as cx:
+            # Basic engine / path
+            db_path = DB_PATH
+            engine_url = f"sqlite:///{DB_PATH}"
+
+            # Table counts
+            tables = OrderedDict()
+            for t in ("vendors", "categories", "services", "ckw_seeds", "sqlite_sequence"):
+                try:
+                    cnt = cx.exec_driver_sql(f"SELECT COUNT(*) FROM {t}").scalar()
+                    if cnt is not None:
+                        tables[t] = int(cnt)
+                except Exception:
+                    # table might not exist
+                    pass
+
+            # Vendors with empty phone (simple integrity probe)
+            phones_suspect = []
+            try:
+                rows = cx.exec_driver_sql("""
+                    SELECT id, COALESCE(phone,'') AS phone
+                    FROM vendors
+                    WHERE COALESCE(TRIM(phone),'') = ''
+                    LIMIT 100
+                """).mappings().all()
+                for r in rows:
+                    phones_suspect.append({"id": int(r["id"]), "phone": r["phone"]})
+            except Exception:
+                pass
+
+        st.caption(f"DB path: {db_path}")
+        st.caption(f"Engine: {engine_url}")
+        st.markdown("**Table & Row Counts**")
+        st.code(_json.dumps({"tables": tables}, indent=2))
+
+        st.markdown("**Integrity Self-Test (read-only)**")
+        st.code(_json.dumps({"integrity_issues": {"phones_suspect": phones_suspect}}, indent=2))
+    except Exception as e:
+        st.error(f"Diagnostics failed: {e}")
+
+    # ---- Full CSV backup ------------------------------------------------------
+    st.subheader("Full CSV Backup")
+    try:
+        with get_engine().connect() as cx:
+            df_all = pd.read_sql(sa.text("SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE, id"), cx)
+        st.download_button(
+            "Download ALL vendors as CSV",
+            data=df_all.to_csv(index=False),
+            file_name="providers_full_backup.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    except Exception as e:
+        st.warning(f"CSV backup failed: {e}")
+
+    # ---- Cache clear ----------------------------------------------------------
+    st.subheader("Caches")
+    if st.button("Clear @st.cache_data (force refresh)", key="btn_clear_cache_data", use_container_width=True):
+        try:
+            st.cache_data.clear()
+            st.success("Cleared cache_data.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Clear cache_data failed: {e}")
+
 
     # ---- Add / Edit / Delete ----
     render_add_edit_delete(tab_manage)
