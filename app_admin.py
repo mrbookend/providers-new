@@ -1014,6 +1014,8 @@ _tabs = st.tabs(
 # Show a one-line runtime banner on the first tab for quick verification
 with _tabs[0]:
     _debug_where_am_i()
+    st.caption(f"DB in use: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}")
+
 
 # ---------- Browse
 with _tabs[0]:
@@ -1888,7 +1890,9 @@ with _tabs[4]:
 # ---------- Debug
 with _tabs[5]:
     _debug_where_am_i()
+    st.info(f"Active DB: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}")
     st.subheader("Status & Secrets (debug)")
+
 
 with _tabs[5]:
     st.subheader("Status & Secrets (debug)")
