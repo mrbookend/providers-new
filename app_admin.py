@@ -768,13 +768,19 @@ _cols_for_blob = [
 ]
 _cols_present = [c for c in _cols_for_blob if c in df.columns]
 if _cols_present:
-    _blob_df = df[_cols_present].applymap(_to_str_safe)
+    def _to_str_safe_local(v):
+        if v is None:
+            return ""
+        return v if isinstance(v, str) else str(v)
+
+    _blob_df = df[_cols_present].applymap(_to_str_safe_local)
     df["_blob"] = (
         _blob_df.agg(" ".join, axis=1)
         .str.replace(r"\s+", " ", regex=True)
         .str.strip()
         .str.lower()
     )
+
 else:
     df["_blob"] = ""
 
