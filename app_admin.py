@@ -1124,17 +1124,21 @@ with _tabs[0]:
       # Fast local filter (no regex)
       qq = (st.session_state.get("q") or "").strip().lower()
       filtered = _filter_df_by_query(df, qq)
-        "id",
-        "category",
-        "service",
-        "business_name",
-        "contact_name",
-        "phone_fmt",
-        "address",
-        "website",
-        "notes",
-        "keywords",
-    ]
+
+      # Columns to show (guard against missing)
+      view_cols_all = [
+          "id",
+          "category",
+          "service",
+          "business_name",
+          "contact_name",
+          "phone_fmt",
+          "address",
+          "website",
+          "notes",
+          "keywords",
+      ]
+
     view_cols = [c for c in view_cols_all if c in filtered.columns]
 
     # Rename phone_fmt → phone for display
