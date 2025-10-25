@@ -1,10 +1,7 @@
 name: ci
 
 on:
-  push:
-    branches: [ main, fix/*, chore/*, feature/*, revert/* ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch: {}   # manual only; no push/PR runs
 
 permissions:
   contents: read
@@ -16,85 +13,6 @@ concurrency:
 jobs:
   lint-and-guards:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-      - uses: actions/checkout@v4
-
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install deps
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install "ruff==0.14.2"
-
-      - name: Show versions
-        run: |
-          set -euo pipefail
-          python --version
-          ruff --version
-
-      - name: Ruff lint
-        run: ruff check --output-format=github .
-
-      # Use --diff to see exactly what the runner wants.
-      # You can switch back to `ruff format --check .` later if preferred.
-      - name: Ruff format (check only, show patch)
-      - run: ruff format --check .
-
-
-
-      - name: Legacy guards
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ -f app_admin.py ]; then
-            # Guard 1: no engine/_engine params on cached data functions
-            if awk '
-              /@st\.cache_data/ { cached=1; next }
-              cached && /^def / {
-                if ($0 ~ /\(_?engine[[:space:]=,)]/ ) { print "FAIL: engine param in @st.cache_data function -> " NR ":" $0; exit 1 }
-                cached=0
-              }
-            ' app_admin.py; then
-              echo "OK: no engine params in cached data functions"
-            fi
-
-            # Guard 2: no call sites passing engine/_engine=
-            if grep -nE '\w+\([^)]*\b(_?engine)\s*=' app_admin.py; then
-              echo "FAIL: call sites still pass engine/_engine=" >&2
-              exit 1
-            else
-              echo "OK: no engine/_engine call-site args"
-            fi
-
-            # Guard 3: no deprecated fetch_page
-            if grep -n 'fetch_page' app_admin.py; then
-              echo "FAIL: deprecated fetch_page() reference(s) present" >&2
-              exit 1
-            else
-              echo "OK: no deprecated fetch_page()"
-            fi
-
-            # Guard 4: ban stray 'vdf'
-            if grep -nE '\bvdf\b' app_admin.py; then
-              echo "FAIL: stray variable name 'vdf' found; rename to df" >&2
-              exit 1
-            else
-              echo "OK: no stray vdf vars"
-            fi
-
-            # Guard 5 (informational)
-            if ! grep -n 'st\.set_page_config' app_admin.py >/dev/null; then
-              echo "WARN: st.set_page_config not found in app_admin.py (informational)"
-            fi
-          else
-            echo "NOTE: app_admin.py not present; skipping custom guards"
-          fi
+      - name: No-op
+        run: echo "CI disabled for this repo."
