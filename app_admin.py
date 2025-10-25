@@ -1371,28 +1371,6 @@ except Exception:
     # Never let help rendering break the page
     pass
 
-# --- HScroll wrapper for Browse table (+ Help + pixel widths) ---
-
-# Optional top-of-browse help, driven by secrets
-try:
-    if st.secrets.get("SHOW_BROWSE_HELP", False):
-        from pathlib import Path
-        help_md = st.secrets.get("BROWSE_HELP_MD", "")
-        help_file = st.secrets.get("BROWSE_HELP_FILE", "")
-        with st.expander("Help — Browse", expanded=False):
-            if isinstance(help_md, str) and help_md.strip():
-                st.markdown(help_md)
-            elif isinstance(help_file, str) and help_file.strip():
-                try:
-                    st.markdown(Path(help_file).read_text(encoding="utf-8"))
-                except Exception as _e:
-                    st.info(f"Help file not found or unreadable: {help_file} ({_e})")
-            else:
-                st.info("Configure BROWSE_HELP_MD or BROWSE_HELP_FILE in secrets.")
-except Exception:
-    # Never let help rendering break the page
-    pass
-
 st.markdown('<div style="width:100%; overflow-x:auto;">', unsafe_allow_html=True)
 
 # Resolve a table DataFrame that actually exists in scope
@@ -1437,12 +1415,6 @@ else:
 
 st.markdown('</div>', unsafe_allow_html=True)
 # --- End HScroll wrapper ---
-
-# --- End HScroll wrapper ---
-
-
-
-
 
     # CSV export of the filtered view
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
