@@ -1350,24 +1350,10 @@ with _tabs[0]:
         _df_show = _filter_df_ckw_first(_df_show, _q)
 
     # --- HScroll wrapper for Browse table ---
-    st.markdown('<div style="width:100%; overflow-x:auto;">', unsafe_allow_html=True)
-    # Resolve a table DataFrame that actually exists in scope
-try:
-    _table = filtered  # preferred
-except NameError:
-    try:
-        _table = df     # common fallback
-    except NameError:
-        try:
-            _table = vdf  # legacy fallback
-        except NameError:
-            _table = None
+# --- HScroll wrapper for Browse table ---
+st.markdown('<div style="width:100%; overflow-x:auto;">', unsafe_allow_html=True)
 
-if _table is None:
-    st.warning("Browse table not available (no DataFrame found).")
-else:
-    _view = _table[view_cols] if set(view_cols).issubset(_table.columns) else _table
-    # Resolve a table DataFrame that actually exists in scope
+# Resolve a table DataFrame that actually exists in scope
 try:
     _table = filtered  # preferred
 except NameError:
@@ -1389,8 +1375,9 @@ else:
         height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
     )
 
+st.markdown('</div>', unsafe_allow_html=True)
+# --- End HScroll wrapper ---
 
-    st.markdown('</div>', unsafe_allow_html=True)
     # --- End HScroll wrapper ---
 
 
