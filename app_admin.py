@@ -2294,7 +2294,6 @@ _apply_exact_column_widths_from_secrets()
 # This patch only defines helpers and registers a callable in session_state.
 # A later patch will insert a one-liner in the Browse tab to render it in-place.
 # ─────────────────────────────────────────────────────────────────────────────
-import io as _io_patch3
 import streamlit as _st_patch3
 
 
