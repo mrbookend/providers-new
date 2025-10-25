@@ -1412,12 +1412,13 @@ else:
         column_config=col_cfg if col_cfg else None,
         height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
     )
+# [REPLACE lines 1415–1420 with this block]
+        st.markdown('</div>', unsafe_allow_html=True)
+        # --- End HScroll wrapper ---
 
-st.markdown('</div>', unsafe_allow_html=True)
-# --- End HScroll wrapper ---
+        # CSV export of the filtered view
+        ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
 
-    # CSV export of the filtered view
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     st.download_button(
         "Download filtered view (CSV)",
         data=(_df_show if "_df_show" in locals() else df).to_csv(index=False).encode("utf-8"),
