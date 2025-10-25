@@ -2308,50 +2308,7 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     return changed
 st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 
-# ─────────────────────────────────────────────────────────────────────────────
 
 
-        cols = set(map(str, getattr(df, "columns", [])))
-
-        def _minimal_src(_df):
-            pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
-            if pick:
-                ser = (
-                    _df[pick]
-                    .astype("string")
-                    .fillna("")
-                    .agg(" ".join, axis=1)
-                )
-            else:
-                ser = _pd_p11.Series([""] * len(_df), index=_df.index, dtype="string")
-            return ser
-
-        if "computed_keywords" in cols:
-            ckw = df["computed_keywords"].astype("string").fillna("")
-            if "_blob" in cols:
-                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
-            else:
-                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
-        elif "_blob" in cols:
-            base = df["_blob"].astype("string").fillna("")
-        else:
-            base = _minimal_src(df)
-
-        # Normalize source: lowercase, collapse internal whitespace
-        src = (
-            base.astype("string")
-            .fillna("")
-            .str.lower()
-            .str.replace(r"\s+", " ", regex=True)
-            .str.strip()
-        )
-
-        mask = src.str.contains(s, regex=False, na=False)
-        return df[mask]
-    except Exception as _e:
-        try:
-            _st_p11.session_state["_filter_df_error"] = str(_e)
-        except Exception:
-            pass
-        return df
+        
 # ─────────────────────────────────────────────────────────────────────────────
