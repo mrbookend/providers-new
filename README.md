@@ -92,3 +92,4 @@ This repo uses a simple, low-drama workflow that keeps `main` clean and the Stre
 Run a 1-minute database check before pushing to Streamlit Cloud:
 ```bash
 python scripts/smoke.py
+
