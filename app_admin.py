@@ -153,6 +153,15 @@ def _column_config_from_secrets(cols: list[str]) -> dict:
         if isinstance(w, int) and w > 0:
             cfg[c] = st.column_config.Column(width=w)
     return cfg
+# --- engine resolver (safe fallback) ---
+def _ensure_engine(eng):
+    if eng is not None:
+        return eng
+    try:
+        e, _info = build_engine()
+        return e
+    except Exception:
+        return None
 
 
 def _get_secret(name: str, default: str | None = None) -> str | None:
@@ -681,15 +690,10 @@ def _seed_if_empty(eng=None) -> None:
     seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
 
     # Resolve an Engine if one wasn't provided
+    eng = _ensure_engine(eng)
     if eng is None:
-        try:
-            eng = get_engine()  # may raise if not defined yet
-        except Exception:
-            try:
-                eng, _info = build_engine()
-            except Exception as e:
-                st.warning(f"Seed-if-empty skipped (no engine): {e}")
-                return
+        return
+
 
     # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
     if isinstance(eng, tuple) and len(eng) > 0:
@@ -1203,9 +1207,10 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
             pass
         return df
 
-st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
+x
 
 engine, engine_info = build_engine()
+st.session_state.get("_ckw_schema_ensure",
 try:
     st.session_state["_ENGINE"] = engine
 except Exception:
@@ -1292,7 +1297,7 @@ with _tabs[0]:
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     st.download_button(
         "Download filtered view (CSV)",
-        data=df_view.to_csv(index=False).encode("utf-8"),
+        data=(_df_show if "_df_show" in locals() else df).to_csv(index=False).encode("utf-8"),
         file_name=f"providers_{ts}.csv",
         mime="text/csv",
     )
