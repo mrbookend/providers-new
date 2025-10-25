@@ -192,10 +192,19 @@ except Exception:
 # -----------------------------
 # Helpers
 # -----------------------------
-def _as_bool(v, default: bool = False) -> bool:
+def _as_bool(v, default=False) -> bool:
+    """Best-effort boolean parse for env/secrets flags."""
+    if isinstance(v, bool):
+        return v
     if v is None:
-        return default
-    return str(v).strip().lower() in ("1", "true", "yes", "on")
+        return bool(default)
+    s = str(v).strip().lower()
+    if s in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if s in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return bool(default)
+
 # --- Helper: column widths from secrets ---
 def _column_config_from_secrets(cols: list[str]) -> dict:
     cfg = {}
@@ -1084,56 +1093,137 @@ def _seed_if_empty(eng=None) -> None:
         ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
-# (right before the INSERT execute)
-ckw, ver = _ckw_for_form_row(form_values_dict)  # <- you already collect form values into this dict
-form_values_dict.setdefault("ckw_locked", 0)
-form_values_dict.setdefault("ckw_manual_extra", "")
-form_values_dict["computed_keywords"] = ckw
-form_values_dict["ckw_version"] = ver
+# --- Add/Edit form submit ----------------------------------------------------
+if "submit_ctx" not in st.session_state:
+    st.session_state["submit_ctx"] = {}
 
-        # Final column order to match INSERT
-        df = df[keep].copy()
+submit = st.session_state.get("_do_submit", False)
 
-rows = df.to_dict(orient="records")
+if submit:
+    # Collect form fields (adapt keys to your form variable names)
+    business_name = (st.session_state.get("business_name") or "").strip()
+    category = (st.session_state.get("category") or "").strip()
+    service = (st.session_state.get("service") or "").strip()
+    contact_name = (st.session_state.get("contact_name") or "").strip()
+    phone_raw = (st.session_state.get("phone") or "").strip()
+    email = (st.session_state.get("email") or "").strip()
+    website = (st.session_state.get("website") or "").strip()
+    address = (st.session_state.get("address") or "").strip()
+    city = (st.session_state.get("city") or "").strip()
+    state = (st.session_state.get("state") or "").strip()
+    zip_code = (st.session_state.get("zip") or "").strip()
+    notes = (st.session_state.get("notes") or "").strip()
+    keywords = (st.session_state.get("keywords") or "").strip()
+    ckw_manual_extra = (st.session_state.get("ckw_manual_extra") or "").strip()
 
-# Precompute CKW fields for each row dict before bulk insert
-prepared = []
-for r in rows:
-    d = dict(r)
-    d.setdefault("ckw_locked", 0)
-    d.setdefault("ckw_manual_extra", "")
-    ckw, ver = _ckw_for_form_row(d)
-    d["computed_keywords"] = ckw
-    d["ckw_version"] = ver
-    prepared.append(d)
+    def _digits_only(s: str) -> str:
+        return "".join(ch for ch in str(s) if ch.isdigit())
 
-if not prepared:
-    st.warning("Seed CSV has no rows after filtering expected columns.")
-    return
-
-with eng.begin() as cx:
-    cx.exec_driver_sql(
-        """
-        INSERT INTO vendors
-        (category, service, business_name, contact_name, phone,
-         address, website, notes, keywords,
-         computed_keywords, ckw_version, ckw_locked, ckw_manual_extra,
-         created_at, updated_at, updated_by)
-        VALUES
-        (:category, NULLIF(:service,''), :business_name, :contact_name, :phone,
-         :address, :website, :notes, :keywords,
-         :computed_keywords, :ckw_version, :ckw_locked, :ckw_manual_extra,
-         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'seed')
-        """,
-        prepared,
+    phone_digits = _digits_only(phone_raw)
+    phone_fmt = (
+        f"({phone_digits[0:3]}) {phone_digits[3:6]}-{phone_digits[6:10]}"
+        if len(phone_digits) == 10 else phone_raw
     )
 
+    form_values_dict = {
+        "business_name": business_name,
+        "category": category,
+        "service": service,
+        "contact_name": contact_name,
+        "phone": phone_digits,
+        "phone_fmt": phone_fmt,
+        "email": email,
+        "website": website,
+        "address": address,
+        "city": city,
+        "state": state or "TX",
+        "zip": zip_code,
+        "notes": notes,
+        "keywords": keywords,
+        "ckw_locked": 0,
+        "ckw_manual_extra": ckw_manual_extra,
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
 
+    # Compute CKW for this one row
+    try:
+        ckw, ver = _ckw_for_form_row(form_values_dict)  # your helper
+    except Exception:
+        parts = [business_name, category, service, keywords, ckw_manual_extra, notes]
+        ckw, ver = (" ".join(p for p in parts if p).strip(), 1)
 
-        st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
+    form_values_dict["computed_keywords"] = ckw
+    form_values_dict["ckw_version"] = ver
+
+    # Write (UPDATE if editing, else INSERT)
+    try:
+        eng = get_engine()  # your existing engine builder
+        vendor_id = st.session_state.get("edit_vendor_id")
+
+        if vendor_id:
+            with eng.begin() as cx:
+                cx.execute(
+                    sql_text(
+                        """
+                        UPDATE vendors
+                        SET business_name=:business_name,
+                            category=:category,
+                            service=NULLIF(:service,''),
+                            contact_name=:contact_name,
+                            phone=:phone,
+                            phone_fmt=:phone_fmt,
+                            email=:email,
+                            website=:website,
+                            address=:address,
+                            city=:city,
+                            state=:state,
+                            zip=:zip,
+                            notes=:notes,
+                            keywords=:keywords,
+                            computed_keywords=:computed_keywords,
+                            ckw_version=:ckw_version,
+                            ckw_locked=:ckw_locked,
+                            ckw_manual_extra=:ckw_manual_extra,
+                            updated_at=:updated_at
+                        WHERE id=:id
+                        """
+                    ),
+                    {**form_values_dict, "id": int(vendor_id)},
+                )
+            st.success("Provider updated.")
+        else:
+            with eng.begin() as cx:
+                cx.execute(
+                    sql_text(
+                        """
+                        INSERT INTO vendors (
+                            category, service, business_name, contact_name, phone,
+                            phone_fmt, email, website, address, city, state, zip,
+                            notes, keywords, computed_keywords, ckw_version, ckw_locked,
+                            ckw_manual_extra, created_at, updated_at, updated_by
+                        )
+                        VALUES (
+                            :category, NULLIF(:service,''), :business_name, :contact_name, :phone,
+                            :phone_fmt, :email, :website, :address, :city, :state, :zip,
+                            :notes, :keywords, :computed_keywords, :ckw_version, :ckw_locked,
+                            :ckw_manual_extra, CURRENT_TIMESTAMP, :updated_at, 'form'
+                        )
+                        """
+                    ),
+                    form_values_dict,
+                )
+            st.success("Provider added.")
+
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
 
-    except Exception as e:
+    except Exception as ex:
+        st.error(f"Database write failed: {ex}")
+# --- end Add/Edit form submit ------------------------------------------------
+
         st.warning(f"Seed-if-empty skipped: {e}")
 
 
