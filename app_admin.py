@@ -1259,89 +1259,34 @@ with _tabs[0]:
 # ---------- Browse
 with _tabs[0]:
     df = load_df(engine)
-# Help — Browse
-if st.secrets.get("SHOW_BROWSE_HELP", False):
-    help_md = st.secrets.get("BROWSE_HELP_MD") or ""
-    st.expander("Help — Browse", expanded=False).markdown(help_md or "_No help configured._")
 
-    # --- Build a lowercase search blob once (guarded) ---
-    if "_blob" not in df.columns:
-        _cols_for_blob = [
-            "business_name",
-            "category",
-            "service",
-            "contact_name",
-            "phone",
-            "phone_fmt",
-            "address",
-            "website",
-            "notes",
-            "keywords",
-        ]
-        _cols_present = [c for c in _cols_for_blob if c in df.columns]
-        if _cols_present:
-            # Coerce to string, join row-wise, collapse whitespace, lowercase
-            _blob_df = df[_cols_present].astype("string").fillna("")
-            _joined = _blob_df.apply(lambda r: " ".join(map(str, r)), axis=1)
-            df["_blob"] = _joined.map(lambda s: " ".join(str(s).split()).lower())
-        else:
-            df["_blob"] = ""
+    # Help — Browse
+    if st.secrets.get("SHOW_BROWSE_HELP", False):
+        help_md = st.secrets.get("BROWSE_HELP_MD") or ""
+        st.expander("Help — Browse", expanded=False).markdown(help_md or "_No help configured._")
 
-# --- Search row (25%) ---
-with _tabs[0]:
-    left, _right = st.columns([1, 3])
-    with left:
-        _ = st.text_input(
-            "Search",
-            placeholder="Search providers… (press Enter)",
-            label_visibility="collapsed",
-            key="q",
-        )
+    # exact-pixel widths + horiz scroll
+    try:
+        _df_show = filtered
+    except NameError:
+        _df_show = df
 
-        # Fast local filter (no regex)
-        qq = (st.session_state.get("q") or "").strip().lower()
-        filtered = _filter_df_by_query(df, qq)
+    view_cols_pref = [
+        "business_name","category","service","phone_fmt",
+        "contact_name","website","notes","keywords"
+    ]
+    view_cols = [c for c in view_cols_pref if c in _df_show.columns]
+    if not view_cols:
+        view_cols = list(_df_show.columns)
 
-        # Columns to show (guard against missing)
-        view_cols_all = [
-            "id",
-            "category",
-            "service",
-            "business_name",
-            "contact_name",
-            "phone_fmt",
-            "address",
-            "website",
-            "notes",
-            "keywords",
-        ]
-        view_cols = [c for c in view_cols_all if c in filtered.columns]
+    colcfg = _column_config_from_secrets(view_cols)
+    st.dataframe(
+        _df_show[view_cols],
+        use_container_width=False,  # enables horizontal scroll
+        column_config=colcfg,
+        hide_index=True,
+    )
 
-    # Rename phone_fmt → phone for display
-    df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
-
-    # Read-only table with linkified website
-# exact-pixel widths + horiz scroll
-try:
-    _df_show = filtered
-except NameError:
-    _df_show = df
-
-view_cols_pref = [
-    "business_name","category","service","phone_fmt",
-    "contact_name","website","notes","keywords"
-]
-view_cols = [c for c in view_cols_pref if c in _df_show.columns]
-if not view_cols:
-    view_cols = list(_df_show.columns)
-
-colcfg = _column_config_from_secrets(view_cols)
-st.dataframe(
-    _df_show[view_cols],
-    use_container_width=False,  # enables horizontal scroll
-    column_config=colcfg,
-    hide_index=True,
-)
 
 
     # CSV export of the filtered view
