@@ -3,8 +3,16 @@ name: ci
 on:
   push:
     branches: [ "**" ]
+    paths:
+      - "app_admin.py"
+      - ".github/workflows/ci.yml"
+      - "ruff.toml"
   pull_request:
     branches: [ "**" ]
+    paths:
+      - "app_admin.py"
+      - ".github/workflows/ci.yml"
+      - "ruff.toml"
   workflow_dispatch: {}
 
 permissions:
@@ -21,6 +29,22 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
+      # Fail PRs that aren’t based on the current main (prevents “out-of-date base” surprises)
+      - name: Ensure PR is based on latest main
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          MAIN_SHA="$(git rev-parse origin/main)"
+          echo "Base (PR target): $BASE_SHA"
+          echo "Current origin/main: $MAIN_SHA"
+          if [ "$BASE_SHA" != "$MAIN_SHA" ]; then
+            echo "::error ::PR base is not the latest main. Click 'Update branch' or rebase."
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -31,15 +55,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install "ruff==0.14.2"
 
-      # Lint + format guards (kept as checks, not auto-fix)
       - name: Ruff lint
         run: ruff check --output-format=github .
 
       - name: Ruff format (check only)
         run: ruff format --check .
 
-      # Publish file facts so we can verify GitHub is source of truth
-      - name: app_admin.py facts
+      - name: Python compile check
+        run: python -m py_compile app_admin.py
+
+      - name: app_admin.py facts (sha256, lines)
         id: facts
         shell: bash
         run: |
@@ -50,8 +75,7 @@ jobs:
             exit 1
           fi
           sha=$(python - <<'PY'
-from pathlib import Path
-import hashlib
+from pathlib import Path, hashlib
 b = Path("app_admin.py").read_bytes()
 print(hashlib.sha256(b).hexdigest())
 PY
@@ -61,20 +85,61 @@ PY
           echo "lines=$lines" >> "$GITHUB_OUTPUT"
           {
             echo "### app_admin.py facts"
-            echo ""
             echo "- sha256: \`$sha\`"
             echo "- lines: $lines"
             echo "- path: app_admin.py"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Optional: hard-fail if file unexpectedly changes during the job
+      - name: Compute md5 and size
+        id: facts2
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="app_admin.py"
+          md5=$(python - <<'PY'
+from pathlib import Path, hashlib
+print(hashlib.md5(Path("app_admin.py").read_bytes()).hexdigest())
+PY
+)
+          size=$(wc -c < "$f" | tr -d ' ')
+          echo "md5=$md5" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+          {
+            echo "- md5: \`$md5\`"
+            echo "- size: $size bytes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload file facts artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app_admin-file-facts
+          path: app_admin.py
+
+      - name: Comment PR with file facts
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "## app_admin.py facts",
+              `- sha256: \`${{ steps.facts.outputs.sha256 }}\``,
+              `- md5: \`${{ steps.facts2.outputs.md5 }}\``,
+              `- lines: ${{ steps.facts.outputs.lines }}`,
+              `- size: ${{ steps.facts2.outputs.size }} bytes`,
+            ].join("\n");
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
+
       - name: Reconfirm file unchanged within job
         shell: bash
         run: |
           set -euo pipefail
           sha_now=$(python - <<'PY'
-from pathlib import Path
-import hashlib
+from pathlib import Path, hashlib
 b = Path("app_admin.py").read_bytes()
 print(hashlib.sha256(b).hexdigest())
 PY
