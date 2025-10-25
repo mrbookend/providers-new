@@ -48,7 +48,7 @@ def _mtime_of_this_file() -> str:
     try:
         import pathlib
         import datetime as _dt
-        import os as _os
+        
 
         p = pathlib.Path(__file__)
         ts = _os.path.getmtime(str(p))
@@ -814,9 +814,7 @@ def _seed_if_empty(eng=None) -> None:
         if cnt and int(cnt) > 0:
             return  # already has rows
 
-        import os
-        import pandas as pd
-
+       
         if not os.path.exists(seed_csv):
             st.warning(f"SEED_CSV not found: {seed_csv}")
             return
@@ -1207,7 +1205,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
             pass
         return df
 
-x
+
 
 engine, engine_info = build_engine()
 st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
@@ -2295,7 +2293,6 @@ _apply_exact_column_widths_from_secrets()
 # This patch only defines helpers and registers a callable in session_state.
 # A later patch will insert a one-liner in the Browse tab to render it in-place.
 # ─────────────────────────────────────────────────────────────────────────────
-import os as _os_patch3
 import io as _io_patch3
 import streamlit as _st_patch3
 
