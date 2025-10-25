@@ -144,6 +144,15 @@ def _as_bool(v, default: bool = False) -> bool:
     if v is None:
         return default
     return str(v).strip().lower() in ("1", "true", "yes", "on")
+# --- Helper: column widths from secrets ---
+def _column_config_from_secrets(cols: list[str]) -> dict:
+    cfg = {}
+    widths = st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}) or {}
+    for c in cols:
+        w = widths.get(c)
+        if isinstance(w, int) and w > 0:
+            cfg[c] = st.column_config.Column(width=w)
+    return cfg
 
 
 def _get_secret(name: str, default: str | None = None) -> str | None:
@@ -1250,6 +1259,10 @@ with _tabs[0]:
 # ---------- Browse
 with _tabs[0]:
     df = load_df(engine)
+# Help — Browse
+if st.secrets.get("SHOW_BROWSE_HELP", False):
+    help_md = st.secrets.get("BROWSE_HELP_MD") or ""
+    st.expander("Help — Browse", expanded=False).markdown(help_md or "_No help configured._")
 
     # --- Build a lowercase search blob once (guarded) ---
     if "_blob" not in df.columns:
@@ -1308,18 +1321,28 @@ with _tabs[0]:
     df_view = filtered[view_cols].rename(columns={"phone_fmt": "phone"})
 
     # Read-only table with linkified website
-    st.dataframe(
-        df_view,
-        use_container_width=False,  # allow horizontal scroll; Patch 2 enforces widths
-        hide_index=True,
-        height=(lambda n: max(240, min(2000, 48 + int(n) * 28)))(get_page_size()),
-        column_config={
-            "business_name": st.column_config.TextColumn("Provider"),
-            "website": st.column_config.LinkColumn("website", display_text="website"),
-            "notes": st.column_config.TextColumn(width=420),
-            "keywords": st.column_config.TextColumn(width=300),
-        },
-    )
+# exact-pixel widths + horiz scroll
+try:
+    _df_show = filtered
+except NameError:
+    _df_show = df
+
+view_cols_pref = [
+    "business_name","category","service","phone_fmt",
+    "contact_name","website","notes","keywords"
+]
+view_cols = [c for c in view_cols_pref if c in _df_show.columns]
+if not view_cols:
+    view_cols = list(_df_show.columns)
+
+colcfg = _column_config_from_secrets(view_cols)
+st.dataframe(
+    _df_show[view_cols],
+    use_container_width=False,  # enables horizontal scroll
+    column_config=colcfg,
+    hide_index=True,
+)
+
 
     # CSV export of the filtered view
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
