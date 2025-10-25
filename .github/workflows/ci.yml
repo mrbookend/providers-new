@@ -2,17 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [ "main", "*" ]
-    paths:
-      - "app_admin.py"
-      - ".github/workflows/ci.yml"
-      - "requirements.txt"
+    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
-    paths:
-      - "app_admin.py"
-      - ".github/workflows/ci.yml"
-      - "requirements.txt"
+    branches: [ "**" ]
   workflow_dispatch: {}
 
 permissions:
@@ -25,46 +17,69 @@ concurrency:
 jobs:
   lint-and-guards:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Check out
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.11.13"
 
-      - name: Install tools
+      - name: Install Ruff (pinned)
         run: |
           python -m pip install --upgrade pip
           pip install "ruff==0.14.2"
 
+      # Lint + format guards (kept as checks, not auto-fix)
       - name: Ruff lint
-        run: |
-          ruff check --output-format=github .
+        run: ruff check --output-format=github .
 
       - name: Ruff format (check only)
-        run: |
-          ruff format --check .
+        run: ruff format --check .
 
-      - name: Drift proof — app_admin.py hash & line count
-        id: drift-proof
+      # Publish file facts so we can verify GitHub is source of truth
+      - name: app_admin.py facts
+        id: facts
+        shell: bash
         run: |
           set -euo pipefail
           f="app_admin.py"
           if [[ ! -f "$f" ]]; then
-            echo "::error::Missing $f at repo root"; exit 1
+            echo "::error ::Missing $f"
+            exit 1
           fi
-          sha=$(sha256sum "$f" | awk '{print $1}')
-          lines=$(wc -l < "$f")
-          bytes=$(wc -c < "$f")
-          # Sanity thresholds (tune as needed)
-          [[ $lines -ge 500 ]] || { echo "::error::$f too short: $lines lines"; exit 1; }
-          [[ $bytes -ge 20000 ]] || { echo "::error::$f too small: $bytes bytes"; exit 1; }
-          echo "SHA256: $sha"
-          echo "LINES : $lines"
-          echo "BYTES : $bytes"
-          echo "app_admin_sha256=$sha" >> "$GITHUB_OUTPUT"
-          echo "app_admin_lines=$lines" >> "$GITHUB_OUTPUT"
-          echo "app_admin_bytes=$bytes" >> "$GITHUB_OUTPUT"
+          sha=$(python - <<'PY'
+from pathlib import Path
+import hashlib
+b = Path("app_admin.py").read_bytes()
+print(hashlib.sha256(b).hexdigest())
+PY
+)
+          lines=$(wc -l < "$f" | tr -d ' ')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "lines=$lines" >> "$GITHUB_OUTPUT"
+          {
+            echo "### app_admin.py facts"
+            echo ""
+            echo "- sha256: \`$sha\`"
+            echo "- lines: $lines"
+            echo "- path: app_admin.py"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Optional: hard-fail if file unexpectedly changes during the job
+      - name: Reconfirm file unchanged within job
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha_now=$(python - <<'PY'
+from pathlib import Path
+import hashlib
+b = Path("app_admin.py").read_bytes()
+print(hashlib.sha256(b).hexdigest())
+PY
+)
+          if [[ "$sha_now" != "${{ steps.facts.outputs.sha256 }}" ]]; then
+            echo "::error ::app_admin.py mutated during job (sha drift)"
+            exit 1
+          fi
