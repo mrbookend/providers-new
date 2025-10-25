@@ -1129,17 +1129,16 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
 
 
 engine, engine_info = build_engine()
-
 ensure_schema(engine)
 _seed_if_empty()
 
 try:
     sync_reference_tables(engine)
-
 except Exception as _e:
     # Non-fatal; UI still works without ref tables populated
-
     pass
+
+st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)
 try:
     _ensure_ckw_column_and_index(engine)
 except Exception:
