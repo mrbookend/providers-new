@@ -1122,6 +1122,43 @@ with _tabs[0]:
             label_visibility="collapsed",
             key="q",
         )
+1126 |         # Fast local filter (no regex)
+# ── Local helpers for Browse filter & page size ─────────────────────────────
+def get_page_size() -> int:
+    """
+    Read PAGE_SIZE from secrets; default 20; clamp to [5, 200].
+    """
+    try:
+        val = int(st.secrets.get("PAGE_SIZE", 20))
+    except Exception:
+        val = 20
+    return max(5, min(200, val))
+
+
+def _filter_df_by_query(df: pd.DataFrame, q: str) -> pd.DataFrame:
+    """
+    Case-insensitive, non-regex 'contains' across all visible columns.
+    Safe for mixed types; treats NaN as empty.
+    """
+    q = (q or "").strip().lower()
+    if not q:
+        return df
+
+    # Build OR mask across columns without DataFrame.str pitfalls
+    mask = None
+    for col in df.columns:
+        try:
+            s = df[col].astype(str).str.lower()
+            m = s.str.contains(q, regex=False, na=False)
+            mask = m if mask is None else (mask | m)
+        except Exception:
+            # Be defensive per-column; if something is ill-typed, skip it
+            continue
+
+    if mask is None:
+        return df
+    return df.loc[mask]
+# ────────────────────────────────────────────────────────────────────────────
 
         # Fast local filter (no regex)
         qq = (st.session_state.get("q") or "").strip().lower()
@@ -2264,8 +2301,6 @@ _ensure_page_size_in_state()
 # Adds safe helpers to ensure the 'computed_keywords' column and index exist.
 # Next step will insert a one-liner after ensure_schema(engine) to invoke this.
 # ─────────────────────────────────────────────────────────────────────────────
-from typing import Any as _Any_patch7
-import streamlit as _st_patch7
 
 def _vendors_has_column(eng, col: str) -> bool:
     try:
