@@ -85,29 +85,28 @@ def _tok(v: str) -> list[str]:
 def _build_ckw_row(row: dict) -> str:
     """Build computed_keywords from (business_name, category, service, notes, keywords, ckw_manual_extra)."""
     name = str(row.get("business_name") or "")
-    cat  = str(row.get("category") or "")
-    svc  = str(row.get("service") or "")
+    cat = str(row.get("category") or "")
+    svc = str(row.get("service") or "")
     notes = str(row.get("notes") or "")
-    kws   = str(row.get("keywords") or "")
+    kws = str(row.get("keywords") or "")
     manual = str(row.get("ckw_manual_extra") or "")
 
     syn = _get_synonyms()
     extras: list[str] = []
-    # category/service driven synonyms
     if cat in syn:
         extras.extend(syn[cat])
     if svc in syn:
         extras.extend(syn[svc])
 
     tokens = _tok(name) + _tok(cat) + _tok(svc) + _tok(kws) + _tok(notes) + _tok(manual) + extras
-    # de-dupe while keeping order
-    seen, out = set(), []
+    seen: set[str] = set()
+    out: list[str] = []
     for t in tokens:
-    if t not in seen:
-        out.append(t)
-        seen.add(t)
-
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
     return " ".join(out)
+
 # ---------------------------------------------------------------------------#
 
 
