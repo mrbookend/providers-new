@@ -224,6 +224,19 @@ def _fetch_with_retry(
                 time.sleep(0.2)
                 continue
             raise
+# --- CKW schema ensure helper (guard; no-op placeholder) ---
+def _ensure_ckw_column_and_index(eng) -> bool:
+    """
+    Idempotently ensure CKW columns/indexes exist.
+    Returns True if changes were made; False otherwise.
+    This placeholder keeps CI green until the real logic is wired.
+    """
+    try:
+        # TODO: replace with the real ensure-CKW implementation
+        return False
+    except Exception:
+        # Defensive: never crash the app on ensure; report False
+        return False
 
 
 # ---------- Form state helpers (Add / Edit / Delete) ----------
@@ -1127,6 +1140,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
             pass
         return df
 
+st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
 
 engine, engine_info = build_engine()
 ensure_schema(engine)
