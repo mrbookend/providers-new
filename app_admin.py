@@ -1042,7 +1042,55 @@ def _execute_append_only(
 
     return inserted
 
+# Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
+# Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
+# exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
+# ─────────────────────────────────────────────────────────────────────────────
+import streamlit as _st_ps
 
+def _coerce_int(_v, _default):
+    try:
+        if isinstance(_v, (int, float)):
+            return int(_v)
+        if isinstance(_v, str) and _v.strip().lstrip("+-").isdigit():
+            return int(_v.strip())
+    except Exception:
+        pass
+    return int(_default)
+
+def _ensure_page_size_in_state():
+    try:
+        sec = _st_ps.secrets
+    except Exception:
+        sec = {}
+    raw = sec.get("PAGE_SIZE", 200)
+    n = _coerce_int(raw, 200)
+    n = max(20, min(1000, n))
+    _st_ps.session_state["PAGE_SIZE"] = n
+
+def get_page_size() -> int:
+    """Return the effective PAGE_SIZE (from secrets, bounded)."""
+    v = _st_ps.session_state.get("PAGE_SIZE")
+    if isinstance(v, int) and 20 <= v <= 1000:
+        return v
+    _ensure_page_size_in_state()
+    return int(_st_ps.session_state.get("PAGE_SIZE", 200))
+# Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
+# Later defs override earlier ones at import-time; existing call sites will use
+# this version. Behavior: prefer 'computed_keywords' when non-empty, else
+# fallback to '_blob', else minimal join of selected text columns. Matching is
+# done against a lowercased, whitespace-collapsed source string.
+# ─────────────────────────────────────────────────────────────────────────────
+import pandas as _pd_p11
+import streamlit as _st_p11
+
+def _filter_df_by_query(df, qq):
+    try:
+        if df is None or not hasattr(df, "empty") or df.empty:
+            return df
+        s = "" if qq is None else str(qq).strip().lower()
+        if s == "":
+            return df
 # -----------------------------
 # UI
 # -----------------------------
@@ -2222,39 +2270,6 @@ def render_browse_help_expander() -> None:
 _st_patch3.session_state["_browse_help_render"] = render_browse_help_expander
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
-# Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
-# Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
-# exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
-# ─────────────────────────────────────────────────────────────────────────────
-import streamlit as _st_ps
-
-def _coerce_int(_v, _default):
-    try:
-        if isinstance(_v, (int, float)):
-            return int(_v)
-        if isinstance(_v, str) and _v.strip().lstrip("+-").isdigit():
-            return int(_v.strip())
-    except Exception:
-        pass
-    return int(_default)
-
-def _ensure_page_size_in_state():
-    try:
-        sec = _st_ps.secrets
-    except Exception:
-        sec = {}
-    raw = sec.get("PAGE_SIZE", 200)
-    n = _coerce_int(raw, 200)
-    n = max(20, min(1000, n))
-    _st_ps.session_state["PAGE_SIZE"] = n
-
-def get_page_size() -> int:
-    """Return the effective PAGE_SIZE (from secrets, bounded)."""
-    v = _st_ps.session_state.get("PAGE_SIZE")
-    if isinstance(v, int) and 20 <= v <= 1000:
-        return v
-    _ensure_page_size_in_state()
-    return int(_st_ps.session_state.get("PAGE_SIZE", 200))
 
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
@@ -2297,6 +2312,7 @@ def _ensure_ckw_column_and_index(eng) -> bool:
         # Should never crash the app; surface in debug if needed
         st.session_state["_ckw_schema_error"] = str(_e)
     return changed
+st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 
 # Expose callable so main() can invoke it in a one-liner later.
 st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
@@ -2304,22 +2320,7 @@ st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
-# Later defs override earlier ones at import-time; existing call sites will use
-# this version. Behavior: prefer 'computed_keywords' when non-empty, else
-# fallback to '_blob', else minimal join of selected text columns. Matching is
-# done against a lowercased, whitespace-collapsed source string.
-# ─────────────────────────────────────────────────────────────────────────────
-import pandas as _pd_p11
-import streamlit as _st_p11
 
-def _filter_df_by_query(df, qq):
-    try:
-        if df is None or not hasattr(df, "empty") or df.empty:
-            return df
-        s = "" if qq is None else str(qq).strip().lower()
-        if s == "":
-            return df
 
         cols = set(map(str, getattr(df, "columns", [])))
 
