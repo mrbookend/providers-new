@@ -30,7 +30,7 @@ if not globals().get("_PAGE_CFG_DONE"):
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 
-APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
+APP_VER = "admin-2025-10-25.1"  # bump on any behavior change
 
 
 def _sha256_of_this_file() -> str:
@@ -857,24 +857,7 @@ def _sanitize_url(url: str | None) -> str:
     if url and not re.match(r"^https?://", url, re.I):
         url = "https://" + url
     return url
-
-
-    # Build OR mask across columns without DataFrame.str pitfalls
-    mask = None
-    for col in df.columns:
-        try:
-            s = df[col].astype(str).str.lower()
-            m = s.str.contains(q, regex=False, na=False)
-            mask = m if mask is None else (mask | m)
-        except Exception:
-            # Be defensive per-column; if something is ill-typed, skip it
-            continue
-
-    if mask is None:
-        return df
-    return df.loc[mask]
 # ────────────────────────────────────────────────────────────────────────────
-
 def load_df(engine: Engine) -> pd.DataFrame:
     with engine.begin() as conn:
         df = pd.read_sql(sql_text("SELECT * FROM vendors ORDER BY lower(business_name)"), conn)
@@ -1084,13 +1067,64 @@ def get_page_size() -> int:
 import pandas as _pd_p11
 import streamlit as _st_p11
 
-def _filter_df_by_query(df, qq):
+def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
+    """
+    Case-insensitive filter. Priority:
+      1) computed_keywords if present and non-empty
+      2) _blob if present (prebuilt, lowercased)
+      3) minimal join of common text columns
+    No regex; whitespace collapsed; safe per-column string coercions.
+    """
     try:
-        if df is None or not hasattr(df, "empty") or df.empty:
+        if df is None or getattr(df, "empty", True):
             return df
         s = "" if qq is None else str(qq).strip().lower()
         if s == "":
             return df
+
+        cols = set(map(str, getattr(df, "columns", [])))
+
+        def _minimal_src(_df: pd.DataFrame) -> pd.Series:
+            pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
+            if pick:
+                ser = (
+                    _df[pick]
+                    .astype("string")
+                    .fillna("")
+                    .agg(" ".join, axis=1)
+                )
+            else:
+                ser = pd.Series([""] * len(_df), index=_df.index, dtype="string")
+            return ser
+
+        if "computed_keywords" in cols:
+            ckw = df["computed_keywords"].astype("string").fillna("")
+            if "_blob" in cols:
+                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
+            else:
+                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
+        elif "_blob" in cols:
+            base = df["_blob"].astype("string").fillna("")
+        else:
+            base = _minimal_src(df)
+
+        src = (
+            base.astype("string")
+            .fillna("")
+            .str.lower()
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+        mask = src.str.contains(s, regex=False, na=False)
+        return df.loc[mask]
+    except Exception as _e:
+        # Fail open; stash error for Debug tab
+        try:
+            st.session_state["_filter_df_error"] = str(_e)
+        except Exception:
+            pass
+        return df
+
 # -----------------------------
 # UI
 # -----------------------------
@@ -1102,6 +1136,7 @@ try:
 except Exception as _e:
     # Non-fatal; UI still works without ref tables populated
     pass
+st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)
 
 
 # Apply WAL PRAGMAs for local SQLite (not libsql driver)
