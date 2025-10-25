@@ -666,7 +666,6 @@ def sync_reference_tables(engine: Engine) -> dict:
 # ---------- Seed if empty (one-time) ----------
 def _seed_if_empty(eng=None) -> None:
     """Seed vendors from CSV when table exists but has 0 rows."""
-    # Gate via secrets
     allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
     if not allow:
         return
@@ -700,8 +699,7 @@ def _seed_if_empty(eng=None) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).all()]
             if "vendors" not in tables:
-                # Respect your prod guard: do NOT create vendors here
-                return
+                return  # respect prod guard: do not create vendors here
 
             count = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
             if count > 0:
@@ -720,10 +718,14 @@ def _seed_if_empty(eng=None) -> None:
             st.warning(f"Seed skipped: CSV missing columns: {sorted(missing)}")
             return
 
-        # Optional light cleanup: strip whitespace from strings
+        # Optional light cleanup
         for col in df.columns:
             if df[col].dtype == object:
-                df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+                df[col] = (
+                    df[col].astype(str)
+                    .str.replace(r"\s+", " ", regex=True)
+                    .str.strip()
+                )
 
         # Insert rows
         with eng.begin() as cx:
@@ -732,6 +734,7 @@ def _seed_if_empty(eng=None) -> None:
         st.success(f"Seeded vendors from {seed_csv}")
     except Exception as e:
         st.warning(f"Seed-if-empty skipped: {e}")
+
 
                 return
 
