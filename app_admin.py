@@ -130,20 +130,6 @@ def _debug_where_am_i():
         language="json",
     )
 
-
-# --- Page config MUST be the first Streamlit call ---------------------------
-if not globals().get("_PAGE_CFG_DONE"):
-    try:
-        st.set_page_config(
-            page_title="Providers — Admin",
-            layout="wide",
-            initial_sidebar_state="expanded",
-        )
-    except Exception:
-        pass
-    globals()["_PAGE_CFG_DONE"] = True
-# ---------------------------------------------------------------------------
-
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
 try:
     import sqlalchemy_libsql as _sqlalchemy_libsql  # noqa: F401
@@ -872,26 +858,7 @@ def _sanitize_url(url: str | None) -> str:
     if url and not re.match(r"^https?://", url, re.I):
         url = "https://" + url
     return url
-# ── Local helpers for Browse filter & page size ─────────────────────────────
-def get_page_size() -> int:
-    """
-    Read PAGE_SIZE from secrets; default 20; clamp to [5, 200].
-    """
-    try:
-        val = int(st.secrets.get("PAGE_SIZE", 20))
-    except Exception:
-        val = 20
-    return max(5, min(200, val))
 
-
-def _filter_df_by_query(df: pd.DataFrame, q: str) -> pd.DataFrame:
-    """
-    Case-insensitive, non-regex 'contains' across all visible columns.
-    Safe for mixed types; treats NaN as empty.
-    """
-    q = (q or "").strip().lower()
-    if not q:
-        return df
 
     # Build OR mask across columns without DataFrame.str pitfalls
     mask = None
@@ -1082,7 +1049,6 @@ def _execute_append_only(
 # -----------------------------
 engine, engine_info = build_engine()
 ensure_schema(engine)
-st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)    
 _seed_if_empty()
 try:
     sync_reference_tables(engine)
@@ -1998,8 +1964,6 @@ with _tabs[5]:
     st.info(
         f"Active DB: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
     )
-    st.subheader("Status & Secrets (debug)")
-
 
 with _tabs[5]:
     st.subheader("Status & Secrets (debug)")
@@ -2331,6 +2295,12 @@ def _ensure_ckw_column_and_index(eng) -> bool:
         # Should never crash the app; surface in debug if needed
         try:
             st.session_state["_ckw_schema_error"] = str(_e)
+# Register and run CKW schema ensure once engine exists.
+try:
+    st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
+    st.session_state["_ckw_schema_ensure"](engine)
+except Exception:
+    pass
 
         except Exception:
             pass
@@ -2338,53 +2308,7 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 
 # Expose callable so main() can invoke it in a one-liner later.
 # ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# Patch 9 (2025-10-24): query filter helper preferring computed_keywords
-# If qq is empty/blank: returns df unchanged.
-# If 'computed_keywords' exists and is non-empty for a row, use that; else fallback to '_blob'.
-# Defensive: no exceptions; always returns a DataFrame.
-# ─────────────────────────────────────────────────────────────────────────────
-import pandas as _pd_p9
-import streamlit as _st_p9
 
-def _filter_df_by_query(df: _pd_p9.DataFrame, qq: str) -> _pd_p9.DataFrame:
-    try:
-        if df is None or not isinstance(df, _pd_p9.DataFrame) or df.empty:
-            return df
-        s = "" if qq is None else str(qq)
-        s = s.strip()
-        if s == "":
-            return df
-        cols = set(df.columns.astype(str))
-        # Choose the search source per row:
-        # prefer non-empty 'computed_keywords', else fallback to '_blob' if present,
-        # else build a minimal blob from visible text columns.
-        if "computed_keywords" in cols:
-            ckw = df["computed_keywords"].astype("string").fillna("")
-            if "_blob" in cols:
-                src = _pd_p9.Series(_pd_p9.NA, index=df.index).astype("string")
-                src = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
-            else:
-                # minimal fallback if _blob is missing
-                pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
-                base = df[pick].astype("string").fillna("") if pick else _pd_p9.DataFrame({"_z": _pd_p9.Series([""]*len(df))})
-                src = base.apply(lambda r: " ".join(r.values.astype(str)), axis=1).astype("string")
-        elif "_blob" in cols:
-            src = df["_blob"].astype("string").fillna("")
-        else:
-            # last-resort minimal blob
-            pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
-            base = df[pick].astype("string").fillna("") if pick else _pd_p9.DataFrame({"_z": _pd_p9.Series([""]*len(df))})
-            src = base.apply(lambda r: " ".join(r.values.astype(str)), axis=1).astype("string")
-        mask = src.str.contains(s, regex=False, na=False)
-        return df[mask]
-    except Exception as _e:
-        try:
-            _st_p9.session_state["_filter_df_error"] = str(_e)
-        except Exception:
-            pass
-        return df
-# ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 # Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
 # Later defs override earlier ones at import-time; existing call sites will use
