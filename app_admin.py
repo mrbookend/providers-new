@@ -664,23 +664,75 @@ def sync_reference_tables(engine: Engine) -> dict:
 
 
 # ---------- Seed if empty (one-time) ----------
-def _seed_if_empty() -> None:
+def _seed_if_empty(eng=None) -> None:
     """Seed vendors from CSV when table exists but has 0 rows."""
-    try:
-        allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
-        if not allow:
-            return
-        seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
+    # Gate via secrets
+    allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
+    if not allow:
+        return
+    seed_csv = str(st.secrets.get("SEED_CSV", "data/providers_seed.csv"))
 
-        # --- get an Engine and unwrap if a tuple/dict is returned ---
-        eng = None
+    # Resolve an Engine if one wasn't provided
+    if eng is None:
         try:
-            eng = get_engine()  # noqa: F821
+            eng = get_engine()  # may raise if not defined yet
         except Exception:
             try:
-                eng = build_engine()
+                eng, _info = build_engine()
             except Exception as e:
                 st.warning(f"Seed-if-empty skipped (no engine): {e}")
+                return
+
+    # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
+    if isinstance(eng, tuple) and len(eng) > 0:
+        eng = eng[0]
+    elif isinstance(eng, dict) and "engine" in eng:
+        eng = eng["engine"]
+
+    if not hasattr(eng, "begin"):
+        st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
+        return
+
+    try:
+        # Check table presence and row count
+        with eng.connect() as cx:
+            tables = [r[0] for r in cx.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).all()]
+            if "vendors" not in tables:
+                # Respect your prod guard: do NOT create vendors here
+                return
+
+            count = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
+            if count > 0:
+                return  # nothing to do
+
+        # Load CSV
+        df = pd.read_csv(seed_csv)
+
+        # Validate/normalize columns
+        expected = {
+            "business_name", "category", "service", "phone", "contact_name",
+            "address", "website", "email", "notes", "keywords"
+        }
+        missing = expected - set(map(str, df.columns))
+        if missing:
+            st.warning(f"Seed skipped: CSV missing columns: {sorted(missing)}")
+            return
+
+        # Optional light cleanup: strip whitespace from strings
+        for col in df.columns:
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+
+        # Insert rows
+        with eng.begin() as cx:
+            df.to_sql("vendors", cx.connection, if_exists="append", index=False)
+
+        st.success(f"Seeded vendors from {seed_csv}")
+    except Exception as e:
+        st.warning(f"Seed-if-empty skipped: {e}")
+
                 return
 
         # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
@@ -1143,8 +1195,13 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
 st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
 
 engine, engine_info = build_engine()
+try:
+    st.session_state["_ENGINE"] = engine
+except Exception:
+    pass
 ensure_schema(engine)
-_seed_if_empty()
+_seed_if_empty(engine)
+
 
 try:
     sync_reference_tables(engine)
