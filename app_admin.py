@@ -745,7 +745,6 @@ def _seed_if_empty(eng=None) -> None:
         st.warning(f"Seed-if-empty skipped: {e}")
 
 
-                return
 
         # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
         if isinstance(eng, tuple) and len(eng) > 0:
