@@ -1406,13 +1406,14 @@ else:
         # widths are optional; continue without them
         pass
 
-    st.dataframe(
-        data=_view,
-        use_container_width=False,            # keep False so pixel widths apply
-        column_config=col_cfg if col_cfg else None,
-        height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
-    )
-# [REPLACE lines 1415–1420 with this block]
+        st.dataframe(
+            data=_view,
+            use_container_width=False,            # keep False so pixel widths apply
+            column_config=col_cfg if col_cfg else None,
+            height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
+        )
+
+        # Close the h-scroll wrapper and add CSV export (still inside the 'else:' block)
         st.markdown('</div>', unsafe_allow_html=True)
         # --- End HScroll wrapper ---
 
@@ -1425,8 +1426,6 @@ else:
             file_name=f"providers_{ts}.csv",
             mime="text/csv",
         )
-
-
 
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
