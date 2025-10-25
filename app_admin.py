@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 import uuid
+from datetime import datetime
 
 from typing import Dict, List, Tuple
 
@@ -871,7 +872,42 @@ def _sanitize_url(url: str | None) -> str:
     if url and not re.match(r"^https?://", url, re.I):
         url = "https://" + url
     return url
+# ── Local helpers for Browse filter & page size ─────────────────────────────
+def get_page_size() -> int:
+    """
+    Read PAGE_SIZE from secrets; default 20; clamp to [5, 200].
+    """
+    try:
+        val = int(st.secrets.get("PAGE_SIZE", 20))
+    except Exception:
+        val = 20
+    return max(5, min(200, val))
 
+
+def _filter_df_by_query(df: pd.DataFrame, q: str) -> pd.DataFrame:
+    """
+    Case-insensitive, non-regex 'contains' across all visible columns.
+    Safe for mixed types; treats NaN as empty.
+    """
+    q = (q or "").strip().lower()
+    if not q:
+        return df
+
+    # Build OR mask across columns without DataFrame.str pitfalls
+    mask = None
+    for col in df.columns:
+        try:
+            s = df[col].astype(str).str.lower()
+            m = s.str.contains(q, regex=False, na=False)
+            mask = m if mask is None else (mask | m)
+        except Exception:
+            # Be defensive per-column; if something is ill-typed, skip it
+            continue
+
+    if mask is None:
+        return df
+    return df.loc[mask]
+# ────────────────────────────────────────────────────────────────────────────
 
 def load_df(engine: Engine) -> pd.DataFrame:
     with engine.begin() as conn:
@@ -1122,43 +1158,7 @@ with _tabs[0]:
             label_visibility="collapsed",
             key="q",
         )
-1126 |         # Fast local filter (no regex)
-# ── Local helpers for Browse filter & page size ─────────────────────────────
-def get_page_size() -> int:
-    """
-    Read PAGE_SIZE from secrets; default 20; clamp to [5, 200].
-    """
-    try:
-        val = int(st.secrets.get("PAGE_SIZE", 20))
-    except Exception:
-        val = 20
-    return max(5, min(200, val))
 
-
-def _filter_df_by_query(df: pd.DataFrame, q: str) -> pd.DataFrame:
-    """
-    Case-insensitive, non-regex 'contains' across all visible columns.
-    Safe for mixed types; treats NaN as empty.
-    """
-    q = (q or "").strip().lower()
-    if not q:
-        return df
-
-    # Build OR mask across columns without DataFrame.str pitfalls
-    mask = None
-    for col in df.columns:
-        try:
-            s = df[col].astype(str).str.lower()
-            m = s.str.contains(q, regex=False, na=False)
-            mask = m if mask is None else (mask | m)
-        except Exception:
-            # Be defensive per-column; if something is ill-typed, skip it
-            continue
-
-    if mask is None:
-        return df
-    return df.loc[mask]
-# ────────────────────────────────────────────────────────────────────────────
 
         # Fast local filter (no regex)
         qq = (st.session_state.get("q") or "").strip().lower()
@@ -2330,13 +2330,13 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as _e:
         # Should never crash the app; surface in debug if needed
         try:
-            _st_patch7.session_state["_ckw_schema_error"] = str(_e)
+            st.session_state["_ckw_schema_error"] = str(_e)
+
         except Exception:
             pass
     return changed
 
 # Expose callable so main() can invoke it in a one-liner later.
-_st_patch7.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 # Patch 9 (2025-10-24): query filter helper preferring computed_keywords
