@@ -1210,7 +1210,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
 x
 
 engine, engine_info = build_engine()
-st.session_state.get("_ckw_schema_ensure",
+st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
 try:
     st.session_state["_ENGINE"] = engine
 except Exception:
