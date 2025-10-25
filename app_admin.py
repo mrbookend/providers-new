@@ -2314,11 +2314,6 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     return changed
 st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 
-# Expose callable so main() can invoke it in a one-liner later.
-st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
-
-# ─────────────────────────────────────────────────────────────────────────────
-
 # ─────────────────────────────────────────────────────────────────────────────
 
 
