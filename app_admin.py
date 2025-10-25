@@ -202,6 +202,23 @@ def _get_secret(name: str, default: str | None = None) -> str | None:
     except Exception:
         pass
     return os.getenv(name, default)
+# --- CKW schema ensure (DDL) ---
+def _ensure_ckw_column_and_index(eng) -> bool:
+    """Add vendors.ckw and its index if missing. Returns True if changed."""
+    changed = False
+    try:
+        with eng.begin() as cx:
+            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
+            has_ckw = any(r[1] == "ckw" for r in rows)
+            if not has_ckw:
+                cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN ckw TEXT DEFAULT ''")
+                changed = True
+            # index (safe if-not-exists)
+            cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(ckw)")
+        return changed
+    except Exception as e:
+        st.warning(f"CKW DDL failed: {e}")
+        return False
 
 
 # Deterministic resolution (secrets → env → code default)
@@ -1293,6 +1310,15 @@ with _tabs[0]:
     df = load_df(engine)
     ckw_ok = _has_ckw_column(engine)
     st.caption(f"CKW column present: {ckw_ok}")
+    # CKW schema tool (guarded)
+    if not ckw_ok:
+        with st.expander("Schema tools — Computed Keywords (CKW)", expanded=False):
+            st.warning("This will ALTER TABLE to add a 'ckw' TEXT column and create an index.")
+            if st.button("Add 'ckw' column + index", type="primary"):
+                if _ensure_ckw_column_and_index(engine):
+                    st.success("CKW column/index created. Reload the page.")
+                else:
+                    st.info("No changes made (already present or failed).")
 
     # Help — Browse
     if st.secrets.get("SHOW_BROWSE_HELP", False):
