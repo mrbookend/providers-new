@@ -171,6 +171,27 @@ def _has_ckw_column(eng) -> bool:
         return any(r[1] == "ckw" for r in rows)
     except Exception:
         return False
+# --- CKW-first filter (read-only) ---
+def _filter_df_ckw_first(df, q: str):
+    if not isinstance(q, str) or not q.strip():
+        return df
+    q = q.strip()
+    try:
+        if "ckw" in df.columns:
+            m = df["ckw"].astype(str).str.contains(q, case=False, na=False)
+            # widen a bit to avoid false negatives on typos
+            widen_cols = [c for c in ["business_name","service","category","keywords","notes"] if c in df.columns]
+            if widen_cols:
+                m = m | df[widen_cols].astype(str).apply(lambda s: s.str.contains(q, case=False, na=False)).any(axis=1)
+            return df[m]
+        else:
+            widen_cols = [c for c in ["business_name","service","category","keywords","notes"] if c in df.columns]
+            if not widen_cols:
+                return df
+            m = df[widen_cols].astype(str).apply(lambda s: s.str.contains(q, case=False, na=False)).any(axis=1)
+            return df[m]
+    except Exception:
+        return df
 
 
 def _get_secret(name: str, default: str | None = None) -> str | None:
@@ -1294,6 +1315,14 @@ with _tabs[0]:
         view_cols = list(_df_show.columns)
 
     colcfg = _column_config_from_secrets(view_cols)
+        # CKW-first filter if a search query `q` exists
+    try:
+        _q = q  # if not defined, NameError -> skip
+    except NameError:
+        _q = ""
+    if isinstance(_q, str) and _q.strip():
+        _df_show = _filter_df_ckw_first(_df_show, _q)
+
     st.dataframe(
         _df_show[view_cols],
         use_container_width=False,  # enables horizontal scroll
