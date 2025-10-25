@@ -205,8 +205,6 @@ def _as_bool(v, default=False) -> bool:
     if s in {"0", "false", "f", "no", "n", "off"}:
         return False
     return bool(default)
-
-
 # --- Helper: column widths from secrets ---
 def _column_config_from_secrets(cols: list[str]) -> dict:
     cfg = {}
