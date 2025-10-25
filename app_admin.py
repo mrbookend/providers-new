@@ -104,7 +104,7 @@ def _build_ckw_row(row: dict) -> str:
     seen, out = set(), []
     for t in tokens:
         if t not in seen:
-            out.append(t); seen.add(t)
+            out.append(t) seen.add(t)
     return " ".join(out)
 # ---------------------------------------------------------------------------#
 
@@ -223,6 +223,7 @@ def _has_ckw_column(eng) -> bool:
     except Exception:
         return False
 # --- CKW write hooks (Add/Edit) ---------------------------------------------
+
 def _ckw_for_form_row(data: dict) -> tuple[str, str]:
     """Return (computed_keywords, ckw_version) for a form row, unless locked."""
     locked_raw = data.get("ckw_locked", 0)
@@ -1126,6 +1127,7 @@ with eng.begin() as cx:
         """,
         prepared,
     )
+
 
 
         st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
