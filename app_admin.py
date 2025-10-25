@@ -1418,13 +1418,14 @@ else:
 
         # CSV export of the filtered view
         ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        _csv_bytes = _view.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download filtered view (CSV)",
+            data=_csv_bytes,
+            file_name=f"providers_{ts}.csv",
+            mime="text/csv",
+        )
 
-    st.download_button(
-        "Download filtered view (CSV)",
-        data=(_df_show if "_df_show" in locals() else df).to_csv(index=False).encode("utf-8"),
-        file_name=f"providers_{ts}.csv",
-        mime="text/csv",
-    )
 
 
 # ---------- Add/Edit/Delete Vendor
