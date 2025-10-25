@@ -93,3 +93,4 @@ Run a 1-minute database check before pushing to Streamlit Cloud:
 ```bash
 python scripts/smoke.py
 
+thank you
