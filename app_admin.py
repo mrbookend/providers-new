@@ -1349,8 +1349,28 @@ with _tabs[0]:
     if isinstance(_q, str) and _q.strip():
         _df_show = _filter_df_ckw_first(_df_show, _q)
 
-    # --- HScroll wrapper for Browse table ---
-# --- HScroll wrapper for Browse table ---
+# --- HScroll wrapper for Browse table (+ Help + pixel widths) ---
+
+# Optional top-of-browse help, driven by secrets
+try:
+    if st.secrets.get("SHOW_BROWSE_HELP", False):
+        from pathlib import Path
+        help_md = st.secrets.get("BROWSE_HELP_MD", "")
+        help_file = st.secrets.get("BROWSE_HELP_FILE", "")
+        with st.expander("Help — Browse", expanded=False):
+            if isinstance(help_md, str) and help_md.strip():
+                st.markdown(help_md)
+            elif isinstance(help_file, str) and help_file.strip():
+                try:
+                    st.markdown(Path(help_file).read_text(encoding="utf-8"))
+                except Exception as _e:
+                    st.info(f"Help file not found or unreadable: {help_file} ({_e})")
+            else:
+                st.info("Configure BROWSE_HELP_MD or BROWSE_HELP_FILE in secrets.")
+except Exception:
+    # Never let help rendering break the page
+    pass
+
 st.markdown('<div style="width:100%; overflow-x:auto;">', unsafe_allow_html=True)
 
 # Resolve a table DataFrame that actually exists in scope
@@ -1369,16 +1389,33 @@ if _table is None:
     st.warning("Browse table not available (no DataFrame found).")
 else:
     _view = _table[view_cols] if set(view_cols).issubset(_table.columns) else _table
+
+    # Build Streamlit column_config from secrets (exact pixel widths)
+    col_cfg = {}
+    try:
+        _w = st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {})
+        if isinstance(_w, dict):
+            for _col, _px in _w.items():
+                try:
+                    _wpx = int(_px)
+                except Exception:
+                    continue
+                if _col in _view.columns:
+                    col_cfg[_col] = st.column_config.Column(width=_wpx)
+    except Exception:
+        # widths are optional; continue without them
+        pass
+
     st.dataframe(
         data=_view,
-        use_container_width=False,  # keep False so pixel widths can apply in Patch 2
+        use_container_width=False,            # keep False so pixel widths apply
+        column_config=col_cfg if col_cfg else None,
         height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
     )
 
 st.markdown('</div>', unsafe_allow_html=True)
 # --- End HScroll wrapper ---
 
-    # --- End HScroll wrapper ---
 
 
 
