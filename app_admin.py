@@ -1349,12 +1349,16 @@ with _tabs[0]:
     if isinstance(_q, str) and _q.strip():
         _df_show = _filter_df_ckw_first(_df_show, _q)
 
+    # --- HScroll wrapper for Browse table ---
+    st.markdown('<div style="width:100%; overflow-x:auto;">', unsafe_allow_html=True)
     st.dataframe(
-        _df_show[view_cols],
-        use_container_width=False,  # enables horizontal scroll
-        column_config=colcfg,
-        hide_index=True,
+        data=filtered[view_cols] if set(view_cols).issubset(filtered.columns) else filtered,
+        use_container_width=False,  # keep False so exact pixel widths can apply in Patch 2
+        height=min(900, 48 + (len(filtered) + 1) * 28),  # modest auto-height cap
     )
+    st.markdown('</div>', unsafe_allow_html=True)
+    # --- End HScroll wrapper ---
+
 
 
 
