@@ -1084,19 +1084,124 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
 
         
 
-# -----------------------------
-# UI
-# -----------------------------
+# Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
+# Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
+# exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
+# ─────────────────────────────────────────────────────────────────────────────
+import streamlit as _st_ps
+
+
+def _coerce_int(_v, _default):
+    try:
+        if isinstance(_v, (int, float)):
+            return int(_v)
+        if isinstance(_v, str) and _v.strip().lstrip("+-").isdigit():
+            return int(_v.strip())
+    except Exception:
+        pass
+    return int(_default)
+
+
+def _ensure_page_size_in_state():
+    try:
+        sec = _st_ps.secrets
+    except Exception:
+        sec = {}
+    raw = sec.get("PAGE_SIZE", 200)
+    n = _coerce_int(raw, 200)
+    n = max(20, min(1000, n))
+    _st_ps.session_state["PAGE_SIZE"] = n
+
+
+def get_page_size() -> int:
+    """Return the effective PAGE_SIZE (from secrets, bounded)."""
+    v = _st_ps.session_state.get("PAGE_SIZE")
+    if isinstance(v, int) and 20 <= v <= 1000:
+        return v
+    _ensure_page_size_in_state()
+    return int(_st_ps.session_state.get("PAGE_SIZE", 200))
+
+
+# Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
+# Later defs override earlier ones at import-time; existing call sites will use
+# this version. Behavior: prefer 'computed_keywords' when non-empty, else
+# fallback to '_blob', else minimal join of selected text columns. Matching is
+# done against a lowercased, whitespace-collapsed source string.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
+    """
+    Case-insensitive filter. Priority:
+      1) computed_keywords if present and non-empty
+      2) _blob if present (prebuilt, lowercased)
+      3) minimal join of common text columns
+    No regex; whitespace collapsed; safe per-column string coercions.
+    """
+    try:
+        if df is None or getattr(df, "empty", True):
+            return df
+        s = "" if qq is None else str(qq).strip().lower()
+        if s == "":
+            return df
+
+        cols = set(map(str, getattr(df, "columns", [])))
+
+        def _minimal_src(_df: pd.DataFrame) -> pd.Series:
+            pick = [
+                c
+                for c in ("business_name", "category", "service", "notes", "keywords")
+                if c in cols
+            ]
+            if pick:
+                ser = _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
+            else:
+                ser = pd.Series([""] * len(_df), index=_df.index, dtype="string")
+            return ser
+
+        if "computed_keywords" in cols:
+            ckw = df["computed_keywords"].astype("string").fillna("")
+            if "_blob" in cols:
+                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
+            else:
+                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
+        elif "_blob" in cols:
+            base = df["_blob"].astype("string").fillna("")
+        else:
+            base = _minimal_src(df)
+
+        src = (
+            base.astype("string")
+            .fillna("")
+            .str.lower()
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+        mask = src.str.contains(s, regex=False, na=False)
+        return df.loc[mask]
+    except Exception as _e:
+        try:
+            st.session_state["_filter_df_error"] = str(_e)
+        except Exception:
+            pass
+        return df
+
+
 engine, engine_info = build_engine()
+
 ensure_schema(engine)
 _seed_if_empty()
+
 try:
     sync_reference_tables(engine)
+
 except Exception as _e:
     # Non-fatal; UI still works without ref tables populated
+
     pass
 st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)
 
+st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)
 
 # Apply WAL PRAGMAs for local SQLite (not libsql driver)
 try:
@@ -1108,7 +1213,6 @@ except Exception:
     pass
 
 _tabs = st.tabs(
-
     [
         "Browse Vendors",
         "Add / Edit / Delete Vendor",
@@ -1166,7 +1270,6 @@ with _tabs[0]:
             key="q",
         )
 
-
         # Fast local filter (no regex)
         qq = (st.session_state.get("q") or "").strip().lower()
         filtered = _filter_df_by_query(df, qq)
@@ -1194,7 +1297,7 @@ with _tabs[0]:
         df_view,
         use_container_width=False,  # allow horizontal scroll; Patch 2 enforces widths
         hide_index=True,
-        height=(lambda n: max(240, min(2000, 48 + int(n)*28)))(get_page_size()),
+        height=(lambda n: max(240, min(2000, 48 + int(n) * 28)))(get_page_size()),
         column_config={
             "business_name": st.column_config.TextColumn("Provider"),
             "website": st.column_config.LinkColumn("website", display_text="website"),
@@ -2079,6 +2182,7 @@ with _tabs[5]:
 # ─────────────────────────────────────────────────────────────────────────────
 import streamlit as _st_patch1  # safe alias to avoid name shadowing
 
+
 def _enable_horizontal_scroll() -> None:
     try:
         _st_patch1.markdown(
@@ -2102,6 +2206,7 @@ def _enable_horizontal_scroll() -> None:
         )
     except Exception:
         pass
+
 
 _enable_horizontal_scroll()
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2130,6 +2235,7 @@ _enable_horizontal_scroll()
 import json as _json_patch2
 import streamlit as _st_patch2
 
+
 def _apply_exact_column_widths_from_secrets() -> None:
     try:
         cfg = dict(_st_patch2.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
@@ -2138,12 +2244,11 @@ def _apply_exact_column_widths_from_secrets() -> None:
         # Serialize once; provide raw map; lower-cased map is generated inline in JS
         cfg_raw = {str(k): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
         _st_patch2.markdown(
-
             f"""
 <script>
 (function() {{
   const cfgRaw = {_json_patch2.dumps(cfg_raw)};
-  const cfgLow = {_json_patch2.dumps({k.lower(): v for k,v in cfg_raw.items()})};
+  const cfgLow = {_json_patch2.dumps({k.lower(): v for k, v in cfg_raw.items()})};
   // Utility: set width on a TH cell if its text matches a key
   function setWidth(th) {{
     if (!th) return;
@@ -2191,6 +2296,7 @@ def _apply_exact_column_widths_from_secrets() -> None:
         # Never break the app on UI-only helpers
         pass
 
+
 _apply_exact_column_widths_from_secrets()
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2206,6 +2312,7 @@ import os as _os_patch3
 import io as _io_patch3
 import streamlit as _st_patch3
 
+
 def _as_bool_patch3(v, default=False):
     try:
         if isinstance(v, bool):
@@ -2214,10 +2321,11 @@ def _as_bool_patch3(v, default=False):
             return v != 0
         if isinstance(v, str):
             s = v.strip().lower()
-            return s in {"1","true","yes","y","on"}
+            return s in {"1", "true", "yes", "y", "on"}
         return default
     except Exception:
         return default
+
 
 def _read_text_file_patch3(path: str) -> str:
     try:
@@ -2233,6 +2341,7 @@ def _read_text_file_patch3(path: str) -> str:
     except Exception:
         return ""
 
+
 def _load_browse_help_md() -> str:
     try:
         sec = _st_patch3.secrets
@@ -2244,6 +2353,7 @@ def _load_browse_help_md() -> str:
     # Precedence: file > inline
     content = file_md.strip() or inline_md
     return content
+
 
 def render_browse_help_expander() -> None:
     """Render the Help — Browse expander if SHOW_BROWSE_HELP is true and content exists."""
@@ -2260,6 +2370,7 @@ def render_browse_help_expander() -> None:
     with _st_patch3.expander("Help — Browse", expanded=False):
         _st_patch3.markdown(md)
 
+
 # Expose a callable so main/Browse can invoke without re-import details.
 _st_patch3.session_state["_browse_help_render"] = render_browse_help_expander
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2274,6 +2385,7 @@ _ensure_page_size_in_state()
 # Next step will insert a one-liner after ensure_schema(engine) to invoke this.
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _vendors_has_column(eng, col: str) -> bool:
     try:
         with eng.connect() as cx:
@@ -2282,6 +2394,7 @@ def _vendors_has_column(eng, col: str) -> bool:
         return col.lower() in names
     except Exception:
         return False
+
 
 def _ensure_ckw_column_and_index(eng) -> bool:
     """

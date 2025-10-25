@@ -26,3 +26,7 @@ providers.db*
 # SQLite WAL/SHM
 *.db-wal
 *.db-shm
+
+# local scratch
+*.broken.py
+*backup*.py
