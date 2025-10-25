@@ -1082,48 +1082,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         if s == "":
             return df
 
-        cols = set(map(str, getattr(df, "columns", [])))
-
-        def _minimal_src(_df: pd.DataFrame) -> pd.Series:
-            pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
-            if pick:
-                ser = (
-                    _df[pick]
-                    .astype("string")
-                    .fillna("")
-                    .agg(" ".join, axis=1)
-                )
-            else:
-                ser = pd.Series([""] * len(_df), index=_df.index, dtype="string")
-            return ser
-
-        if "computed_keywords" in cols:
-            ckw = df["computed_keywords"].astype("string").fillna("")
-            if "_blob" in cols:
-                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
-            else:
-                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
-        elif "_blob" in cols:
-            base = df["_blob"].astype("string").fillna("")
-        else:
-            base = _minimal_src(df)
-
-        src = (
-            base.astype("string")
-            .fillna("")
-            .str.lower()
-            .str.replace(r"\s+", " ", regex=True)
-            .str.strip()
-        )
-        mask = src.str.contains(s, regex=False, na=False)
-        return df.loc[mask]
-    except Exception as _e:
-        # Fail open; stash error for Debug tab
-        try:
-            st.session_state["_filter_df_error"] = str(_e)
-        except Exception:
-            pass
-        return df
+        
 
 # -----------------------------
 # UI
