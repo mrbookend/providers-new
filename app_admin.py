@@ -2285,28 +2285,23 @@ def _ensure_ckw_column_and_index(eng) -> bool:
         have_col = _vendors_has_column(eng, "computed_keywords")
         if not have_col:
             with eng.begin() as cx:
-                # Add the new column with default '' (keeps existing NULLs out)
-                cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT DEFAULT ''")
+                cx.exec_driver_sql(
+                    "ALTER TABLE vendors ADD COLUMN computed_keywords TEXT DEFAULT ''"
+                )
             changed = True
         # Create an index to speed up CKW filtering; idempotent for SQLite/libsql
         with eng.begin() as cx:
-            cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+            cx.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
+            )
     except Exception as _e:
         # Should never crash the app; surface in debug if needed
-        try:
-            st.session_state["_ckw_schema_error"] = str(_e)
-# Register and run CKW schema ensure once engine exists.
-try:
-    st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
-    st.session_state["_ckw_schema_ensure"](engine)
-except Exception:
-    pass
-
-        except Exception:
-            pass
+        st.session_state["_ckw_schema_error"] = str(_e)
     return changed
 
 # Expose callable so main() can invoke it in a one-liner later.
+st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ─────────────────────────────────────────────────────────────────────────────
