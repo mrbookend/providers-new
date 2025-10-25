@@ -1367,11 +1367,28 @@ if _table is None:
     st.warning("Browse table not available (no DataFrame found).")
 else:
     _view = _table[view_cols] if set(view_cols).issubset(_table.columns) else _table
+    # Resolve a table DataFrame that actually exists in scope
+try:
+    _table = filtered  # preferred
+except NameError:
+    try:
+        _table = df     # common fallback
+    except NameError:
+        try:
+            _table = vdf  # legacy fallback
+        except NameError:
+            _table = None
+
+if _table is None:
+    st.warning("Browse table not available (no DataFrame found).")
+else:
+    _view = _table[view_cols] if set(view_cols).issubset(_table.columns) else _table
     st.dataframe(
         data=_view,
-        use_container_width=False,  # keep False so exact pixel widths can apply in Patch 2
+        use_container_width=False,  # keep False so pixel widths can apply in Patch 2
         height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
     )
+
 
     st.markdown('</div>', unsafe_allow_html=True)
     # --- End HScroll wrapper ---
