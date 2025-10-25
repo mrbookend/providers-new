@@ -30,8 +30,7 @@ if not globals().get("_PAGE_CFG_DONE"):
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 
-APP_VER = "admin-2025-10-25.3"  # bump on any behavior change
-
+APP_VER = "admin-2025-10-25.ckw1"  # bump on any behavior change
 
 def _sha256_of_this_file() -> str:
     try:
@@ -56,6 +55,59 @@ def _mtime_of_this_file() -> str:
         return _dt.datetime.utcfromtimestamp(ts).isoformat(timespec="seconds") + "Z"
     except Exception:
         return ""
+# --- CKW constants & secrets -------------------------------------------------
+CURRENT_CKW_VER = "ckw-1"
+
+def _get_synonyms() -> dict[str, list[str]]:
+    """Return category/service synonyms. Can be overridden via secrets['CKW_SYNONYMS']."""
+    try:
+        s = st.secrets.get("CKW_SYNONYMS", {})
+        if isinstance(s, dict):
+            # Normalize to lists of str
+            return {str(k): [str(x) for x in (v or [])] for k, v in s.items()}
+    except Exception:
+        pass
+    # modest built-ins; expand later as needed
+    return {
+        "Window Coverings": ["blinds", "shades", "shutters", "roller shades", "roman shades", "motorized", "drapes"],
+        "Dental": ["dentist", "teeth", "cleaning", "crown", "filling"],
+        "Insurance Agent": ["insurance", "homeowners", "auto", "medicare", "coverage", "policy"],
+    }
+
+def _tok(v: str) -> list[str]:
+    v = (v or "").strip().lower()
+    if not v:
+        return []
+    # split on non-letters/digits, collapse whitespace
+    v = re.sub(r"[^a-z0-9]+", " ", v)
+    return [t for t in v.split() if t]
+
+def _build_ckw_row(row: dict) -> str:
+    """Build computed_keywords from (business_name, category, service, notes, keywords, ckw_manual_extra)."""
+    name = str(row.get("business_name") or "")
+    cat = str(row.get("category") or "")
+    svc = str(row.get("service") or "")
+    notes = str(row.get("notes") or "")
+    kws = str(row.get("keywords") or "")
+    manual = str(row.get("ckw_manual_extra") or "")
+
+    syn = _get_synonyms()
+    extras: list[str] = []
+    if cat in syn:
+        extras.extend(syn[cat])
+    if svc in syn:
+        extras.extend(syn[svc])
+
+    tokens = _tok(name) + _tok(cat) + _tok(svc) + _tok(kws) + _tok(notes) + _tok(manual) + extras
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
+    return " ".join(out)
+
+# ---------------------------------------------------------------------------#
 
 
 def _commit_sync_probe() -> Dict:
@@ -141,10 +193,19 @@ except Exception:
 # -----------------------------
 # Helpers
 # -----------------------------
-def _as_bool(v, default: bool = False) -> bool:
+
+def _as_bool(v, default=False) -> bool:
+    """Best-effort boolean parse for env/secrets flags."""
+    if isinstance(v, bool):
+        return v
     if v is None:
-        return default
-    return str(v).strip().lower() in ("1", "true", "yes", "on")
+        return bool(default)
+    s = str(v).strip().lower()
+    if s in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if s in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return bool(default)
 # --- Helper: column widths from secrets ---
 def _column_config_from_secrets(cols: list[str]) -> dict:
     cfg = {}
@@ -171,6 +232,69 @@ def _has_ckw_column(eng) -> bool:
         return any(r[1] == "ckw" for r in rows)
     except Exception:
         return False
+# --- CKW write hooks (Add/Edit) ---------------------------------------------
+
+def _ckw_for_form_row(data: dict) -> tuple[str, str]:
+    """Return (computed_keywords, ckw_version) for a form row, unless locked."""
+    locked_raw = data.get("ckw_locked", 0)
+    try:
+        locked = bool(int(str(locked_raw)))
+    except Exception:
+        locked = False
+    if locked:
+        # keep existing CKW; version unchanged
+        return (str(data.get("computed_keywords") or ""), str(data.get("ckw_version") or ""))
+    return (_build_ckw_row(data), CURRENT_CKW_VER)
+# ---------------------------------------------------------------------------#
+
+# --- CKW schema ensure -------------------------------------------------------
+def _ensure_ckw_schema(eng) -> bool:
+    """
+    Ensure vendors has CKW fields and indexes. Returns True if any change was applied.
+    Columns:
+      - computed_keywords TEXT
+      - ckw_locked INTEGER DEFAULT 0 (0/1)
+      - ckw_version TEXT DEFAULT ''
+      - ckw_manual_extra TEXT DEFAULT ''
+    Index:
+      - vendors_ckw (computed_keywords)  -- non-unique
+    """
+    changed = False
+    with eng.begin() as cx:
+        # add columns if missing
+        cx.execute(sql_text("""
+        CREATE TABLE IF NOT EXISTS vendors (
+            id INTEGER PRIMARY KEY,
+            business_name TEXT,
+            category TEXT, service TEXT,
+            contact_name TEXT, phone TEXT, email TEXT, website TEXT,
+            address TEXT, city TEXT, state TEXT, zip TEXT,
+            notes TEXT, keywords TEXT
+        )
+        """))
+        # probe pragma table_info
+        cols = [r[1] for r in cx.execute(sql_text("PRAGMA table_info(vendors)")).fetchall()]
+        def addcol(col, ddl):
+            nonlocal changed
+            if col not in cols:
+                cx.execute(sql_text(f"ALTER TABLE vendors ADD COLUMN {ddl}"))
+                changed = True
+                cols.append(col)
+
+        addcol("computed_keywords", "computed_keywords TEXT")
+        addcol("ckw_locked",        "ckw_locked INTEGER DEFAULT 0")
+        addcol("ckw_version",       "ckw_version TEXT DEFAULT ''")
+        addcol("ckw_manual_extra",  "ckw_manual_extra TEXT DEFAULT ''")
+
+        # index on computed_keywords
+        idx_rows = cx.execute(sql_text("PRAGMA index_list(vendors)")).fetchall()
+        idx_names = {r[1] for r in idx_rows}
+        if "vendors_ckw" not in idx_names:
+            cx.execute(sql_text("CREATE INDEX vendors_ckw ON vendors(computed_keywords)"))
+            changed = True
+    return changed
+# ---------------------------------------------------------------------------#
+
 # --- CKW-first filter (read-only) ---
 def _filter_df_ckw_first(df, q: str):
     if not isinstance(q, str) or not q.strip():
@@ -219,7 +343,6 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as e:
         st.warning(f"CKW DDL failed: {e}")
         return False
-
 
 # Deterministic resolution (secrets → env → code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
@@ -289,13 +412,52 @@ def _fetch_with_retry(
                 time.sleep(0.2)
                 continue
             raise
-# --- CKW schema ensure helper (guard; no-op placeholder) ---
-def _ensure_ckw_column_and_index(eng) -> bool:
-    """
-    Idempotently ensure CKW columns/indexes exist.
-    Returns True if changes were made; False otherwise.
-    This placeholder keeps CI green until the real logic is wired.
-    """
+
+# --- CKW recompute utilities -------------------------------------------------
+def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
+    if not ids:
+        return []
+    ph = ",".join("?" for _ in ids)
+    sql = f"SELECT * FROM vendors WHERE id IN ({ph})"
+    with eng.begin() as cx:
+        rows = cx.exec_driver_sql(sql, ids).mappings().all()
+    return [dict(r) for r in rows]
+
+def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
+    if not rows:
+        return 0
+    upd = 0
+    with eng.begin() as cx:
+        for r in rows:
+            if not override_locks and (r.get("ckw_locked") in (1, "1", True)):
+                continue
+            new_ckw = _build_ckw_row(r)
+            cx.execute(sql_text("""
+                UPDATE vendors
+                   SET computed_keywords = :ckw,
+                       ckw_version = :ver
+                 WHERE id = :id
+            """), {"ckw": new_ckw, "ver": CURRENT_CKW_VER, "id": r["id"]})
+            upd += 1
+    return upd
+
+def recompute_ckw_for_ids(eng, ids: list[int], override_locks: bool = False) -> int:
+    rows = _fetch_vendor_rows_by_ids(eng, ids)
+    return _update_ckw_for_rows(eng, rows, override_locks)
+
+def recompute_ckw_unlocked(eng) -> int:
+    with eng.begin() as cx:
+        ids = [r[0] for r in cx.execute(sql_text("""
+            SELECT id FROM vendors
+            WHERE COALESCE(ckw_locked,0)=0
+        """)).fetchall()]
+    return recompute_ckw_for_ids(eng, ids, override_locks=False)
+
+def recompute_ckw_all(eng) -> int:
+    with eng.begin() as cx:
+        ids = [r[0] for r in cx.execute(sql_text("SELECT id FROM vendors")).fetchall()]
+    return recompute_ckw_for_ids(eng, ids, override_locks=True)
+# ---------------------------------------------------------------------------#
     try:
         # TODO: replace with the real ensure-CKW implementation
         return False
@@ -923,40 +1085,147 @@ def _seed_if_empty(eng=None) -> None:
             if col in df.columns:
                 df[col] = df[col].astype(str)
 
-        # Final column order to match INSERT
-        df = df[keep].copy()
-
-        rows = df.to_dict(orient="records")
-
-        if not rows:
-            st.warning("Seed CSV has no rows after filtering expected columns.")
-            return
-
-        with eng.begin() as cx:
-            cx.exec_driver_sql(
-                """
-                INSERT INTO vendors
-                (category, service, business_name, contact_name, phone,
-                 address, website, notes, keywords,
-                 created_at, updated_at, updated_by)
-                VALUES
-                (:category, :service, :business_name, :contact_name, :phone,
-                 :address, :website, :notes, :keywords,
-                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'seed')
-            """,
-                rows,
-            )
-
-        st.success(f"Seeded {len(rows)} providers from {seed_csv}.")
-        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-
-    except Exception as e:
         st.warning(f"Seed-if-empty skipped: {e}")
 
 
 # (moved) _seed_if_empty() will be invoked after ensure_schema(engine) below.
 
 # ---------- end seed-if-empty ----------
+
+# --- Add/Edit form submit ----------------------------------------------------
+if "submit_ctx" not in st.session_state:
+    st.session_state["submit_ctx"] = {}
+
+submit = st.session_state.get("_do_submit", False)
+
+if submit:
+    # Collect form fields (adapt keys to your form variable names)
+    business_name = (st.session_state.get("business_name") or "").strip()
+    category = (st.session_state.get("category") or "").strip()
+    service = (st.session_state.get("service") or "").strip()
+    contact_name = (st.session_state.get("contact_name") or "").strip()
+    phone_raw = (st.session_state.get("phone") or "").strip()
+    email = (st.session_state.get("email") or "").strip()
+    website = (st.session_state.get("website") or "").strip()
+    address = (st.session_state.get("address") or "").strip()
+    city = (st.session_state.get("city") or "").strip()
+    state = (st.session_state.get("state") or "").strip()
+    zip_code = (st.session_state.get("zip") or "").strip()
+    notes = (st.session_state.get("notes") or "").strip()
+    keywords = (st.session_state.get("keywords") or "").strip()
+    ckw_manual_extra = (st.session_state.get("ckw_manual_extra") or "").strip()
+
+    def _digits_only(s: str) -> str:
+        return "".join(ch for ch in str(s) if ch.isdigit())
+
+    phone_digits = _digits_only(phone_raw)
+    phone_fmt = (
+        f"({phone_digits[0:3]}) {phone_digits[3:6]}-{phone_digits[6:10]}"
+        if len(phone_digits) == 10 else phone_raw
+    )
+
+    form_values_dict = {
+        "business_name": business_name,
+        "category": category,
+        "service": service,
+        "contact_name": contact_name,
+        "phone": phone_digits,
+        "phone_fmt": phone_fmt,
+        "email": email,
+        "website": website,
+        "address": address,
+        "city": city,
+        "state": state or "TX",
+        "zip": zip_code,
+        "notes": notes,
+        "keywords": keywords,
+        "ckw_locked": 0,
+        "ckw_manual_extra": ckw_manual_extra,
+        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+    }
+
+    # Compute CKW for this one row
+    try:
+        ckw, ver = _ckw_for_form_row(form_values_dict)
+    except Exception:
+        parts = [business_name, category, service, keywords, ckw_manual_extra, notes]
+        ckw, ver = (" ".join(p for p in parts if p).strip(), 1)
+
+    form_values_dict["computed_keywords"] = ckw
+    form_values_dict["ckw_version"] = ver
+
+    try:
+        eng = engine   # <--- IMPORTANT: use module-global engine
+        vendor_id = st.session_state.get("edit_vendor_id")
+
+        if vendor_id:
+            with eng.begin() as cx:
+                cx.execute(
+                    sql_text(
+                        """
+                        UPDATE vendors
+                        SET business_name=:business_name,
+                            category=:category,
+                            service=NULLIF(:service,''),
+                            contact_name=:contact_name,
+                            phone=:phone,
+                            phone_fmt=:phone_fmt,
+                            email=:email,
+                            website=:website,
+                            address=:address,
+                            city=:city,
+                            state=:state,
+                            zip=:zip,
+                            notes=:notes,
+                            keywords=:keywords,
+                            computed_keywords=:computed_keywords,
+                            ckw_version=:ckw_version,
+                            ckw_locked=:ckw_locked,
+                            ckw_manual_extra=:ckw_manual_extra,
+                            updated_at=:updated_at
+                        WHERE id=:id
+                        """
+                    ),
+                    {**form_values_dict, "id": int(vendor_id)},
+                )
+            st.success("Provider updated.")
+        else:
+            with eng.begin() as cx:
+                cx.execute(
+                    sql_text(
+                        """
+                        INSERT INTO vendors (
+                            category, service, business_name, contact_name,
+                            phone, phone_fmt, email, website, address,
+                            city, state, zip, notes, keywords,
+                            computed_keywords, ckw_version, ckw_locked,
+                            ckw_manual_extra,
+                            created_at, updated_at, updated_by
+                        )
+                        VALUES (
+                            :category, NULLIF(:service,''), :business_name, :contact_name,
+                            :phone, :phone_fmt, :email, :website, :address,
+                            :city, :state, :zip, :notes, :keywords,
+                            :computed_keywords, :ckw_version, :ckw_locked,
+                            :ckw_manual_extra,
+                            CURRENT_TIMESTAMP, :updated_at, 'form'
+                        )
+                        """
+                    ),
+                    form_values_dict,
+                )
+            st.success("Provider added.")
+
+        try:
+            st.cache_data.clear()
+        except Exception:
+            pass
+
+        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
+
+    except Exception as ex:
+        st.error(f"Database write failed: {ex}")
+# --- end Add/Edit form submit ------------------------------------------------
 
 
 def _normalize_phone(val: str | None) -> str:
@@ -1198,11 +1467,11 @@ def get_page_size() -> int:
 
 def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
     """
-    Case-insensitive filter. Priority:
+    CKW-first, case-insensitive filter.
+    Priority:
       1) computed_keywords if present and non-empty
-      2) _blob if present (prebuilt, lowercased)
-      3) minimal join of common text columns
-    No regex; whitespace collapsed; safe per-column string coercions.
+      2) minimal join of common text columns (fallback)
+    No regex; whitespace collapsed; safe per-column coercions.
     """
     try:
         if df is None or getattr(df, "empty", True):
@@ -1214,11 +1483,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         cols = set(map(str, getattr(df, "columns", [])))
 
         def _minimal_src(_df: pd.DataFrame) -> pd.Series:
-            pick = [
-                c
-                for c in ("business_name", "category", "service", "notes", "keywords")
-                if c in cols
-            ]
+            pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
             if pick:
                 ser = _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
             else:
@@ -1227,12 +1492,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
 
         if "computed_keywords" in cols:
             ckw = df["computed_keywords"].astype("string").fillna("")
-            if "_blob" in cols:
-                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
-            else:
-                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
-        elif "_blob" in cols:
-            base = df["_blob"].astype("string").fillna("")
+            base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
         else:
             base = _minimal_src(df)
 
@@ -1251,8 +1511,6 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         except Exception:
             pass
         return df
-
-
 
 engine, engine_info = build_engine()
 st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
@@ -1341,7 +1599,7 @@ with _tabs[0]:
         view_cols = list(_df_show.columns)
 
     colcfg = _column_config_from_secrets(view_cols)
-        # CKW-first filter if a search query `q` exists
+    # CKW-first filter if a search query `q` exists
     try:
         _q = q  # if not defined, NameError -> skip
     except NameError:
@@ -1959,6 +2217,17 @@ with _tabs[4]:
     query = "SELECT * FROM vendors ORDER BY lower(business_name)"
     with engine.begin() as conn:
         full = pd.read_sql(sql_text(query), conn)
+# --- Maintenance: CKW tools --------------------------------------------------
+with st.expander("CKW — Recompute", expanded=False):
+    st.caption("Rebuilds computed keywords.")
+    c1, c2 = st.columns(2)
+    if c1.button("Recompute Unlocked", help="Updates rows where ckw_locked = 0"):
+        n = recompute_ckw_unlocked(get_engine())
+        st.success(f"Recomputed CKW for {n} rows (unlocked).")
+    if c2.button("Force Recompute ALL (override locks)", help="Updates every row, ignores locks"):
+        n = recompute_ckw_all(get_engine())
+        st.success(f"Force-recomputed CKW for {n} rows (ALL).")
+# ---------------------------------------------------------------------------#
 
     # Dual exports: full dataset — formatted phones and digits-only
     full_formatted = full.copy()
