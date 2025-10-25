@@ -145,3 +145,4 @@ PY
             echo "::error ::app_admin.py mutated during job (sha drift)"
             exit 1
           fi
+
