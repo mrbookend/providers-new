@@ -163,6 +163,14 @@ def _ensure_engine(eng):
         return e
     except Exception:
         return None
+# --- CKW schema probe ---
+def _has_ckw_column(eng) -> bool:
+    try:
+        with eng.connect() as cx:
+            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
+        return any(r[1] == "ckw" for r in rows)
+    except Exception:
+        return False
 
 
 def _get_secret(name: str, default: str | None = None) -> str | None:
@@ -1262,6 +1270,8 @@ with _tabs[0]:
 # ---------- Browse
 with _tabs[0]:
     df = load_df(engine)
+    ckw_ok = _has_ckw_column(engine)
+    st.caption(f"CKW column present: {ckw_ok}")
 
     # Help — Browse
     if st.secrets.get("SHOW_BROWSE_HELP", False):
@@ -1275,9 +1285,10 @@ with _tabs[0]:
         _df_show = df
 
     view_cols_pref = [
-        "business_name","category","service","phone_fmt",
-        "contact_name","website","notes","keywords"
+    "business_name","category","service","phone_fmt",
+    "contact_name","website","notes","keywords","ckw"
     ]
+
     view_cols = [c for c in view_cols_pref if c in _df_show.columns]
     if not view_cols:
         view_cols = list(_df_show.columns)
