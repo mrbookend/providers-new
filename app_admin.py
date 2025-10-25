@@ -1599,7 +1599,7 @@ with _tabs[0]:
         view_cols = list(_df_show.columns)
 
     colcfg = _column_config_from_secrets(view_cols)
-        # CKW-first filter if a search query `q` exists
+    # CKW-first filter if a search query `q` exists
     try:
         _q = q  # if not defined, NameError -> skip
     except NameError:
