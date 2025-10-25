@@ -98,3 +98,8 @@ jobs:
           else
             echo "NOTE: app_admin.py not present; skipping custom guards"
           fi
+          on:
+  workflow_dispatch: {}
+  # push:        # removed
+  # pull_request:# removed
+
