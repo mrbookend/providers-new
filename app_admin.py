@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import datetime
 import hashlib
 import hmac
 import os
@@ -31,7 +30,7 @@ if not globals().get("_PAGE_CFG_DONE"):
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 
-APP_VER = "admin-2025-10-24.1"  # bump on any behavior change
+APP_VER = "admin-2025-10-25.3"  # bump on any behavior change
 
 
 def _sha256_of_this_file() -> str:
@@ -130,19 +129,6 @@ def _debug_where_am_i():
         language="json",
     )
 
-
-# --- Page config MUST be the first Streamlit call ---------------------------
-if not globals().get("_PAGE_CFG_DONE"):
-    try:
-        st.set_page_config(
-            page_title="Providers — Admin",
-            layout="wide",
-            initial_sidebar_state="expanded",
-        )
-    except Exception:
-        pass
-    globals()["_PAGE_CFG_DONE"] = True
-# ---------------------------------------------------------------------------
 
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
 try:
@@ -872,43 +858,9 @@ def _sanitize_url(url: str | None) -> str:
     if url and not re.match(r"^https?://", url, re.I):
         url = "https://" + url
     return url
-# ── Local helpers for Browse filter & page size ─────────────────────────────
-def get_page_size() -> int:
-    """
-    Read PAGE_SIZE from secrets; default 20; clamp to [5, 200].
-    """
-    try:
-        val = int(st.secrets.get("PAGE_SIZE", 20))
-    except Exception:
-        val = 20
-    return max(5, min(200, val))
 
 
-def _filter_df_by_query(df: pd.DataFrame, q: str) -> pd.DataFrame:
-    """
-    Case-insensitive, non-regex 'contains' across all visible columns.
-    Safe for mixed types; treats NaN as empty.
-    """
-    q = (q or "").strip().lower()
-    if not q:
-        return df
-
-    # Build OR mask across columns without DataFrame.str pitfalls
-    mask = None
-    for col in df.columns:
-        try:
-            s = df[col].astype(str).str.lower()
-            m = s.str.contains(q, regex=False, na=False)
-            mask = m if mask is None else (mask | m)
-        except Exception:
-            # Be defensive per-column; if something is ill-typed, skip it
-            continue
-
-    if mask is None:
-        return df
-    return df.loc[mask]
 # ────────────────────────────────────────────────────────────────────────────
-
 def load_df(engine: Engine) -> pd.DataFrame:
     with engine.begin() as conn:
         df = pd.read_sql(sql_text("SELECT * FROM vendors ORDER BY lower(business_name)"), conn)
@@ -1077,19 +1029,124 @@ def _execute_append_only(
     return inserted
 
 
-# -----------------------------
-# UI
-# -----------------------------
+# Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
+# Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
+# exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
+# ─────────────────────────────────────────────────────────────────────────────
+import streamlit as _st_ps
+
+
+def _coerce_int(_v, _default):
+    try:
+        if isinstance(_v, (int, float)):
+            return int(_v)
+        if isinstance(_v, str) and _v.strip().lstrip("+-").isdigit():
+            return int(_v.strip())
+    except Exception:
+        pass
+    return int(_default)
+
+
+def _ensure_page_size_in_state():
+    try:
+        sec = _st_ps.secrets
+    except Exception:
+        sec = {}
+    raw = sec.get("PAGE_SIZE", 200)
+    n = _coerce_int(raw, 200)
+    n = max(20, min(1000, n))
+    _st_ps.session_state["PAGE_SIZE"] = n
+
+
+def get_page_size() -> int:
+    """Return the effective PAGE_SIZE (from secrets, bounded)."""
+    v = _st_ps.session_state.get("PAGE_SIZE")
+    if isinstance(v, int) and 20 <= v <= 1000:
+        return v
+    _ensure_page_size_in_state()
+    return int(_st_ps.session_state.get("PAGE_SIZE", 200))
+
+
+# Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
+# Later defs override earlier ones at import-time; existing call sites will use
+# this version. Behavior: prefer 'computed_keywords' when non-empty, else
+# fallback to '_blob', else minimal join of selected text columns. Matching is
+# done against a lowercased, whitespace-collapsed source string.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
+    """
+    Case-insensitive filter. Priority:
+      1) computed_keywords if present and non-empty
+      2) _blob if present (prebuilt, lowercased)
+      3) minimal join of common text columns
+    No regex; whitespace collapsed; safe per-column string coercions.
+    """
+    try:
+        if df is None or getattr(df, "empty", True):
+            return df
+        s = "" if qq is None else str(qq).strip().lower()
+        if s == "":
+            return df
+
+        cols = set(map(str, getattr(df, "columns", [])))
+
+        def _minimal_src(_df: pd.DataFrame) -> pd.Series:
+            pick = [
+                c
+                for c in ("business_name", "category", "service", "notes", "keywords")
+                if c in cols
+            ]
+            if pick:
+                ser = _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
+            else:
+                ser = pd.Series([""] * len(_df), index=_df.index, dtype="string")
+            return ser
+
+        if "computed_keywords" in cols:
+            ckw = df["computed_keywords"].astype("string").fillna("")
+            if "_blob" in cols:
+                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
+            else:
+                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
+        elif "_blob" in cols:
+            base = df["_blob"].astype("string").fillna("")
+        else:
+            base = _minimal_src(df)
+
+        src = (
+            base.astype("string")
+            .fillna("")
+            .str.lower()
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+        mask = src.str.contains(s, regex=False, na=False)
+        return df.loc[mask]
+    except Exception as _e:
+        try:
+            st.session_state["_filter_df_error"] = str(_e)
+        except Exception:
+            pass
+        return df
+
+
 engine, engine_info = build_engine()
+
 ensure_schema(engine)
-st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)    
+
 _seed_if_empty()
+
 try:
     sync_reference_tables(engine)
+
 except Exception as _e:
     # Non-fatal; UI still works without ref tables populated
+
     pass
 
+st.session_state.get("_ckw_schema_ensure", lambda *_: False)(engine)
 
 # Apply WAL PRAGMAs for local SQLite (not libsql driver)
 try:
@@ -1101,7 +1158,6 @@ except Exception:
     pass
 
 _tabs = st.tabs(
-
     [
         "Browse Vendors",
         "Add / Edit / Delete Vendor",
@@ -1159,7 +1215,6 @@ with _tabs[0]:
             key="q",
         )
 
-
         # Fast local filter (no regex)
         qq = (st.session_state.get("q") or "").strip().lower()
         filtered = _filter_df_by_query(df, qq)
@@ -1187,7 +1242,7 @@ with _tabs[0]:
         df_view,
         use_container_width=False,  # allow horizontal scroll; Patch 2 enforces widths
         hide_index=True,
-        height=(lambda n: max(240, min(2000, 48 + int(n)*28)))(get_page_size()),
+        height=(lambda n: max(240, min(2000, 48 + int(n) * 28)))(get_page_size()),
         column_config={
             "business_name": st.column_config.TextColumn("Provider"),
             "website": st.column_config.LinkColumn("website", display_text="website"),
@@ -1998,8 +2053,6 @@ with _tabs[5]:
     st.info(
         f"Active DB: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
     )
-    st.subheader("Status & Secrets (debug)")
-
 
 with _tabs[5]:
     st.subheader("Status & Secrets (debug)")
@@ -2074,6 +2127,7 @@ with _tabs[5]:
 # ─────────────────────────────────────────────────────────────────────────────
 import streamlit as _st_patch1  # safe alias to avoid name shadowing
 
+
 def _enable_horizontal_scroll() -> None:
     try:
         _st_patch1.markdown(
@@ -2097,6 +2151,7 @@ def _enable_horizontal_scroll() -> None:
         )
     except Exception:
         pass
+
 
 _enable_horizontal_scroll()
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2125,6 +2180,7 @@ _enable_horizontal_scroll()
 import json as _json_patch2
 import streamlit as _st_patch2
 
+
 def _apply_exact_column_widths_from_secrets() -> None:
     try:
         cfg = dict(_st_patch2.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
@@ -2133,12 +2189,11 @@ def _apply_exact_column_widths_from_secrets() -> None:
         # Serialize once; provide raw map; lower-cased map is generated inline in JS
         cfg_raw = {str(k): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
         _st_patch2.markdown(
-
             f"""
 <script>
 (function() {{
   const cfgRaw = {_json_patch2.dumps(cfg_raw)};
-  const cfgLow = {_json_patch2.dumps({k.lower(): v for k,v in cfg_raw.items()})};
+  const cfgLow = {_json_patch2.dumps({k.lower(): v for k, v in cfg_raw.items()})};
   // Utility: set width on a TH cell if its text matches a key
   function setWidth(th) {{
     if (!th) return;
@@ -2186,6 +2241,7 @@ def _apply_exact_column_widths_from_secrets() -> None:
         # Never break the app on UI-only helpers
         pass
 
+
 _apply_exact_column_widths_from_secrets()
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2201,6 +2257,7 @@ import os as _os_patch3
 import io as _io_patch3
 import streamlit as _st_patch3
 
+
 def _as_bool_patch3(v, default=False):
     try:
         if isinstance(v, bool):
@@ -2209,10 +2266,11 @@ def _as_bool_patch3(v, default=False):
             return v != 0
         if isinstance(v, str):
             s = v.strip().lower()
-            return s in {"1","true","yes","y","on"}
+            return s in {"1", "true", "yes", "y", "on"}
         return default
     except Exception:
         return default
+
 
 def _read_text_file_patch3(path: str) -> str:
     try:
@@ -2228,6 +2286,7 @@ def _read_text_file_patch3(path: str) -> str:
     except Exception:
         return ""
 
+
 def _load_browse_help_md() -> str:
     try:
         sec = _st_patch3.secrets
@@ -2239,6 +2298,7 @@ def _load_browse_help_md() -> str:
     # Precedence: file > inline
     content = file_md.strip() or inline_md
     return content
+
 
 def render_browse_help_expander() -> None:
     """Render the Help — Browse expander if SHOW_BROWSE_HELP is true and content exists."""
@@ -2255,43 +2315,11 @@ def render_browse_help_expander() -> None:
     with _st_patch3.expander("Help — Browse", expanded=False):
         _st_patch3.markdown(md)
 
+
 # Expose a callable so main/Browse can invoke without re-import details.
 _st_patch3.session_state["_browse_help_render"] = render_browse_help_expander
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
-# Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
-# Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
-# exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
-# ─────────────────────────────────────────────────────────────────────────────
-import streamlit as _st_ps
-
-def _coerce_int(_v, _default):
-    try:
-        if isinstance(_v, (int, float)):
-            return int(_v)
-        if isinstance(_v, str) and _v.strip().lstrip("+-").isdigit():
-            return int(_v.strip())
-    except Exception:
-        pass
-    return int(_default)
-
-def _ensure_page_size_in_state():
-    try:
-        sec = _st_ps.secrets
-    except Exception:
-        sec = {}
-    raw = sec.get("PAGE_SIZE", 200)
-    n = _coerce_int(raw, 200)
-    n = max(20, min(1000, n))
-    _st_ps.session_state["PAGE_SIZE"] = n
-
-def get_page_size() -> int:
-    """Return the effective PAGE_SIZE (from secrets, bounded)."""
-    v = _st_ps.session_state.get("PAGE_SIZE")
-    if isinstance(v, int) and 20 <= v <= 1000:
-        return v
-    _ensure_page_size_in_state()
-    return int(_st_ps.session_state.get("PAGE_SIZE", 200))
 
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
@@ -2302,6 +2330,7 @@ _ensure_page_size_in_state()
 # Next step will insert a one-liner after ensure_schema(engine) to invoke this.
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _vendors_has_column(eng, col: str) -> bool:
     try:
         with eng.connect() as cx:
@@ -2310,6 +2339,7 @@ def _vendors_has_column(eng, col: str) -> bool:
         return col.lower() in names
     except Exception:
         return False
+
 
 def _ensure_ckw_column_and_index(eng) -> bool:
     """
@@ -2321,129 +2351,22 @@ def _ensure_ckw_column_and_index(eng) -> bool:
         have_col = _vendors_has_column(eng, "computed_keywords")
         if not have_col:
             with eng.begin() as cx:
-                # Add the new column with default '' (keeps existing NULLs out)
-                cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN computed_keywords TEXT DEFAULT ''")
+                cx.exec_driver_sql(
+                    "ALTER TABLE vendors ADD COLUMN computed_keywords TEXT DEFAULT ''"
+                )
             changed = True
         # Create an index to speed up CKW filtering; idempotent for SQLite/libsql
         with eng.begin() as cx:
-            cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)")
+            cx.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
+            )
     except Exception as _e:
         # Should never crash the app; surface in debug if needed
-        try:
-            st.session_state["_ckw_schema_error"] = str(_e)
-
-        except Exception:
-            pass
+        st.session_state["_ckw_schema_error"] = str(_e)
     return changed
 
-# Expose callable so main() can invoke it in a one-liner later.
-# ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# Patch 9 (2025-10-24): query filter helper preferring computed_keywords
-# If qq is empty/blank: returns df unchanged.
-# If 'computed_keywords' exists and is non-empty for a row, use that; else fallback to '_blob'.
-# Defensive: no exceptions; always returns a DataFrame.
-# ─────────────────────────────────────────────────────────────────────────────
-import pandas as _pd_p9
-import streamlit as _st_p9
 
-def _filter_df_by_query(df: _pd_p9.DataFrame, qq: str) -> _pd_p9.DataFrame:
-    try:
-        if df is None or not isinstance(df, _pd_p9.DataFrame) or df.empty:
-            return df
-        s = "" if qq is None else str(qq)
-        s = s.strip()
-        if s == "":
-            return df
-        cols = set(df.columns.astype(str))
-        # Choose the search source per row:
-        # prefer non-empty 'computed_keywords', else fallback to '_blob' if present,
-        # else build a minimal blob from visible text columns.
-        if "computed_keywords" in cols:
-            ckw = df["computed_keywords"].astype("string").fillna("")
-            if "_blob" in cols:
-                src = _pd_p9.Series(_pd_p9.NA, index=df.index).astype("string")
-                src = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
-            else:
-                # minimal fallback if _blob is missing
-                pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
-                base = df[pick].astype("string").fillna("") if pick else _pd_p9.DataFrame({"_z": _pd_p9.Series([""]*len(df))})
-                src = base.apply(lambda r: " ".join(r.values.astype(str)), axis=1).astype("string")
-        elif "_blob" in cols:
-            src = df["_blob"].astype("string").fillna("")
-        else:
-            # last-resort minimal blob
-            pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
-            base = df[pick].astype("string").fillna("") if pick else _pd_p9.DataFrame({"_z": _pd_p9.Series([""]*len(df))})
-            src = base.apply(lambda r: " ".join(r.values.astype(str)), axis=1).astype("string")
-        mask = src.str.contains(s, regex=False, na=False)
-        return df[mask]
-    except Exception as _e:
-        try:
-            _st_p9.session_state["_filter_df_error"] = str(_e)
-        except Exception:
-            pass
-        return df
-# ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
-# Later defs override earlier ones at import-time; existing call sites will use
-# this version. Behavior: prefer 'computed_keywords' when non-empty, else
-# fallback to '_blob', else minimal join of selected text columns. Matching is
-# done against a lowercased, whitespace-collapsed source string.
-# ─────────────────────────────────────────────────────────────────────────────
-import pandas as _pd_p11
-import streamlit as _st_p11
+st.session_state["_ckw_schema_ensure"] = _ensure_ckw_column_and_index
 
-def _filter_df_by_query(df, qq):
-    try:
-        if df is None or not hasattr(df, "empty") or df.empty:
-            return df
-        s = "" if qq is None else str(qq).strip().lower()
-        if s == "":
-            return df
 
-        cols = set(map(str, getattr(df, "columns", [])))
-
-        def _minimal_src(_df):
-            pick = [c for c in ("business_name","category","service","notes","keywords") if c in cols]
-            if pick:
-                ser = (
-                    _df[pick]
-                    .astype("string")
-                    .fillna("")
-                    .agg(" ".join, axis=1)
-                )
-            else:
-                ser = _pd_p11.Series([""] * len(_df), index=_df.index, dtype="string")
-            return ser
-
-        if "computed_keywords" in cols:
-            ckw = df["computed_keywords"].astype("string").fillna("")
-            if "_blob" in cols:
-                base = ckw.where(ckw.str.len() > 0, df["_blob"].astype("string").fillna(""))
-            else:
-                base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
-        elif "_blob" in cols:
-            base = df["_blob"].astype("string").fillna("")
-        else:
-            base = _minimal_src(df)
-
-        # Normalize source: lowercase, collapse internal whitespace
-        src = (
-            base.astype("string")
-            .fillna("")
-            .str.lower()
-            .str.replace(r"\s+", " ", regex=True)
-            .str.strip()
-        )
-
-        mask = src.str.contains(s, regex=False, na=False)
-        return df[mask]
-    except Exception as _e:
-        try:
-            _st_p11.session_state["_filter_df_error"] = str(_e)
-        except Exception:
-            pass
-        return df
 # ─────────────────────────────────────────────────────────────────────────────
