@@ -103,8 +103,10 @@ def _build_ckw_row(row: dict) -> str:
     # de-dupe while keeping order
     seen, out = set(), []
     for t in tokens:
-        if t not in seen:
-            out.append(t) seen.add(t)
+    if t not in seen:
+        out.append(t)
+        seen.add(t)
+
     return " ".join(out)
 # ---------------------------------------------------------------------------#
 
@@ -342,8 +344,6 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as e:
         st.warning(f"CKW DDL failed: {e}")
         return False
-_ = _ensure_ckw_schema(engine)  # may be no-op; returns True if altered
-
 
 # Deterministic resolution (secrets → env → code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
@@ -459,14 +459,6 @@ def recompute_ckw_all(eng) -> int:
         ids = [r[0] for r in cx.execute(sql_text("SELECT id FROM vendors")).fetchall()]
     return recompute_ckw_for_ids(eng, ids, override_locks=True)
 # ---------------------------------------------------------------------------#
-
-# --- CKW schema ensure helper (guard; no-op placeholder) ---
-def _ensure_ckw_column_and_index(eng) -> bool:
-    """
-    Idempotently ensure CKW columns/indexes exist.
-    Returns True if changes were made; False otherwise.
-    This placeholder keeps CI green until the real logic is wired.
-    """
     try:
         # TODO: replace with the real ensure-CKW implementation
         return False
@@ -1093,6 +1085,14 @@ def _seed_if_empty(eng=None) -> None:
         ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
+
+        st.warning(f"Seed-if-empty skipped: {e}")
+
+
+# (moved) _seed_if_empty() will be invoked after ensure_schema(engine) below.
+
+# ---------- end seed-if-empty ----------
+
 # --- Add/Edit form submit ----------------------------------------------------
 if "submit_ctx" not in st.session_state:
     st.session_state["submit_ctx"] = {}
@@ -1147,7 +1147,7 @@ if submit:
 
     # Compute CKW for this one row
     try:
-        ckw, ver = _ckw_for_form_row(form_values_dict)  # your helper
+        ckw, ver = _ckw_for_form_row(form_values_dict)
     except Exception:
         parts = [business_name, category, service, keywords, ckw_manual_extra, notes]
         ckw, ver = (" ".join(p for p in parts if p).strip(), 1)
@@ -1155,9 +1155,8 @@ if submit:
     form_values_dict["computed_keywords"] = ckw
     form_values_dict["ckw_version"] = ver
 
-    # Write (UPDATE if editing, else INSERT)
     try:
-        eng = get_engine()  # your existing engine builder
+        eng = engine   # <--- IMPORTANT: use module-global engine
         vendor_id = st.session_state.get("edit_vendor_id")
 
         if vendor_id:
@@ -1197,16 +1196,20 @@ if submit:
                     sql_text(
                         """
                         INSERT INTO vendors (
-                            category, service, business_name, contact_name, phone,
-                            phone_fmt, email, website, address, city, state, zip,
-                            notes, keywords, computed_keywords, ckw_version, ckw_locked,
-                            ckw_manual_extra, created_at, updated_at, updated_by
+                            category, service, business_name, contact_name,
+                            phone, phone_fmt, email, website, address,
+                            city, state, zip, notes, keywords,
+                            computed_keywords, ckw_version, ckw_locked,
+                            ckw_manual_extra,
+                            created_at, updated_at, updated_by
                         )
                         VALUES (
-                            :category, NULLIF(:service,''), :business_name, :contact_name, :phone,
-                            :phone_fmt, :email, :website, :address, :city, :state, :zip,
-                            :notes, :keywords, :computed_keywords, :ckw_version, :ckw_locked,
-                            :ckw_manual_extra, CURRENT_TIMESTAMP, :updated_at, 'form'
+                            :category, NULLIF(:service,''), :business_name, :contact_name,
+                            :phone, :phone_fmt, :email, :website, :address,
+                            :city, :state, :zip, :notes, :keywords,
+                            :computed_keywords, :ckw_version, :ckw_locked,
+                            :ckw_manual_extra,
+                            CURRENT_TIMESTAMP, :updated_at, 'form'
                         )
                         """
                     ),
@@ -1218,18 +1221,12 @@ if submit:
             st.cache_data.clear()
         except Exception:
             pass
+
         st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
 
     except Exception as ex:
         st.error(f"Database write failed: {ex}")
 # --- end Add/Edit form submit ------------------------------------------------
-
-        st.warning(f"Seed-if-empty skipped: {e}")
-
-
-# (moved) _seed_if_empty() will be invoked after ensure_schema(engine) below.
-
-# ---------- end seed-if-empty ----------
 
 
 def _normalize_phone(val: str | None) -> str:
