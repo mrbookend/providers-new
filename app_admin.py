@@ -51,7 +51,8 @@ def _mtime_of_this_file() -> str:
         
 
         p = pathlib.Path(__file__)
-        ts = _os.path.getmtime(str(p))
+        ts = os.path.getmtime(str(p))
+
         return _dt.datetime.utcfromtimestamp(ts).isoformat(timespec="seconds") + "Z"
     except Exception:
         return ""
@@ -2316,11 +2317,12 @@ def _read_text_file_patch3(path: str) -> str:
         if not path:
             return ""
         # Resolve relative to repo root / CWD
-        if not _os_patch3.path.isabs(path):
-            path = _os_patch3.path.abspath(path)
-        if not _os_patch3.path.exists(path):
+        if not os.path.isabs(path):
+            path = os.path.abspath(path)
+        if not os.path.exists(path):
             return ""
-        with _io_patch3.open(path, "r", encoding="utf-8") as fh:
+        with open(path, "r", encoding="utf-8") as fh:
+
             return fh.read()
     except Exception:
         return ""
