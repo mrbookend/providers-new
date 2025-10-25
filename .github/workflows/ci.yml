@@ -3,20 +3,15 @@ name: ci
 on:
   push:
     branches: [ "**" ]
-    paths:
-      - "app_admin.py"
-      - ".github/workflows/ci.yml"
-      - "ruff.toml"
   pull_request:
     branches: [ "**" ]
-    paths:
-      - "app_admin.py"
-      - ".github/workflows/ci.yml"
-      - "ruff.toml"
   workflow_dispatch: {}
 
 permissions:
   contents: read
+  pull-requests: write
+  issues: write
+
 
 concurrency:
   group: ci-${{ github.ref }}
