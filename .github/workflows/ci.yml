@@ -12,8 +12,6 @@ permissions:
   pull-requests: write
   issues: write
 
-
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -71,7 +69,8 @@ jobs:
             exit 1
           fi
           sha=$(python - <<'PY'
-from pathlib import Path, hashlib
+from pathlib import Path
+import hashlib
 b = Path("app_admin.py").read_bytes()
 print(hashlib.sha256(b).hexdigest())
 PY
@@ -93,7 +92,8 @@ PY
           set -euo pipefail
           f="app_admin.py"
           md5=$(python - <<'PY'
-from pathlib import Path, hashlib
+from pathlib import Path
+import hashlib
 print(hashlib.md5(Path("app_admin.py").read_bytes()).hexdigest())
 PY
 )
@@ -135,7 +135,8 @@ PY
         run: |
           set -euo pipefail
           sha_now=$(python - <<'PY'
-from pathlib import Path, hashlib
+from pathlib import Path
+import hashlib
 b = Path("app_admin.py").read_bytes()
 print(hashlib.sha256(b).hexdigest())
 PY
