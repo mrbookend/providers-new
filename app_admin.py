@@ -1936,13 +1936,12 @@ st.dataframe(
     use_container_width=False,   # keep horizontal scroll available
     hide_index=True,
 )
-
-# If a horizontal scroll container was opened above, close it now.
 try:
     _hscroll_container_close()
 except Exception:
     pass
 # ---------------------------------------------------------------------------
+
 
 # --- /HScroll wrapper ---
 
