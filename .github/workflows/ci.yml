@@ -81,4 +81,6 @@ PY
     if grep -nE 'st\.(caption|title|header|subheader)\s*\(\s*\)' app_admin.py; then
       echo "ERR: zero-arg Streamlit heading found"; exit 1
     fi
+- name: Python compile
+  run: python3 -m py_compile app_admin.py
 
