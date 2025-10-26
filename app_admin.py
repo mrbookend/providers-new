@@ -1927,9 +1927,11 @@ else:
 _hscroll_container_open()
 st.dataframe(
     df,  # or your filtered dataframe variable name
-    use_container_width=False,   # allow horizontal scrolling
+    use_container_width=False,
     hide_index=True,
 )
+_hscroll_container_close()
+
 # --- HScroll wrapper ---
 _hscroll_container_open()
 st.dataframe(
