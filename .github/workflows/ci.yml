@@ -1,11 +1,12 @@
-name: ci
-
 on:
   push:
     branches: [ "**" ]
+    paths: [ "app_admin.py", ".github/workflows/ci.yml" ]
   pull_request:
     branches: [ "**" ]
+    paths: [ "app_admin.py", ".github/workflows/ci.yml" ]
   workflow_dispatch: {}
+
 
 permissions:
   contents: read
