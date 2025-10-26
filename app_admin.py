@@ -592,6 +592,22 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
     with eng.begin() as cx:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
+def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+    for _c in ("city", "state", "zip"):
+        if _c in df.columns:
+            df.drop(columns=[_c], inplace=True)
+    whitelist = [
+        "category","service","business_name","contact_name","phone","email",
+        "website","address","notes","keywords",
+        "computed_keywords","ckw_version","ckw_locked","ckw_manual_extra",
+        "phone_fmt","created_at","updated_at","updated_by",
+    ]
+    present = [c for c in whitelist if c in df.columns]
+    if present:
+        df = df[present]
+    return df.fillna("")
 
 
 def _hscroll_container_open():
@@ -1169,7 +1185,10 @@ def _seed_if_empty(eng=None) -> None:
             for _ban in ("city", "state", "zip"):
                 if _ban in df.columns:
                     df.drop(columns=[_ban], inplace=True)
-            df.to_sql("vendors", eng, if_exists="append", index=False)
+        df = _sanitize_seed_df(df)
+        df.to_sql("vendors", eng, if_exists="append", index=False)
+
+
 
         st.success(f"Seeded vendors from {seed_csv}")
     except Exception as e:
