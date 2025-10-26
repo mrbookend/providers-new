@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+bash "$root/scripts/hcrsync.sh" || true
+
+# Hard guard: block push if app_admin.py differs from remote main *right now*.
+local_hash="$(sha256sum "$root/app_admin.py" | awk '{print $1}')"
+remote_hash="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py | sha256sum | awk '{print $1}')"
+
+if [[ "$local_hash" != "$remote_hash" ]]; then
+  echo "Push blocked: app_admin.py local != remote main."
+  echo "Run: git pull --ff-only origin main   (or resolve intentionally)"
+  exit 1
+fi
