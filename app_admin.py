@@ -1916,6 +1916,10 @@ try:
 
 # Resolve a table DataFrame that actually exists in scope
 try:
+    pass
+except Exception:
+    pass
+
     _table = filtered  # preferred
 except NameError:
     try:
