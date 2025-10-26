@@ -1895,8 +1895,6 @@ except Exception:
     # Never let help rendering break the page
     pass
 
-st.markdown('<div style="width:100%; overflow-x:auto;">', unsafe_allow_html=True)
-
 # Resolve a table DataFrame that actually exists in scope
 try:
     _table = filtered  # preferred
@@ -1929,32 +1927,31 @@ else:
     except Exception:
         # widths are optional; continue without them
         pass
-_hscroll_container_open()
-# --- Browse table render (balanced) -----------------------------------------
-st.dataframe(
-    df[view_cols],
-    use_container_width=False,   # keep horizontal scroll available
-    hide_index=True,
-)
-try:
-    _hscroll_container_close()
-except Exception:
-    pass
-# ---------------------------------------------------------------------------
 
+    # --- Browse table render (balanced; no raw HTML wrappers) -----------------
+    _hscroll_container_open()
+    st.dataframe(
+        _view,
+        use_container_width=False,   # keep horizontal scroll available
+        hide_index=True,
+        column_config=col_cfg if col_cfg else None,
+    )
+    try:
+        _hscroll_container_close()
+    except Exception:
+        pass
+    # -------------------------------------------------------------------------
 
+    # CSV export of the filtered view
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    _csv_bytes = _view.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download filtered view (CSV)",
+        data=_csv_bytes,
+        file_name=f"providers_{ts}.csv",
+        mime="text/csv",
+    )
 # --- /HScroll wrapper ---
-
-
-        # CSV export of the filtered view
-        ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        _csv_bytes = _view.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download filtered view (CSV)",
-            data=_csv_bytes,
-            file_name=f"providers_{ts}.csv",
-            mime="text/csv",
-        )
 
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
