@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# pre-push receives: $1=remote name, $2=remote URL, and refs on stdin
+remote="${1:-}"; url="${2:-}"
+# Drain refs from stdin (not strictly needed, but good hygiene)
+# while read -r local_ref local_sha remote_ref remote_sha; do :; done
+
+# Repo root
+cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+
+echo "== pre-push checks =="
+
+# 1) Fast fail on syntax errors
+python3 -m py_compile app_admin.py
+
+# 2) Optional lint/format if Ruff is installed (non-fatal if missing)
+if command -v ruff >/dev/null 2>&1; then
+  ruff check --output-format=github .
+  ruff format --check .
+else
+  echo "ruff not found; skipping lint/format checks"
+fi
+
+# 3) Ensure we’re not pushing a behind/diverged 'main'
+git fetch origin --prune >/dev/null 2>&1 || true
+branch="$(git rev-parse --abbrev-ref HEAD || echo HEAD)"
+echo "branch:        $branch"
+echo "HEAD:          $(git rev-parse HEAD)"
+echo "origin/main:   $(git rev-parse origin/main || echo n/a)"
+
+if [ "$branch" = "main" ]; then
+  if ! git merge-base --is-ancestor origin/main HEAD; then
+    echo "ERROR: local 'main' is behind or diverged from origin/main."
+    echo "Fix: git pull --ff-only origin main   # then push again"
+    exit 1
+  fi
+fi
+
+# 4) Informational drift print (non-blocking)
+if command -v curl >/dev/null 2>&1; then
+  lsha="$(sha256sum app_admin.py | awk '{print $1}')"
+  rsha="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py | sha256sum | awk '{print $1}')"
+  echo "app_admin.py sha256 local=$lsha remote(main)=$rsha"
+
+  llines="$(python3 - <<'PY'
+from pathlib import Path
+print(len(Path("app_admin.py").read_text(encoding="utf-8").splitlines()))
+PY
+)"
+  rlines="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py | python3 - <<'PY'
+import sys
+print(len(sys.stdin.read().splitlines()))
+PY
+)"
+  echo "lines local=$llines remote(main)=$rlines"
+fi
+
+echo "pre-push checks passed."
+exit 0
