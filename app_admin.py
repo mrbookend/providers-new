@@ -216,7 +216,6 @@ if "engine" not in globals():
 # --- END TEMP ENGINE SHIMS ----------------------------------------------------
 
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
-from typing import Optional as _Optional
 
 def _build_engine_fallback():
     """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
