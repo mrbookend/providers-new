@@ -25,6 +25,11 @@ if not globals().get("_PAGE_CFG_DONE"):
     except Exception:
         pass
     globals()["_PAGE_CFG_DONE"] = True
+# --- Session defaults (safe no-ops) --- START
+# Ensure optional callbacks/values exist to avoid KeyError at call sites.
+if "_browse_help_render" not in st.session_state:
+    st.session_state["_browse_help_render"] = lambda: None
+# --- Session defaults (safe no-ops) --- END
 
 # Ensure browse help renderer exists (no-op by default)
 if "_browse_help_render" not in st.session_state:
