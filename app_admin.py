@@ -593,6 +593,14 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
     with eng.begin() as cx:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
+def _hscroll_container_open():
+    st.markdown(
+        '<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">',
+        unsafe_allow_html=True,
+    )
+
+def _hscroll_container_close():
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
@@ -1922,11 +1930,16 @@ st.dataframe(
     use_container_width=False,   # allow horizontal scrolling
     hide_index=True,
 )
+# --- HScroll wrapper ---
+_hscroll_container_open()
+st.dataframe(
+    <THE_SAME_DF_VAR_YOU_ALREADY_USE>,  # don't rename it
+    use_container_width=False,
+    hide_index=True,
+)
 _hscroll_container_close()
+# --- /HScroll wrapper ---
 
-        # Close the h-scroll wrapper and add CSV export (still inside the 'else:' block)
-        st.markdown("</div>", unsafe_allow_html=True)
-        # --- End HScroll wrapper ---
 
         # CSV export of the filtered view
         ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
