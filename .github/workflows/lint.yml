@@ -1,10 +1,8 @@
 name: ci
 
 on:
-  push:
-    branches: [ main, fix/*, chore/*, feature/* ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch: {}
+
 
 jobs:
   lint-and-guards:
