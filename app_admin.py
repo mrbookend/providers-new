@@ -1182,33 +1182,40 @@ def _seed_if_empty(eng=None) -> None:
             if df[col].dtype == object:
                 df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
 # Defensive: reindex to the actual table columns to avoid schema drift issues
-with eng.connect() as cx:
-    cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()]  # r[1] = name
-df = df.reindex(columns=[c for c in cols if c in df.columns], fill_value="")
+try:
+    # If sanitize helper is available, ensure df is clean (drops city/state/zip)
+    if '_sanitize_seed_df' in globals():
+        df = _sanitize_seed_df(df)
+    else:
+        # Minimal inline guard if helper isn’t present
+        df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
 
-        # Insert rows
-        with eng.begin() as cx:
-            # Keep only columns present in vendors (enforce address-only)
-            _vcols = pd.read_sql("PRAGMA table_info('vendors')", eng)["name"].tolist()
-            df = df[[c for c in df.columns if c in _vcols]].copy()
-            for _ban in ("city", "state", "zip"):
-                if _ban in df.columns:
-                    df.drop(columns=[_ban], inplace=True)
-            df.to_sql("vendors", eng, if_exists="append", index=False)
+    # Reindex to live table columns to tolerate schema drift
+    with eng.connect() as cx:
+        cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()]  # r[1] = name
+    df = df.reindex(columns=[c for c in cols if c in df.columns], fill_value="")
 
-        st.success(f"Seeded vendors from {seed_csv}")
-    except Exception as e:
-        st.warning(f"Seed-if-empty skipped: {e}")
+    # Insert rows in a transaction
+    with eng.begin() as cx:
+        df.to_sql("vendors", eng, if_exists="append", index=False)
 
-        # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
-        if isinstance(eng, tuple) and len(eng) > 0:
-            eng = eng[0]
-        elif isinstance(eng, dict) and "engine" in eng:
-            eng = eng["engine"]
+    st.success(f"Seeded vendors from {seed_csv}")
+except Exception as e:
+    st.warning(f"Seed-if-empty skipped: {e}")
 
-        if not hasattr(eng, "begin"):
-            st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
-            return
+    # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
+    if isinstance(eng, tuple) and len(eng) > 0:
+        eng = eng[0]
+    elif isinstance(eng, dict) and "engine" in eng:
+        eng = eng["engine"]
+
+    if not hasattr(eng, "begin"):
+        st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
+        return
+
 
         # --- ensure minimal schema BEFORE any queries (idempotent) ---
         try:
