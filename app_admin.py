@@ -1846,8 +1846,7 @@ if _show_help:
 # Show a one-line runtime banner on the first tab for quick verification
 with _tabs[0]:
     _debug_where_am_i()
-    st.caption()
-with _tabs[0]:
+    st.caption("")
     st.session_state.get("_browse_help_render", lambda: None)()
 
 
