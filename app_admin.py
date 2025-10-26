@@ -920,6 +920,13 @@ else:
 # DB helpers
 # -----------------------------
 REQUIRED_VENDOR_COLUMNS: List[str] = ["business_name", "category"]  # service optional
+# --- CSV → DB column trim helper --------------------------------------------
+def _trim_df_to_vendors_schema(df, eng):
+    """Return a copy of df containing only columns present in vendors schema."""
+    cols = pd.read_sql("PRAGMA table_info('vendors')", eng).name.tolist()
+    keep = [c for c in df.columns if c in cols]
+    return df[keep].copy()
+# ---------------------------------------------------------------------------
 
 
 def build_engine() -> Tuple[Engine, Dict]:
@@ -1160,9 +1167,15 @@ def _seed_if_empty(eng=None) -> None:
             if df[col].dtype == object:
                 df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
 
-        # Insert rows
-        with eng.begin() as cx:
-            df.to_sql("vendors", cx.connection, if_exists="append", index=False)
+    # Insert rows
+with eng.begin() as cx:
+    # Trim DF to match current vendors schema (drops city/state/zip if present)
+    _cols = pd.read_sql("PRAGMA table_info('vendors')", cx.connection)["name"].tolist()
+    df = df[[c for c in df.columns if c in _cols]].copy()
+
+    # Write rows
+    df.to_sql("vendors", cx.connection, if_exists="append", index=False)
+
 
         st.success(f"Seeded vendors from {seed_csv}")
     except Exception as e:
