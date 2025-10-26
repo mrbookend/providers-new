@@ -20,6 +20,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Debug — head commit
+        run: |
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          git rev-parse HEAD
+
+      - name: Debug — app_admin.py facts
+        run: |
+          python3 - <<'PY'
+import hashlib, pathlib
+p = pathlib.Path("app_admin.py")
+b = p.read_bytes()
+print("sha256:", hashlib.sha256(b).hexdigest())
+print("lines :", len(p.read_text(encoding="utf-8").splitlines()))
+PY
+
+      - name: Ruff format (diff preview)
+        run: ruff format --check --diff .
 
       - name: Install Ruff (pin exact)
         run: |
