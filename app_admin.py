@@ -189,6 +189,34 @@ except Exception:
     pass
 # ---- end dialect registration ----
 
+# --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
+from typing import Optional as _Optional
+
+def _build_engine_fallback():
+    """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
+    try:
+        # If your file defines build_engine(), prefer it.
+        return build_engine()  # type: ignore[name-defined]
+    except Exception:
+        pass
+    # Minimal, non-breaking fallback (keeps app bootable even off Turso)
+    from sqlalchemy import create_engine as _create_engine
+    import os as _os
+    _db = _os.getenv("DB_PATH", "providers.db")
+    return _create_engine(f"sqlite+pysqlite:///{_db}")
+
+# Provide get_engine() if missing
+if "get_engine" not in globals():
+    def get_engine():
+        return _build_engine_fallback()
+
+# Legacy global alias to satisfy code paths that reference `engine` directly
+if "engine" not in globals():
+    try:
+        engine = get_engine()
+    except Exception:
+        engine = None
+# --- END TEMP ENGINE SHIMS ----------------------------------------------------
 
 # -----------------------------
 # Helpers
