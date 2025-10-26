@@ -1909,15 +1909,10 @@ try:
         # Help content intentionally disabled.
         pass
 except Exception:
-    pass
-
-    pass
-
-except Exception:
     # Secrets not available or other non-fatal issue
     pass
-
 # Resolve a table DataFrame that actually exists in scope
+
 try:
     _table = filtered  # preferred
 except NameError:
