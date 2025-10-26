@@ -1930,15 +1930,20 @@ else:
         # widths are optional; continue without them
         pass
 _hscroll_container_open()
+# --- Browse table render (balanced) -----------------------------------------
 st.dataframe(
-    df,  # or your filtered dataframe variable name
-_hscroll_container_open()
-st.dataframe(
-    df,  # keep your existing variable name
-    use_container_width=False,
+    df[view_cols],
+    use_container_width=False,   # keep horizontal scroll available
     hide_index=True,
 )
-_hscroll_container_close()
+
+# If a horizontal scroll container was opened above, close it now.
+try:
+    _hscroll_container_close()
+except Exception:
+    pass
+# ---------------------------------------------------------------------------
+
 # --- /HScroll wrapper ---
 
 
