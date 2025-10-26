@@ -76,4 +76,9 @@ PY
         run: |
           echo "Formatting required. A PR was opened to apply it."
           exit 1
+- name: Guard: no zero-arg Streamlit headings
+  run: |
+    if grep -nE 'st\.(caption|title|header|subheader)\s*\(\s*\)' app_admin.py; then
+      echo "ERR: zero-arg Streamlit heading found"; exit 1
+    fi
 
