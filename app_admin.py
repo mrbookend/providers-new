@@ -1116,9 +1116,10 @@ def sync_reference_tables(engine: Engine) -> dict:
     return inserted
 
 
-# ---------- Seed if empty (one-time) ----------
+# --- Seed if empty (address-only) --- START
 def _seed_if_empty(eng=None) -> None:
-    """Seed vendors from CSV when table exists but has 0 rows."""
+    """Seed vendors from CSV when table exists but has 0 rows (address-only schema)."""
+    # Gate via secrets
     allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
     if not allow:
         return
@@ -1126,21 +1127,15 @@ def _seed_if_empty(eng=None) -> None:
 
     # Resolve an Engine if one wasn't provided
     eng = _ensure_engine(eng)
-    if eng is None:
+    if eng is None or not hasattr(eng, "begin"):
+        try:
+            st.warning("Seed-if-empty skipped: engine object invalid or missing.")
+        except Exception:
+            pass
         return
 
-    # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
-    if isinstance(eng, tuple) and len(eng) > 0:
-        eng = eng[0]
-    elif isinstance(eng, dict) and "engine" in eng:
-        eng = eng["engine"]
-
-    if not hasattr(eng, "begin"):
-        st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
-        return
-
+    # If table missing or already populated, do nothing.
     try:
-        # Check table presence and row count
         with eng.connect() as cx:
             tables = [
                 r[0]
@@ -1149,72 +1144,52 @@ def _seed_if_empty(eng=None) -> None:
                 ).all()
             ]
             if "vendors" not in tables:
-                return  # respect prod guard: do not create vendors here
-
+                return
             count = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            if count > 0:
-                return  # nothing to do
+            if int(count) > 0:
+                return
+    except Exception:
+        # Can’t inspect; bail quietly
+        return
 
-        # Load CSV
-        df = pd.read_csv(seed_csv)
-        df = _sanitize_seed_df(df)
+    # Load, sanitize to address-only, align columns, append
+    try:
+        df = pd.read_csv(seed_csv, dtype=str).fillna("")
 
-        # Validate/normalize columns
-        expected = {
-            "business_name",
-            "category",
-            "service",
-            "phone",
-            "contact_name",
-            "address",
-            "website",
-            "email",
-            "notes",
-            "keywords",
-        }
-        missing = expected - set(map(str, df.columns))
-        if missing:
-            st.warning(f"Seed skipped: CSV missing columns: {sorted(missing)}")
-            return
-
-        # Optional light cleanup
-        for col in df.columns:
-            if df[col].dtype == object:
-                df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
-# Defensive: reindex to the actual table columns to avoid schema drift issues
-try:
-    # If sanitize helper is available, ensure df is clean (drops city/state/zip)
-    if '_sanitize_seed_df' in globals():
-        df = _sanitize_seed_df(df)
-    else:
-        # Minimal inline guard if helper isn’t present
-        df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+        # Drop legacy columns (we are address-only now)
         for _ban in ("city", "state", "zip"):
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-    # Reindex to live table columns to tolerate schema drift
-    with eng.connect() as cx:
-        cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()]  # r[1] = name
-    df = df.reindex(columns=[c for c in cols if c in df.columns], fill_value="")
+        # Optional light cleanup
+        for col in df.columns:
+            if df[col].dtype == object:
+                df[col] = (
+                    df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+                )
 
-    # Insert rows in a transaction
-    with eng.begin() as cx:
-        df.to_sql("vendors", eng, if_exists="append", index=False)
+        # Align to live table columns to tolerate drift
+        with eng.connect() as cx:
+            cols = [
+                r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
+            ]  # r[1] = name
+        df = df.reindex(columns=[c for c in cols if c in df.columns], fill_value="")
 
-    st.success(f"Seeded vendors from {seed_csv}")
-except Exception as e:
-    st.warning(f"Seed-if-empty skipped: {e}")
+        # Single append inside a transaction
+        with eng.begin():
+            df.to_sql("vendors", eng, if_exists="append", index=False)
 
-    # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
-    if isinstance(eng, tuple) and len(eng) > 0:
-        eng = eng[0]
-    elif isinstance(eng, dict) and "engine" in eng:
-        eng = eng["engine"]
+        try:
+            st.success(f"Seeded vendors from {seed_csv}")
+        except Exception:
+            pass
+    except Exception as e:
+        try:
+            st.warning(f"Seed-if-empty skipped: {e}")
+        except Exception:
+            pass
+# --- Seed if empty (address-only) --- END
 
-    if not hasattr(eng, "begin"):
-        st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
-        return
 
 
         # --- ensure minimal schema BEFORE any queries (idempotent) ---
