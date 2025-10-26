@@ -1,12 +1,13 @@
+name: ci
+
 on:
   push:
-    branches: [ "**" ]
-    paths: [ "app_admin.py", ".github/workflows/ci.yml" ]
+    branches: ["**"]
+    paths: ["app_admin.py", ".github/workflows/ci.yml"]
   pull_request:
-    branches: [ "**" ]
-    paths: [ "app_admin.py", ".github/workflows/ci.yml" ]
+    branches: ["**"]
+    paths: ["app_admin.py", ".github/workflows/ci.yml"]
   workflow_dispatch: {}
-
 
 permissions:
   contents: read
@@ -18,12 +19,112 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # -----------------------------
+  # HCR drift guard: BLOCK merges if app_admin.py changed without APP_VER bump
+  # -----------------------------
+  hcr-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (full history for diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine compare range
+        id: rng
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            # push: compare HEAD^..HEAD (or initial commit special-case)
+            if git rev-parse HEAD^ >/dev/null 2>&1; then
+              echo "base=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+            else
+              echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            fi
+            echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Did app_admin.py change?
+        id: changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.rng.outputs.base }}"
+          HEAD="${{ steps.rng.outputs.head }}"
+          CHANGED="$(git diff --name-only "$BASE" "$HEAD" -- app_admin.py | wc -l)"
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          if [[ "$CHANGED" -gt 0 ]]; then
+            echo "app_admin_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app_admin_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract APP_VER (base vs head)
+        id: vers
+        if: steps.changed.outputs.app_admin_changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.rng.outputs.base }}"
+          HEAD="${{ steps.rng.outputs.head }}"
+          get_ver () {
+            file="$1"
+            grep -Po 'APP_VER\s*=\s*"\K[^"]+' "$file" || true
+          }
+          # write both versions to outputs (missing file -> empty)
+          git show "$BASE:app_admin.py" > /tmp/app_base.py || true
+          git show "$HEAD:app_admin.py" > /tmp/app_head.py || true
+          APP_VER_BASE="$(get_ver /tmp/app_base.py)"
+          APP_VER_HEAD="$(get_ver /tmp/app_head.py)"
+          echo "base=$APP_VER_BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$APP_VER_HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce APP_VER bump when app_admin.py changes
+        if: steps.changed.outputs.app_admin_changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_V="${{ steps.vers.outputs.base }}"
+          HEAD_V="${{ steps.vers.outputs.head }}"
+          echo "Base APP_VER: ${BASE_V:-<none>}"
+          echo "Head APP_VER: ${HEAD_V:-<none>}"
+          if [[ -z "$HEAD_V" ]]; then
+            echo "::error ::APP_VER not found in app_admin.py. Add: APP_VER = \"yyyy-mm-dd.tag\""
+            exit 1
+          fi
+          if [[ "$BASE_V" == "$HEAD_V" ]]; then
+            echo "::error ::app_admin.py changed but APP_VER was not bumped (HCR drift rule)."
+            echo "       Bump APP_VER (e.g., append .ckwN or new date tag) and re-commit."
+            exit 1
+          fi
+          echo "APP_VER bump detected. OK."
+
+      - name: Summarize HCR drift check
+        if: always()
+        run: |
+          {
+            echo "## HCR drift check"
+            echo "- event: ${{ github.event_name }}"
+            echo "- base:  ${{ steps.rng.outputs.base }}"
+            echo "- head:  ${{ steps.rng.outputs.head }}"
+            echo "- app_admin changed: ${{ steps.changed.outputs.app_admin_changed }}"
+            if [[ "${{ steps.changed.outputs.app_admin_changed }}" == "true" ]]; then
+              echo "- APP_VER base: ${{ steps.vers.outputs.base }}"
+              echo "- APP_VER head: ${{ steps.vers.outputs.head }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -----------------------------
+  # File facts (kept; useful banner parity + audit)
+  # -----------------------------
   file-facts:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Collect app_admin.py facts
         id: facts
         shell: bash
@@ -35,44 +136,21 @@ jobs:
             md5=$(md5sum "$f" | awk '{print $1}')
             lines=$(wc -l < "$f" | tr -d ' ')
             size=$(wc -c < "$f" | tr -d ' ')
+            app_ver=$(grep -Po 'APP_VER\s*=\s*"\K[^"]+' "$f" || true)
             echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
             echo "md5=$md5" >> "$GITHUB_OUTPUT"
             echo "lines=$lines" >> "$GITHUB_OUTPUT"
             echo "size=$size" >> "$GITHUB_OUTPUT"
+            echo "app_ver=$app_ver" >> "$GITHUB_OUTPUT"
             {
               echo "### app_admin.py facts"
               echo "- sha256: \`$sha256\`"
               echo "- md5: \`$md5\`"
               echo "- lines: $lines"
               echo "- size: $size bytes"
+              echo "- APP_VER: ${app_ver:-<none>}"
               echo "- path: $f"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "app_admin.py not found in repo root." >> "$GITHUB_STEP_SUMMARY"
+            echo "app_admin.py not found." >> "$GITHUB_STEP_SUMMARY"
           fi
-
-      - name: Upload file facts artifact (optional)
-        if: ${{ steps.facts.outputs.sha256 != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: app_admin-file-facts
-          path: app_admin.py
-
-      - name: Comment PR with file facts
-        if: ${{ github.event_name == 'pull_request' && steps.facts.outputs.sha256 != '' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const body = [
-              "## app_admin.py facts",
-              `- sha256: \`${{ steps.facts.outputs.sha256 }}\``,
-              `- md5: \`${{ steps.facts.outputs.md5 }}\``,
-              `- lines: ${{ steps.facts.outputs.lines }}`,
-              `- size: ${{ steps.facts.outputs.size }} bytes`,
-            ].join("\n");
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body
-            });
