@@ -43,12 +43,25 @@ def _auto_app_ver() -> str:
         except Exception:
             short = "local"
     return f"admin-{date}.{short}"
+# --- HCR: auto app version (no manual bumps) --------------------------------
+def _auto_app_ver() -> str:
+    from datetime import datetime
+    import os, subprocess
+    date = datetime.utcnow().strftime("%Y-%m-%d")
+    short = os.environ.get("GITHUB_SHA", "")
+    if short:
+        short = short[:7]
+    else:
+        try:
+            short = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        except Exception:
+            short = "local"
+    return f"admin-{date}.{short}"
 
 APP_VER = "auto"
 if APP_VER in (None, "", "auto"):
     APP_VER = _auto_app_ver()
 # ----------------------------------------------------------------------------
-
 
 def _sha256_of_this_file() -> str:
     try:
