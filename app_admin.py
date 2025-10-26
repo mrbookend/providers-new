@@ -1162,7 +1162,13 @@ def _seed_if_empty(eng=None) -> None:
 
         # Insert rows
         with eng.begin() as cx:
-            df.to_sql("vendors", cx.connection, if_exists="append", index=False)
+            # Keep only columns present in vendors (enforce address-only)
+            _vcols = pd.read_sql("PRAGMA table_info('vendors')", eng)["name"].tolist()
+            df = df[[c for c in df.columns if c in _vcols]].copy()
+            for _ban in ("city", "state", "zip"):
+                if _ban in df.columns:
+                    df.drop(columns=[_ban], inplace=True)
+            df.to_sql("vendors", eng, if_exists="append", index=False)
 
         st.success(f"Seeded vendors from {seed_csv}")
     except Exception as e:
