@@ -1749,6 +1749,39 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+# --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
+def _browse_help_block():
+    """Render optional help content for the Browse tab from secrets."""
+    _s = st.secrets
+    show = str(_s.get("SHOW_BROWSE_HELP", "0")).strip() in {"1", "true", "yes", "on"}
+    if not show:
+        return
+    help_md = _s.get("BROWSE_HELP_MD", "")
+    help_file = _s.get("BROWSE_HELP_FILE", "")
+    with st.expander("Help — Browse", expanded=False):
+        if help_md:
+            st.markdown(str(help_md))
+        elif help_file:
+            try:
+                st.markdown(Path(help_file).read_text(encoding="utf-8"))
+            except Exception as e:
+                st.info(f"Could not read BROWSE_HELP_FILE: {help_file!r} — {e}")
+        else:
+            st.markdown("_No help text configured. Set `BROWSE_HELP_MD` or `BROWSE_HELP_FILE` in secrets._")
+
+def _hscroll_container_open():
+    st.markdown(
+        '<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">',
+        unsafe_allow_html=True,
+    )
+
+def _hscroll_container_close():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Call the help block at the top of Browse
+_browse_help_block()
+# ---------------------------------------------------------------------------
+    
 # --- HCR: Help — Browse -----------------------------------------------------
 _show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
 if _show_help:
@@ -1883,13 +1916,13 @@ else:
     except Exception:
         # widths are optional; continue without them
         pass
-
-        st.dataframe(
-            data=_view,
-            use_container_width=False,  # keep False so pixel widths apply
-            column_config=col_cfg if col_cfg else None,
-            height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
-        )
+_hscroll_container_open()
+st.dataframe(
+    df,  # or your filtered dataframe variable name
+    use_container_width=False,   # allow horizontal scrolling
+    hide_index=True,
+)
+_hscroll_container_close()
 
         # Close the h-scroll wrapper and add CSV export (still inside the 'else:' block)
         st.markdown("</div>", unsafe_allow_html=True)
