@@ -1941,7 +1941,7 @@ except NameError:
         _table = df  # common fallback
     except NameError:
         try:
-            _table = vdf  # legacy fallback
+            _table = df  # legacy fallback
         except NameError:
             _table = None
 
