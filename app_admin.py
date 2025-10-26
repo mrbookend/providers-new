@@ -31,7 +31,8 @@ from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 # --- HCR: auto app version (no manual bumps) --------------------------------
 def _auto_app_ver() -> str:
-    # Format: admin-YYYY-MM-DD.<shortsha> (uses CI env if available; else local git)
+# --- HCR: auto app version (no manual bumps) --------------------------------
+def _auto_app_ver() -> str:
     from datetime import datetime
     import os, subprocess
     date = datetime.utcnow().strftime("%Y-%m-%d")
@@ -40,16 +41,16 @@ def _auto_app_ver() -> str:
         short = short[:7]
     else:
         try:
-            short = subprocess.check_output(["git","rev-parse","--short","HEAD"], text=True).strip()
+            short = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
         except Exception:
             short = "local"
     return f"admin-{date}.{short}"
 
+APP_VER = "auto"
 if APP_VER in (None, "", "auto"):
     APP_VER = _auto_app_ver()
 # ----------------------------------------------------------------------------
 
-APP_VER = None  # set below via _auto_app_ver()
 
 def _sha256_of_this_file() -> str:
     try:
