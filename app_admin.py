@@ -2809,22 +2809,7 @@ with _tabs[5]:
     )
 
 with _tabs[5]:
-    st.subheader("Status & Secrets (debug)")
-
-    # --- Commit / file sync inspector ---
-    sync = _commit_sync_probe()
-    facts = sync.get("facts", {})
-    checks = sync.get("checks", {})
-    colL, colR = st.columns([2, 1])
-    with colL:
-        st.caption("File facts (prove we’re on the same build)")
-        st.json(facts)
-    with colR:
-        st.caption("Checks vs. secrets (EXPECTED_SHA256 / EXPECTED_APP_VER)")
-        if not checks:
-            st.info("No EXPECTED_* secrets set.")
-        else:
-            st.json(checks)
+    
 
     # Existing engine info
     st.json(engine_info)
@@ -2861,20 +2846,7 @@ with _tabs[5]:
             "services": conn.execute(sql_text("SELECT COUNT(*) FROM services")).scalar() or 0,
         }
 
-    st.subheader("DB Probe")
-    st.json(
-        {
-            "vendors_columns": [c[1] for c in vendors_cols],
-            "categories_columns": [c[1] for c in categories_cols],
-            "services_columns": [c[1] for c in services_cols],
-            "counts": counts,
-            "vendors_indexes": vendors_indexes,
-            "timestamp_nulls": {
-                "created_at": int(created_at_nulls),
-                "updated_at": int(updated_at_nulls),
-            },
-        }
-    )
+   
 # ─────────────────────────────────────────────────────────────────────────────
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
 # ─────────────────────────────────────────────────────────────────────────────
