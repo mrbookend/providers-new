@@ -30,3 +30,5 @@ providers.db*
 # local scratch
 *.broken.py
 *backup*.py
+.githooks/
+*.bak
