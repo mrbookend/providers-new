@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+cd "$REPO_ROOT"
+
+if [ -x "./hcrsync.sh" ]; then
+  ./hcrsync.sh
+  exit 0
+fi
+
+git fetch origin >/dev/null 2>&1 || true
+
+echo "branch:        $(git rev-parse --abbrev-ref HEAD)"
+echo "HEAD:          $(git rev-parse HEAD)"
+echo "origin/main:   $(git rev-parse origin/main)"
+
+echo -n "local sha256:  "
+sha256sum app_admin.py | awk '{print $1}'
+
+echo -n "remote sha256: "
+curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py \
+  | sha256sum | awk '{print $1}'
+
+echo -n "local lines:   "
+python3 - <<'PY'
+from pathlib import Path
+print(len(Path("app_admin.py").read_text(encoding="utf-8").splitlines()))
+PY
+
+echo -n "remote lines:  "
+curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py \
+  | python3 - <<'PY'
+import sys
+print(len(sys.stdin.read().splitlines()))
+PY
