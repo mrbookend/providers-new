@@ -1924,15 +1924,9 @@ else:
 _hscroll_container_open()
 st.dataframe(
     df,  # or your filtered dataframe variable name
-    use_container_width=False,
-    hide_index=True,
-)
-_hscroll_container_close()
-
-# --- HScroll wrapper ---
 _hscroll_container_open()
 st.dataframe(
-    <THE_SAME_DF_VAR_YOU_ALREADY_USE>,  # don't rename it
+    df,  # keep your existing variable name
     use_container_width=False,
     hide_index=True,
 )
