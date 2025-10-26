@@ -1811,20 +1811,6 @@ def _browse_help_block():
     show = str(_s.get("SHOW_BROWSE_HELP", "0")).strip() in {"1", "true", "yes", "on"}
     if not show:
         return
-    help_md = _s.get("BROWSE_HELP_MD", "")
-    help_file = _s.get("BROWSE_HELP_FILE", "")
-    with st.expander("Help — Browse", expanded=False):
-        if help_md:
-            st.markdown(str(help_md))
-        elif help_file:
-            try:
-                st.markdown(Path(help_file).read_text(encoding="utf-8"))
-            except Exception as e:
-                st.info(f"Could not read BROWSE_HELP_FILE: {help_file!r} — {e}")
-        else:
-            st.markdown(
-                "_No help text configured. Set `BROWSE_HELP_MD` or `BROWSE_HELP_FILE` in secrets._"
-            )
 
 
 def _hscroll_container_open():
@@ -1927,21 +1913,6 @@ try:
     if st.secrets.get("SHOW_BROWSE_HELP", False):
         from pathlib import Path
 
-        help_md = st.secrets.get("BROWSE_HELP_MD", "")
-        help_file = st.secrets.get("BROWSE_HELP_FILE", "")
-        with st.expander("Help — Browse", expanded=False):
-            if isinstance(help_md, str) and help_md.strip():
-                st.markdown(help_md)
-            elif isinstance(help_file, str) and help_file.strip():
-                try:
-                    st.markdown(Path(help_file).read_text(encoding="utf-8"))
-                except Exception as _e:
-                    st.info(f"Help file not found or unreadable: {help_file} ({_e})")
-            else:
-                st.info("Configure BROWSE_HELP_MD or BROWSE_HELP_FILE in secrets.")
-except Exception:
-    # Never let help rendering break the page
-    pass
 
 # Resolve a table DataFrame that actually exists in scope
 try:
