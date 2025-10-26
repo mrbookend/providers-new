@@ -1905,11 +1905,12 @@ with _tabs[0]:
 
 # Optional top-of-browse help, driven by secrets
 try:
-try:
     if st.secrets.get("SHOW_BROWSE_HELP", "0") in ("1", 1, True, "true", "True"):
-        # Help content removed/disabled by request.
+        # Help content intentionally disabled.
         pass
 except Exception:
+    pass
+
     # Secrets not available or other non-fatal issue
     pass
 
