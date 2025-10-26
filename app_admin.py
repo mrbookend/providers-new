@@ -29,27 +29,32 @@ if not globals().get("_PAGE_CFG_DONE"):
 
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
+
+
 # --- HCR: auto app version (no manual bumps) --------------------------------
 def _auto_app_ver() -> str:
     from datetime import datetime
     import os
     import subprocess
+
     date = datetime.utcnow().strftime("%Y-%m-%d")
     short = os.environ.get("GITHUB_SHA", "")
     if short:
         short = short[:7]
     else:
         try:
-            short = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+            short = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], text=True
+            ).strip()
         except Exception:
             short = "local"
     return f"admin-{date}.{short}"
+
 
 APP_VER = "auto"
 if APP_VER in (None, "", "auto"):
     APP_VER = _auto_app_ver()
 # ----------------------------------------------------------------------------
-
 
 
 def _sha256_of_this_file() -> str:
@@ -67,7 +72,6 @@ def _mtime_of_this_file() -> str:
     try:
         import pathlib
         import datetime as _dt
-        
 
         p = pathlib.Path(__file__)
         ts = os.path.getmtime(str(p))
@@ -75,8 +79,11 @@ def _mtime_of_this_file() -> str:
         return _dt.datetime.utcfromtimestamp(ts).isoformat(timespec="seconds") + "Z"
     except Exception:
         return ""
+
+
 # --- CKW constants & secrets -------------------------------------------------
 CURRENT_CKW_VER = "ckw-1"
+
 
 def _get_synonyms() -> dict[str, list[str]]:
     """Return category/service synonyms. Can be overridden via secrets['CKW_SYNONYMS']."""
@@ -89,10 +96,19 @@ def _get_synonyms() -> dict[str, list[str]]:
         pass
     # modest built-ins; expand later as needed
     return {
-        "Window Coverings": ["blinds", "shades", "shutters", "roller shades", "roman shades", "motorized", "drapes"],
+        "Window Coverings": [
+            "blinds",
+            "shades",
+            "shutters",
+            "roller shades",
+            "roman shades",
+            "motorized",
+            "drapes",
+        ],
         "Dental": ["dentist", "teeth", "cleaning", "crown", "filling"],
         "Insurance Agent": ["insurance", "homeowners", "auto", "medicare", "coverage", "policy"],
     }
+
 
 def _tok(v: str) -> list[str]:
     v = (v or "").strip().lower()
@@ -101,6 +117,7 @@ def _tok(v: str) -> list[str]:
     # split on non-letters/digits, collapse whitespace
     v = re.sub(r"[^a-z0-9]+", " ", v)
     return [t for t in v.split() if t]
+
 
 def _build_ckw_row(row: dict) -> str:
     """Build computed_keywords from (business_name, category, service, notes, keywords, ckw_manual_extra)."""
@@ -126,6 +143,7 @@ def _build_ckw_row(row: dict) -> str:
             out.append(t)
             seen.add(t)
     return " ".join(out)
+
 
 # ---------------------------------------------------------------------------#
 
@@ -202,11 +220,14 @@ def _debug_where_am_i():
         language="json",
     )
 
+
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
 try:
     import sqlalchemy_libsql as _sqlalchemy_libsql  # noqa: F401
 except Exception:
     pass
+
+
 # ---- end dialect registration ----
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
 def _build_engine_fallback():
@@ -219,13 +240,17 @@ def _build_engine_fallback():
     # Minimal fallback so the app can run even without Turso
     from sqlalchemy import create_engine as _create_engine
     import os as _os
+
     _db = _os.getenv("DB_PATH", "providers.db")
     return _create_engine(f"sqlite+pysqlite:///{_db}")
 
+
 # Provide get_engine() if missing
 if "get_engine" not in globals():
+
     def get_engine():
         return _build_engine_fallback()
+
 
 # Legacy global alias to satisfy code paths that reference `engine` directly
 if "engine" not in globals():
@@ -237,6 +262,7 @@ if "engine" not in globals():
 
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
 
+
 def _build_engine_fallback():
     """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
     try:
@@ -247,13 +273,17 @@ def _build_engine_fallback():
     # Minimal, non-breaking fallback (keeps app bootable even off Turso)
     from sqlalchemy import create_engine as _create_engine
     import os as _os
+
     _db = _os.getenv("DB_PATH", "providers.db")
     return _create_engine(f"sqlite+pysqlite:///{_db}")
 
+
 # Provide get_engine() if missing
 if "get_engine" not in globals():
+
     def get_engine():
         return _build_engine_fallback()
+
 
 # Legacy global alias to satisfy code paths that reference `engine` directly
 if "engine" not in globals():
@@ -262,6 +292,7 @@ if "engine" not in globals():
     except Exception:
         engine = None
 # --- END TEMP ENGINE SHIMS ----------------------------------------------------
+
 
 # -----------------------------
 # Helpers
@@ -279,18 +310,21 @@ def _apply_column_widths(df, widths: dict) -> dict:
             pass
     return cfg
 
+
 def render_table_hscroll(df, *, key="browse_table"):
     widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
     col_cfg = _apply_column_widths(df, widths)
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
         df,
-        use_container_width=False,   # force horizontal scroll
+        use_container_width=False,  # force horizontal scroll
         hide_index=True,
         column_config=(col_cfg or None),
         key=key,
     )
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 # ----------------------------------------------------------------------------
 
 
@@ -306,6 +340,8 @@ def _as_bool(v, default=False) -> bool:
     if s in {"0", "false", "f", "no", "n", "off"}:
         return False
     return bool(default)
+
+
 # --- Helper: column widths from secrets ---
 def _column_config_from_secrets(cols: list[str]) -> dict:
     cfg = {}
@@ -315,6 +351,8 @@ def _column_config_from_secrets(cols: list[str]) -> dict:
         if isinstance(w, int) and w > 0:
             cfg[c] = st.column_config.Column(width=w)
     return cfg
+
+
 # --- engine resolver (safe fallback) ---
 def _ensure_engine(eng):
     if eng is not None:
@@ -324,6 +362,8 @@ def _ensure_engine(eng):
         return e
     except Exception:
         return None
+
+
 # --- CKW schema probe ---
 def _has_ckw_column(eng) -> bool:
     try:
@@ -332,7 +372,10 @@ def _has_ckw_column(eng) -> bool:
         return any(r[1] == "ckw" for r in rows)
     except Exception:
         return False
+
+
 # --- CKW write hooks (Add/Edit) ---------------------------------------------
+
 
 def _ckw_for_form_row(data: dict) -> tuple[str, str]:
     """Return (computed_keywords, ckw_version) for a form row, unless locked."""
@@ -345,7 +388,10 @@ def _ckw_for_form_row(data: dict) -> tuple[str, str]:
         # keep existing CKW; version unchanged
         return (str(data.get("computed_keywords") or ""), str(data.get("ckw_version") or ""))
     return (_build_ckw_row(data), CURRENT_CKW_VER)
+
+
 # ---------------------------------------------------------------------------#
+
 
 # --- CKW schema ensure -------------------------------------------------------
 def _ensure_ckw_schema(eng) -> bool:
@@ -362,7 +408,8 @@ def _ensure_ckw_schema(eng) -> bool:
     changed = False
     with eng.begin() as cx:
         # add columns if missing
-        cx.execute(sql_text("""
+        cx.execute(
+            sql_text("""
         CREATE TABLE IF NOT EXISTS vendors (
             id INTEGER PRIMARY KEY,
             business_name TEXT,
@@ -371,9 +418,11 @@ def _ensure_ckw_schema(eng) -> bool:
             address TEXT, city TEXT, state TEXT, zip TEXT,
             notes TEXT, keywords TEXT
         )
-        """))
+        """)
+        )
         # probe pragma table_info
         cols = [r[1] for r in cx.execute(sql_text("PRAGMA table_info(vendors)")).fetchall()]
+
         def addcol(col, ddl):
             nonlocal changed
             if col not in cols:
@@ -382,9 +431,9 @@ def _ensure_ckw_schema(eng) -> bool:
                 cols.append(col)
 
         addcol("computed_keywords", "computed_keywords TEXT")
-        addcol("ckw_locked",        "ckw_locked INTEGER DEFAULT 0")
-        addcol("ckw_version",       "ckw_version TEXT DEFAULT ''")
-        addcol("ckw_manual_extra",  "ckw_manual_extra TEXT DEFAULT ''")
+        addcol("ckw_locked", "ckw_locked INTEGER DEFAULT 0")
+        addcol("ckw_version", "ckw_version TEXT DEFAULT ''")
+        addcol("ckw_manual_extra", "ckw_manual_extra TEXT DEFAULT ''")
 
         # index on computed_keywords
         idx_rows = cx.execute(sql_text("PRAGMA index_list(vendors)")).fetchall()
@@ -393,7 +442,10 @@ def _ensure_ckw_schema(eng) -> bool:
             cx.execute(sql_text("CREATE INDEX vendors_ckw ON vendors(computed_keywords)"))
             changed = True
     return changed
+
+
 # ---------------------------------------------------------------------------#
+
 
 # --- CKW-first filter (read-only) ---
 def _filter_df_ckw_first(df, q: str):
@@ -404,15 +456,30 @@ def _filter_df_ckw_first(df, q: str):
         if "ckw" in df.columns:
             m = df["ckw"].astype(str).str.contains(q, case=False, na=False)
             # widen a bit to avoid false negatives on typos
-            widen_cols = [c for c in ["business_name","service","category","keywords","notes"] if c in df.columns]
+            widen_cols = [
+                c
+                for c in ["business_name", "service", "category", "keywords", "notes"]
+                if c in df.columns
+            ]
             if widen_cols:
-                m = m | df[widen_cols].astype(str).apply(lambda s: s.str.contains(q, case=False, na=False)).any(axis=1)
+                m = m | df[widen_cols].astype(str).apply(
+                    lambda s: s.str.contains(q, case=False, na=False)
+                ).any(axis=1)
             return df[m]
         else:
-            widen_cols = [c for c in ["business_name","service","category","keywords","notes"] if c in df.columns]
+            widen_cols = [
+                c
+                for c in ["business_name", "service", "category", "keywords", "notes"]
+                if c in df.columns
+            ]
             if not widen_cols:
                 return df
-            m = df[widen_cols].astype(str).apply(lambda s: s.str.contains(q, case=False, na=False)).any(axis=1)
+            m = (
+                df[widen_cols]
+                .astype(str)
+                .apply(lambda s: s.str.contains(q, case=False, na=False))
+                .any(axis=1)
+            )
             return df[m]
     except Exception:
         return df
@@ -426,6 +493,8 @@ def _get_secret(name: str, default: str | None = None) -> str | None:
     except Exception:
         pass
     return os.getenv(name, default)
+
+
 # --- CKW schema ensure (DDL) ---
 def _ensure_ckw_column_and_index(eng) -> bool:
     """Add vendors.ckw and its index if missing. Returns True if changed."""
@@ -443,6 +512,7 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as e:
         st.warning(f"CKW DDL failed: {e}")
         return False
+
 
 # Deterministic resolution (secrets → env → code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
@@ -513,6 +583,7 @@ def _fetch_with_retry(
                 continue
             raise
 
+
 # --- CKW recompute utilities -------------------------------------------------
 def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
     if not ids:
@@ -523,6 +594,7 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
 
+
 def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
     if not rows:
         return 0
@@ -532,32 +604,43 @@ def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
             if not override_locks and (r.get("ckw_locked") in (1, "1", True)):
                 continue
             new_ckw = _build_ckw_row(r)
-            cx.execute(sql_text("""
+            cx.execute(
+                sql_text("""
                 UPDATE vendors
                    SET computed_keywords = :ckw,
                        ckw_version = :ver
                  WHERE id = :id
-            """), {"ckw": new_ckw, "ver": CURRENT_CKW_VER, "id": r["id"]})
+            """),
+                {"ckw": new_ckw, "ver": CURRENT_CKW_VER, "id": r["id"]},
+            )
             upd += 1
     return upd
+
 
 def recompute_ckw_for_ids(eng, ids: list[int], override_locks: bool = False) -> int:
     rows = _fetch_vendor_rows_by_ids(eng, ids)
     return _update_ckw_for_rows(eng, rows, override_locks)
 
+
 def recompute_ckw_unlocked(eng) -> int:
     with eng.begin() as cx:
-        ids = [r[0] for r in cx.execute(sql_text("""
+        ids = [
+            r[0]
+            for r in cx.execute(
+                sql_text("""
             SELECT id FROM vendors
             WHERE COALESCE(ckw_locked,0)=0
-        """)).fetchall()]
+        """)
+            ).fetchall()
+        ]
     return recompute_ckw_for_ids(eng, ids, override_locks=False)
+
 
 def recompute_ckw_all(eng) -> int:
     with eng.begin() as cx:
         ids = [r[0] for r in cx.execute(sql_text("SELECT id FROM vendors")).fetchall()]
     return recompute_ckw_for_ids(eng, ids, override_locks=True)
-# ---------------------------------------------------------------------------#
+    # ---------------------------------------------------------------------------#
     try:
         # TODO: replace with the real ensure-CKW implementation
         return False
@@ -1003,7 +1086,6 @@ def _seed_if_empty(eng=None) -> None:
     if eng is None:
         return
 
-
     # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
     if isinstance(eng, tuple) and len(eng) > 0:
         eng = eng[0]
@@ -1017,9 +1099,12 @@ def _seed_if_empty(eng=None) -> None:
     try:
         # Check table presence and row count
         with eng.connect() as cx:
-            tables = [r[0] for r in cx.exec_driver_sql(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).all()]
+            tables = [
+                r[0]
+                for r in cx.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).all()
+            ]
             if "vendors" not in tables:
                 return  # respect prod guard: do not create vendors here
 
@@ -1032,8 +1117,16 @@ def _seed_if_empty(eng=None) -> None:
 
         # Validate/normalize columns
         expected = {
-            "business_name", "category", "service", "phone", "contact_name",
-            "address", "website", "email", "notes", "keywords"
+            "business_name",
+            "category",
+            "service",
+            "phone",
+            "contact_name",
+            "address",
+            "website",
+            "email",
+            "notes",
+            "keywords",
         }
         missing = expected - set(map(str, df.columns))
         if missing:
@@ -1043,11 +1136,7 @@ def _seed_if_empty(eng=None) -> None:
         # Optional light cleanup
         for col in df.columns:
             if df[col].dtype == object:
-                df[col] = (
-                    df[col].astype(str)
-                    .str.replace(r"\s+", " ", regex=True)
-                    .str.strip()
-                )
+                df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
 
         # Insert rows
         with eng.begin() as cx:
@@ -1056,8 +1145,6 @@ def _seed_if_empty(eng=None) -> None:
         st.success(f"Seeded vendors from {seed_csv}")
     except Exception as e:
         st.warning(f"Seed-if-empty skipped: {e}")
-
-
 
         # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
         if isinstance(eng, tuple) and len(eng) > 0:
@@ -1123,7 +1210,6 @@ def _seed_if_empty(eng=None) -> None:
         if cnt and int(cnt) > 0:
             return  # already has rows
 
-       
         if not os.path.exists(seed_csv):
             st.warning(f"SEED_CSV not found: {seed_csv}")
             return
@@ -1221,7 +1307,8 @@ if submit:
     phone_digits = _digits_only(phone_raw)
     phone_fmt = (
         f"({phone_digits[0:3]}) {phone_digits[3:6]}-{phone_digits[6:10]}"
-        if len(phone_digits) == 10 else phone_raw
+        if len(phone_digits) == 10
+        else phone_raw
     )
 
     form_values_dict = {
@@ -1256,7 +1343,7 @@ if submit:
 
     try:
         eng = get_engine()
-   # <--- IMPORTANT: use module-global engine
+        # <--- IMPORTANT: use module-global engine
         vendor_id = st.session_state.get("edit_vendor_id")
 
         if vendor_id:
@@ -1352,6 +1439,8 @@ def _sanitize_url(url: str | None) -> str:
     if url and not re.match(r"^https?://", url, re.I):
         url = "https://" + url
     return url
+
+
 # ────────────────────────────────────────────────────────────────────────────
 def load_df(engine: Engine) -> pd.DataFrame:
     with engine.begin() as conn:
@@ -1520,6 +1609,7 @@ def _execute_append_only(
 
     return inserted
 
+
 # Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
 # Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
 # exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
@@ -1584,7 +1674,11 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         cols = set(map(str, getattr(df, "columns", [])))
 
         def _minimal_src(_df: pd.DataFrame) -> pd.Series:
-            pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
+            pick = [
+                c
+                for c in ("business_name", "category", "service", "notes", "keywords")
+                if c in cols
+            ]
             if pick:
                 ser = _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
             else:
@@ -1612,6 +1706,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         except Exception:
             pass
         return df
+
 
 engine, engine_info = build_engine()
 st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
@@ -1662,6 +1757,7 @@ if _show_help:
     if not help_md and help_file:
         try:
             import pathlib
+
             help_md = pathlib.Path(help_file).read_text(encoding="utf-8")
         except Exception:
             help_md = f"_Could not read help file: {help_file}_"
@@ -1706,8 +1802,15 @@ with _tabs[0]:
         _df_show = df
 
     view_cols_pref = [
-    "business_name","category","service","phone_fmt",
-    "contact_name","website","notes","keywords","ckw"
+        "business_name",
+        "category",
+        "service",
+        "phone_fmt",
+        "contact_name",
+        "website",
+        "notes",
+        "keywords",
+        "ckw",
     ]
 
     view_cols = [c for c in view_cols_pref if c in _df_show.columns]
@@ -1729,6 +1832,7 @@ with _tabs[0]:
 try:
     if st.secrets.get("SHOW_BROWSE_HELP", False):
         from pathlib import Path
+
         help_md = st.secrets.get("BROWSE_HELP_MD", "")
         help_file = st.secrets.get("BROWSE_HELP_FILE", "")
         with st.expander("Help — Browse", expanded=False):
@@ -1752,7 +1856,7 @@ try:
     _table = filtered  # preferred
 except NameError:
     try:
-        _table = df     # common fallback
+        _table = df  # common fallback
     except NameError:
         try:
             _table = vdf  # legacy fallback
@@ -1782,13 +1886,13 @@ else:
 
         st.dataframe(
             data=_view,
-            use_container_width=False,            # keep False so pixel widths apply
+            use_container_width=False,  # keep False so pixel widths apply
             column_config=col_cfg if col_cfg else None,
             height=min(900, 48 + (len(_view) + 1) * 28),  # modest auto-height cap
         )
 
         # Close the h-scroll wrapper and add CSV export (still inside the 'else:' block)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         # --- End HScroll wrapper ---
 
         # CSV export of the filtered view
@@ -2343,7 +2447,7 @@ with st.expander("CKW — Recompute", expanded=False):
     if c2.button("Force Recompute ALL (override locks)", help="Updates every row, ignores locks"):
         n = recompute_ckw_all(get_engine())
         st.success(f"Force-recomputed CKW for {n} rows (ALL).")
-# ---------------------------------------------------------------------------#
+    # ---------------------------------------------------------------------------#
 
     # Dual exports: full dataset — formatted phones and digits-only
     full_formatted = full.copy()
@@ -2831,7 +2935,6 @@ def _read_text_file_patch3(path: str) -> str:
         if not os.path.exists(path):
             return ""
         with open(path, "r", encoding="utf-8") as fh:
-
             return fh.read()
     except Exception:
         return ""
@@ -2864,6 +2967,7 @@ def render_browse_help_expander() -> None:
         return
     with _st_patch3.expander("Help — Browse", expanded=False):
         _st_patch3.markdown(md)
+
 
 st.session_state["_browse_help_render"]()
 
@@ -2918,6 +3022,4 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     return changed
 
 
-
-        
 # ─────────────────────────────────────────────────────────────────────────────
