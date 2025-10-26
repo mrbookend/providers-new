@@ -309,6 +309,8 @@ def _apply_column_widths(df, widths: dict) -> dict:
         except Exception:
             pass
     return cfg
+
+
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
     df = df.copy()
@@ -320,10 +322,24 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
             df.drop(columns=[_c], inplace=True)
     # allow-only known vendor columns
     whitelist = [
-        "category","service","business_name","contact_name","phone","email",
-        "website","address","notes","keywords","computed_keywords",
-        "ckw_version","ckw_locked","ckw_manual_extra","phone_fmt",
-        "created_at","updated_at","updated_by",
+        "category",
+        "service",
+        "business_name",
+        "contact_name",
+        "phone",
+        "email",
+        "website",
+        "address",
+        "notes",
+        "keywords",
+        "computed_keywords",
+        "ckw_version",
+        "ckw_locked",
+        "ckw_manual_extra",
+        "phone_fmt",
+        "created_at",
+        "updated_at",
+        "updated_by",
     ]
     present = [c for c in whitelist if c in df.columns]
     if present:
@@ -1164,9 +1180,7 @@ def _seed_if_empty(eng=None) -> None:
         # Optional light cleanup
         for col in df.columns:
             if df[col].dtype == object:
-                df[col] = (
-                    df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
-                )
+                df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
 
         # Align to live table columns to tolerate drift
         with eng.connect() as cx:
@@ -1188,9 +1202,7 @@ def _seed_if_empty(eng=None) -> None:
             st.warning(f"Seed-if-empty skipped: {e}")
         except Exception:
             pass
-# --- Seed if empty (address-only) --- END
-
-
+        # --- Seed if empty (address-only) --- END
 
         # --- ensure minimal schema BEFORE any queries (idempotent) ---
         try:
