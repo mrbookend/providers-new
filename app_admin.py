@@ -1841,16 +1841,12 @@ if _show_help:
             help_md = pathlib.Path(help_file).read_text(encoding="utf-8")
         except Exception:
             help_md = f"_Could not read help file: {help_file}_"
-    with st.expander("Help — Browse", expanded=False):
-        st.markdown(help_md or "_No help text configured in secrets._")
 # ----------------------------------------------------------------------------
 
 # Show a one-line runtime banner on the first tab for quick verification
 with _tabs[0]:
     _debug_where_am_i()
-    st.caption(
-        f"DB in use: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
-    )
+    st.caption()
 with _tabs[0]:
     st.session_state.get("_browse_help_render", lambda: None)()
 
@@ -1859,7 +1855,6 @@ with _tabs[0]:
 with _tabs[0]:
     df = load_df(engine)
     ckw_ok = _has_ckw_column(engine)
-    st.caption(f"CKW column present: {ckw_ok}")
     # CKW schema tool (guarded)
     if not ckw_ok:
         with st.expander("Schema tools — Computed Keywords (CKW)", expanded=False):
@@ -1910,9 +1905,14 @@ with _tabs[0]:
 
 # Optional top-of-browse help, driven by secrets
 try:
+try:
     if st.secrets.get("SHOW_BROWSE_HELP", "0") in ("1", 1, True, "true", "True"):
         # Help content removed/disabled by request.
         pass
+except Exception:
+    # Secrets not available or other non-fatal issue
+    pass
+
 except Exception:
     # Secrets not available or other non-fatal issue
     pass
