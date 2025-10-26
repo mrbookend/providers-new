@@ -1,31 +1,65 @@
 name: ci
+
 on:
   push:
     branches: [ main ]
   pull_request:
   workflow_dispatch: {}
+
 permissions:
   contents: write
   pull-requests: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   lint-and-guards:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with: { persist-credentials: true }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - name: Install Ruff
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ---- Debug (kept) ---------------------------------
+      - name: Debug — head commit
+        run: |
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          git rev-parse HEAD
+
+      - name: Debug — app_admin.py facts
+        run: |
+          python3 - <<'PY'
+import hashlib, pathlib
+p = pathlib.Path("app_admin.py")
+b = p.read_bytes()
+print("sha256:", hashlib.sha256(b).hexdigest())
+print("lines :", len(p.read_text(encoding="utf-8").splitlines()))
+PY
+      # ---------------------------------------------------
+
+      - name: Install Ruff (pin exact)
         run: pip install ruff==0.6.9
+
       - name: Ruff check
         run: ruff check --output-format=github .
+
       - name: Ruff format (check only)
         id: fmtcheck
         continue-on-error: true
         run: ruff format --check .
+
+      - name: Ruff format (diff preview)
+        if: steps.fmtcheck.outcome == 'failure'
+        run: ruff format --check --diff .
+
       - name: Create PR to apply formatting (if needed)
         if: steps.fmtcheck.outcome == 'failure'
         uses: peter-evans/create-pull-request@v6
@@ -36,8 +70,10 @@ jobs:
           body: "CI detected files needing formatting. This PR applies `ruff format`."
           labels: "ci,style"
           delete-branch: true
+
       - name: Fail if formatting is required
         if: steps.fmtcheck.outcome == 'failure'
         run: |
           echo "Formatting required. A PR was opened to apply it."
           exit 1
+

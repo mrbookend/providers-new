@@ -309,6 +309,26 @@ def _apply_column_widths(df, widths: dict) -> dict:
         except Exception:
             pass
     return cfg
+def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize seed CSV to the current address-only schema."""
+    df = df.copy()
+    # normalize headers
+    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+    # drop legacy cols we no longer store
+    for _c in ("city", "state", "zip"):
+        if _c in df.columns:
+            df.drop(columns=[_c], inplace=True)
+    # allow-only known vendor columns
+    whitelist = [
+        "category","service","business_name","contact_name","phone","email",
+        "website","address","notes","keywords","computed_keywords",
+        "ckw_version","ckw_locked","ckw_manual_extra","phone_fmt",
+        "created_at","updated_at","updated_by",
+    ]
+    present = [c for c in whitelist if c in df.columns]
+    if present:
+        df = df[present]
+    return df.fillna("")
 
 
 def render_table_hscroll(df, *, key="browse_table"):
@@ -1096,9 +1116,10 @@ def sync_reference_tables(engine: Engine) -> dict:
     return inserted
 
 
-# ---------- Seed if empty (one-time) ----------
+# --- Seed if empty (address-only) --- START
 def _seed_if_empty(eng=None) -> None:
-    """Seed vendors from CSV when table exists but has 0 rows."""
+    """Seed vendors from CSV when table exists but has 0 rows (address-only schema)."""
+    # Gate via secrets
     allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
     if not allow:
         return
@@ -1106,21 +1127,15 @@ def _seed_if_empty(eng=None) -> None:
 
     # Resolve an Engine if one wasn't provided
     eng = _ensure_engine(eng)
-    if eng is None:
+    if eng is None or not hasattr(eng, "begin"):
+        try:
+            st.warning("Seed-if-empty skipped: engine object invalid or missing.")
+        except Exception:
+            pass
         return
 
-    # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
-    if isinstance(eng, tuple) and len(eng) > 0:
-        eng = eng[0]
-    elif isinstance(eng, dict) and "engine" in eng:
-        eng = eng["engine"]
-
-    if not hasattr(eng, "begin"):
-        st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
-        return
-
+    # If table missing or already populated, do nothing.
     try:
-        # Check table presence and row count
         with eng.connect() as cx:
             tables = [
                 r[0]
@@ -1129,61 +1144,53 @@ def _seed_if_empty(eng=None) -> None:
                 ).all()
             ]
             if "vendors" not in tables:
-                return  # respect prod guard: do not create vendors here
-
+                return
             count = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar() or 0
-            if count > 0:
-                return  # nothing to do
+            if int(count) > 0:
+                return
+    except Exception:
+        # Can’t inspect; bail quietly
+        return
 
-        # Load CSV
-        df = pd.read_csv(seed_csv)
+    # Load, sanitize to address-only, align columns, append
+    try:
+        df = pd.read_csv(seed_csv, dtype=str).fillna("")
 
-        # Validate/normalize columns
-        expected = {
-            "business_name",
-            "category",
-            "service",
-            "phone",
-            "contact_name",
-            "address",
-            "website",
-            "email",
-            "notes",
-            "keywords",
-        }
-        missing = expected - set(map(str, df.columns))
-        if missing:
-            st.warning(f"Seed skipped: CSV missing columns: {sorted(missing)}")
-            return
+        # Drop legacy columns (we are address-only now)
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
 
         # Optional light cleanup
         for col in df.columns:
             if df[col].dtype == object:
-                df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+                df[col] = (
+                    df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+                )
 
-        # Insert rows
-        with eng.begin() as cx:
-            # Keep only columns present in vendors (enforce address-only)
-            _vcols = pd.read_sql("PRAGMA table_info('vendors')", eng)["name"].tolist()
-            df = df[[c for c in df.columns if c in _vcols]].copy()
-            for _ban in ("city", "state", "zip"):
-                if _ban in df.columns:
-                    df.drop(columns=[_ban], inplace=True)
+        # Align to live table columns to tolerate drift
+        with eng.connect() as cx:
+            cols = [
+                r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
+            ]  # r[1] = name
+        df = df.reindex(columns=[c for c in cols if c in df.columns], fill_value="")
+
+        # Single append inside a transaction
+        with eng.begin():
             df.to_sql("vendors", eng, if_exists="append", index=False)
 
-        st.success(f"Seeded vendors from {seed_csv}")
+        try:
+            st.success(f"Seeded vendors from {seed_csv}")
+        except Exception:
+            pass
     except Exception as e:
-        st.warning(f"Seed-if-empty skipped: {e}")
+        try:
+            st.warning(f"Seed-if-empty skipped: {e}")
+        except Exception:
+            pass
+# --- Seed if empty (address-only) --- END
 
-        # Unwrap common patterns: (engine, flags), {"engine": eng}, etc.
-        if isinstance(eng, tuple) and len(eng) > 0:
-            eng = eng[0]
-        elif isinstance(eng, dict) and "engine" in eng:
-            eng = eng["engine"]
 
-        if not hasattr(eng, "begin"):
-            st.warning(f"Seed-if-empty skipped: engine object invalid ({type(eng)!r}).")
-            return
 
         # --- ensure minimal schema BEFORE any queries (idempotent) ---
         try:
@@ -1253,6 +1260,7 @@ def _seed_if_empty(eng=None) -> None:
             return
 
         df = pd.read_csv(seed_csv)
+        df = _sanitize_seed_df(df)
 
         # Map CSV headers to table columns as needed
         df = df.rename(
