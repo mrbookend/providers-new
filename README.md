@@ -94,3 +94,4 @@ Run a 1-minute database check before pushing to Streamlit Cloud:
 python scripts/smoke.py
 
 thanks
+# hook test Sun Oct 26 06:50:03 AM CDT 2025
