@@ -110,3 +110,8 @@ jobs:
         continue-on-error: true
         run: |
           ruff format --check .
+- name: File facts (app_admin.py)
+  run: |
+    set -e
+    sha256sum app_admin.py
+    wc -l < app_admin.py
