@@ -29,9 +29,26 @@ if not globals().get("_PAGE_CFG_DONE"):
 
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
-APP_VER = "admin-2025-10-26.sync1"
+# --- HCR: auto app version (no manual bumps) --------------------------------
+def _auto_app_ver() -> str:
+    from datetime import datetime
+    import os, subprocess
+    date = datetime.utcnow().strftime("%Y-%m-%d")
+    short = os.environ.get("GITHUB_SHA", "")
+    if short:
+        short = short[:7]
+    else:
+        try:
+            short = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        except Exception:
+            short = "local"
+    return f"admin-{date}.{short}"
 
-APP_VER = "admin-2025-10-25.ckw6"  # bump on any behavior change
+APP_VER = "auto"
+if APP_VER in (None, "", "auto"):
+    APP_VER = _auto_app_ver()
+# ----------------------------------------------------------------------------
+
 
 def _sha256_of_this_file() -> str:
     try:
@@ -247,6 +264,33 @@ if "engine" not in globals():
 # -----------------------------
 # Helpers
 # -----------------------------
+# --- HCR: h-scroll wrapper + column widths ---------------------------------
+def _apply_column_widths(df, widths: dict) -> dict:
+    cfg = {}
+    for col in df.columns:
+        w = widths.get(col)
+        if w is None:
+            continue
+        try:
+            cfg[col] = st.column_config.Column(width=int(w))
+        except Exception:
+            pass
+    return cfg
+
+def render_table_hscroll(df, *, key="browse_table"):
+    widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+    col_cfg = _apply_column_widths(df, widths)
+    st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
+    st.dataframe(
+        df,
+        use_container_width=False,   # force horizontal scroll
+        hide_index=True,
+        column_config=(col_cfg or None),
+        key=key,
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+# ----------------------------------------------------------------------------
+
 
 def _as_bool(v, default=False) -> bool:
     """Best-effort boolean parse for env/secrets flags."""
@@ -1608,6 +1652,21 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+# --- HCR: Help — Browse -----------------------------------------------------
+_show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
+if _show_help:
+    help_md = st.secrets.get("BROWSE_HELP_MD", "")
+    help_file = st.secrets.get("BROWSE_HELP_FILE", "")
+    if not help_md and help_file:
+        try:
+            import pathlib
+            help_md = pathlib.Path(help_file).read_text(encoding="utf-8")
+        except Exception:
+            help_md = f"_Could not read help file: {help_file}_"
+    with st.expander("Help — Browse", expanded=False):
+        st.markdown(help_md or "_No help text configured in secrets._")
+# ----------------------------------------------------------------------------
+
 # Show a one-line runtime banner on the first tab for quick verification
 with _tabs[0]:
     _debug_where_am_i()
@@ -2804,9 +2863,11 @@ def render_browse_help_expander() -> None:
     with _st_patch3.expander("Help — Browse", expanded=False):
         _st_patch3.markdown(md)
 
+st.session_state["_browse_help_render"]()
 
 # Expose a callable so main/Browse can invoke without re-import details.
-_st_patch3.session_state["_browse_help_render"] = render_browse_help_expander
+st.session_state["_browse_help_render"] = render_browse_help_expander
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 
