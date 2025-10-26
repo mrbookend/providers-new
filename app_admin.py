@@ -322,6 +322,7 @@ def render_table_hscroll(df, *, key="browse_table"):
         column_config=(col_cfg or None),
         key=key,
     )
+    
 
 
 # ----------------------------------------------------------------------------
@@ -599,6 +600,7 @@ def _hscroll_container_open():
     )
 
 def _hscroll_container_close():
+    
 
 
 def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
@@ -1782,6 +1784,7 @@ def _hscroll_container_open():
     )
 
 def _hscroll_container_close():
+    
 
 # Call the help block at the top of Browse
 _browse_help_block()
