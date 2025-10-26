@@ -1911,7 +1911,6 @@ try:
 except Exception:
     pass
 
-    # Secrets not available or other non-fatal issue
     pass
 
 except Exception:
