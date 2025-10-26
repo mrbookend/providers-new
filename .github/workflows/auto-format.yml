@@ -39,3 +39,4 @@ jobs:
           body: "Automated Ruff code formatting."
           labels: "ci,style"
           delete-branch: true
+
