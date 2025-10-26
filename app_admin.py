@@ -29,6 +29,7 @@ if not globals().get("_PAGE_CFG_DONE"):
 
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
+APP_VER = "admin-2025-10-26.sync1"
 
 APP_VER = "admin-2025-10-25.ckw6"  # bump on any behavior change
 
