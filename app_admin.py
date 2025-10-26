@@ -1910,25 +1910,22 @@ with _tabs[0]:
 
 # Optional top-of-browse help, driven by secrets
 try:
-    if st.secrets.get("SHOW_BROWSE_HELP", False):
-        from pathlib import Path
-
+    if st.secrets.get("SHOW_BROWSE_HELP", "0") in ("1", 1, True, "true", "True"):
+        # Help content removed/disabled by request.
+        pass
+except Exception:
+    # Secrets not available or other non-fatal issue
+    pass
 
 # Resolve a table DataFrame that actually exists in scope
 try:
-    pass
-except Exception:
-    pass
-
     _table = filtered  # preferred
 except NameError:
     try:
-        _table = df  # common fallback
+        _table = df  # fallback
     except NameError:
-        try:
-            _table = df  # legacy fallback
-        except NameError:
-            _table = None
+        _table = None
+
 
 if _table is None:
     st.warning("Browse table not available (no DataFrame found).")
