@@ -51,7 +51,6 @@ if APP_VER in (None, "", "auto"):
 # ----------------------------------------------------------------------------
 
 
-
 def _sha256_of_this_file() -> str:
     try:
         import hashlib
