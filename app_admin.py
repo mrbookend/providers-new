@@ -322,7 +322,7 @@ def render_table_hscroll(df, *, key="browse_table"):
         column_config=(col_cfg or None),
         key=key,
     )
-    st.markdown("</div>", unsafe_allow_html=True)
+    
 
 
 # ----------------------------------------------------------------------------
@@ -600,7 +600,7 @@ def _hscroll_container_open():
     )
 
 def _hscroll_container_close():
-    st.markdown("</div>", unsafe_allow_html=True)
+    
 
 
 def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
@@ -1784,7 +1784,7 @@ def _hscroll_container_open():
     )
 
 def _hscroll_container_close():
-    st.markdown("</div>", unsafe_allow_html=True)
+    
 
 # Call the help block at the top of Browse
 _browse_help_block()
