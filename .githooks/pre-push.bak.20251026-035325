@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Read refs from stdin and guard pushes to main only
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main)
+      # Remote facts from origin/main
+      R_HASH=$(git --no-pager show origin/main:app_admin.py | sha256sum | awk '{print $1}')
+      R_LINES=$(git --no-pager show origin/main:app_admin.py | wc -l)
+      # Local facts
+      L_HASH=$(sha256sum app_admin.py | awk '{print $1}')
+      L_LINES=$(wc -l < app_admin.py)
+
+      if [[ "$R_HASH" != "$L_HASH" ]]; then
+        echo "ERROR: Drift: app_admin.py sha256 mismatch (remote != local) on push to main."
+        echo "remote: $R_HASH"
+        echo "local : $L_HASH"
+        exit 1
+      fi
+
+      if [[ "$R_LINES" != "$L_LINES" ]]; then
+        echo "ERROR: Drift: app_admin.py line-count mismatch ($R_LINES vs $L_LINES) on push to main."
+        exit 1
+      fi
+    ;;
+  esac
+done
