@@ -309,6 +309,26 @@ def _apply_column_widths(df, widths: dict) -> dict:
         except Exception:
             pass
     return cfg
+def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize seed CSV to the current address-only schema."""
+    df = df.copy()
+    # normalize headers
+    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
+    # drop legacy cols we no longer store
+    for _c in ("city", "state", "zip"):
+        if _c in df.columns:
+            df.drop(columns=[_c], inplace=True)
+    # allow-only known vendor columns
+    whitelist = [
+        "category","service","business_name","contact_name","phone","email",
+        "website","address","notes","keywords","computed_keywords",
+        "ckw_version","ckw_locked","ckw_manual_extra","phone_fmt",
+        "created_at","updated_at","updated_by",
+    ]
+    present = [c for c in whitelist if c in df.columns]
+    if present:
+        df = df[present]
+    return df.fillna("")
 
 
 def render_table_hscroll(df, *, key="browse_table"):
@@ -1137,6 +1157,7 @@ def _seed_if_empty(eng=None) -> None:
 
         # Load CSV
         df = pd.read_csv(seed_csv)
+        df = _sanitize_seed_df(df)
 
         # Validate/normalize columns
         expected = {
@@ -1160,6 +1181,10 @@ def _seed_if_empty(eng=None) -> None:
         for col in df.columns:
             if df[col].dtype == object:
                 df[col] = df[col].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+# Defensive: reindex to the actual table columns to avoid schema drift issues
+with eng.connect() as cx:
+    cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()]  # r[1] = name
+df = df.reindex(columns=[c for c in cols if c in df.columns], fill_value="")
 
         # Insert rows
         with eng.begin() as cx:
@@ -1253,6 +1278,7 @@ def _seed_if_empty(eng=None) -> None:
             return
 
         df = pd.read_csv(seed_csv)
+        df = _sanitize_seed_df(df)
 
         # Map CSV headers to table columns as needed
         df = df.rename(
