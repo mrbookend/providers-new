@@ -8,7 +8,6 @@ This repo uses a simple, low-drama workflow that keeps `main` clean and the Stre
 - Streamlit Cloud apps point to **`main`**, and secrets live **only** in Cloud (not in the repo).
 
 ---
-
 ### Everyday change flow (UI only)
 
 1. **Start from `main`**
