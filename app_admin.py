@@ -600,6 +600,8 @@ def _hscroll_container_open():
     )
 
 def _hscroll_container_close():
+    """Close the horizontal scroll container."""
+    st.markdown("</div>", unsafe_allow_html=True)
     
 
 
@@ -1784,6 +1786,9 @@ def _hscroll_container_open():
     )
 
 def _hscroll_container_close():
+    """Close the horizontal scroll container."""
+    st.markdown("</div>", unsafe_allow_html=True)
+
     
 
 # Call the help block at the top of Browse
