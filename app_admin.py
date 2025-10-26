@@ -322,7 +322,6 @@ def render_table_hscroll(df, *, key="browse_table"):
         column_config=(col_cfg or None),
         key=key,
     )
-    
 
 
 # ----------------------------------------------------------------------------
@@ -593,16 +592,18 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
     with eng.begin() as cx:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
+
+
 def _hscroll_container_open():
     st.markdown(
         '<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">',
         unsafe_allow_html=True,
     )
 
+
 def _hscroll_container_close():
     """Close the horizontal scroll container."""
     st.markdown("</div>", unsafe_allow_html=True)
-    
 
 
 def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
@@ -1056,7 +1057,7 @@ def ensure_schema(engine: Engine) -> None:
         "CREATE INDEX IF NOT EXISTS idx_vendors_cat_lower ON vendors(lower(category))",
         "CREATE INDEX IF NOT EXISTS idx_vendors_svc_lower ON vendors(lower(service))",
         "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
-        "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
+        "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
     ]
     with engine.begin() as conn:
         for s in stmts:
@@ -1162,7 +1163,13 @@ def _seed_if_empty(eng=None) -> None:
 
         # Insert rows
         with eng.begin() as cx:
-            df.to_sql("vendors", cx.connection, if_exists="append", index=False)
+            # Keep only columns present in vendors (enforce address-only)
+            _vcols = pd.read_sql("PRAGMA table_info('vendors')", eng)["name"].tolist()
+            df = df[[c for c in df.columns if c in _vcols]].copy()
+            for _ban in ("city", "state", "zip"):
+                if _ban in df.columns:
+                    df.drop(columns=[_ban], inplace=True)
+            df.to_sql("vendors", eng, if_exists="append", index=False)
 
         st.success(f"Seeded vendors from {seed_csv}")
     except Exception as e:
@@ -1280,6 +1287,7 @@ def _seed_if_empty(eng=None) -> None:
 
         # Normalize phone to digits-only
         import re as _re
+
         def _digits_only(x):
             s = str(x).strip()
             if s.endswith(".0"):
@@ -1764,6 +1772,8 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+
+
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
 def _browse_help_block():
     """Render optional help content for the Browse tab from secrets."""
@@ -1782,7 +1792,10 @@ def _browse_help_block():
             except Exception as e:
                 st.info(f"Could not read BROWSE_HELP_FILE: {help_file!r} — {e}")
         else:
-            st.markdown("_No help text configured. Set `BROWSE_HELP_MD` or `BROWSE_HELP_FILE` in secrets._")
+            st.markdown(
+                "_No help text configured. Set `BROWSE_HELP_MD` or `BROWSE_HELP_FILE` in secrets._"
+            )
+
 
 def _hscroll_container_open():
     st.markdown(
@@ -1790,16 +1803,16 @@ def _hscroll_container_open():
         unsafe_allow_html=True,
     )
 
+
 def _hscroll_container_close():
     """Close the horizontal scroll container."""
     st.markdown("</div>", unsafe_allow_html=True)
 
-    
 
 # Call the help block at the top of Browse
 _browse_help_block()
 # ---------------------------------------------------------------------------
-    
+
 # --- HCR: Help — Browse -----------------------------------------------------
 _show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
 if _show_help:
@@ -1937,7 +1950,7 @@ else:
     _hscroll_container_open()
     st.dataframe(
         _view,
-        use_container_width=False,   # keep horizontal scroll available
+        use_container_width=False,  # keep horizontal scroll available
         hide_index=True,
         column_config=col_cfg if col_cfg else None,
     )
