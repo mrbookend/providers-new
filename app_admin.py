@@ -1173,6 +1173,12 @@ with eng.begin() as cx:
     _cols = pd.read_sql("PRAGMA table_info('vendors')", cx.connection)["name"].tolist()
     df = df[[c for c in df.columns if c in _cols]].copy()
 
+# Insert rows
+with eng.begin() as cx:
+    # Trim DF to match current vendors schema (drops city/state/zip if present)
+    _cols = pd.read_sql("PRAGMA table_info('vendors')", cx.connection)["name"].tolist()
+    df = df[[c for c in df.columns if c in _cols]].copy()
+
     # Write rows
     df.to_sql("vendors", cx.connection, if_exists="append", index=False)
 
