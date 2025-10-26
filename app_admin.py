@@ -25,6 +25,11 @@ if not globals().get("_PAGE_CFG_DONE"):
     except Exception:
         pass
     globals()["_PAGE_CFG_DONE"] = True
+
+# Ensure browse help renderer exists (no-op by default)
+if "_browse_help_render" not in st.session_state:
+    st.session_state["_browse_help_render"] = lambda: None
+
 # ---------------------------------------------------------------------------
 
 from sqlalchemy import create_engine, text as sql_text
@@ -3020,7 +3025,9 @@ def render_browse_help_expander() -> None:
         _st_patch3.markdown(md)
 
 
-st.session_state["_browse_help_render"]()
+func = st.session_state.get("_browse_help_render")
+if callable(func):
+    func()
 
 # Expose a callable so main/Browse can invoke without re-import details.
 st.session_state["_browse_help_render"] = render_browse_help_expander
