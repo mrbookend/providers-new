@@ -2781,8 +2781,6 @@ with _tabs[5]:
     )
 
 with _tabs[5]:
-    
-
     # Existing engine info
     st.json(engine_info)
 
@@ -2818,7 +2816,7 @@ with _tabs[5]:
             "services": conn.execute(sql_text("SELECT COUNT(*) FROM services")).scalar() or 0,
         }
 
-   
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
 # ─────────────────────────────────────────────────────────────────────────────
