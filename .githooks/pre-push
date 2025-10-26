@@ -1,59 +1,70 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# .githooks/pre-push  — tolerant guard (fail only on real errors)
+# Requires: Python 3.11; optional Ruff. Non-critical prints are non-blocking.
 
-# pre-push receives: $1=remote name, $2=remote URL, and refs on stdin
+set -u
+set -o pipefail
+
 remote="${1:-}"; url="${2:-}"
-# Drain refs from stdin (not strictly needed, but good hygiene)
-# while read -r local_ref local_sha remote_ref remote_sha; do :; done
-
-# Repo root
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+
+status=0
+branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || echo n/a)"
 
 echo "== pre-push checks =="
 
-# 1) Fast fail on syntax errors
-python3 -m py_compile app_admin.py
+# 1) Syntax check (blocking)
+python3 -m py_compile app_admin.py || status=1
 
-# 2) Optional lint/format if Ruff is installed (non-fatal if missing)
+# 2) Ruff (blocking if present; skipped if not installed)
 if command -v ruff >/dev/null 2>&1; then
-  ruff check --output-format=github .
-  ruff format --check .
+  ruff check --output-format=github . || status=$(( status | 1 ))
+  ruff format --check . || status=$(( status | 1 ))
 else
   echo "ruff not found; skipping lint/format checks"
 fi
 
-# 3) Ensure we’re not pushing a behind/diverged 'main'
+# 3) Upstream freshness for pushes from 'main' (blocking)
 git fetch origin --prune >/dev/null 2>&1 || true
-branch="$(git rev-parse --abbrev-ref HEAD || echo HEAD)"
+ORIGIN_MAIN="$(git rev-parse origin/main 2>/dev/null || echo n/a)"
 echo "branch:        $branch"
-echo "HEAD:          $(git rev-parse HEAD)"
-echo "origin/main:   $(git rev-parse origin/main || echo n/a)"
+echo "HEAD:          $HEAD_SHA"
+echo "origin/main:   $ORIGIN_MAIN"
 
 if [ "$branch" = "main" ]; then
-  if ! git merge-base --is-ancestor origin/main HEAD; then
+  if ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
     echo "ERROR: local 'main' is behind or diverged from origin/main."
     echo "Fix: git pull --ff-only origin main   # then push again"
-    exit 1
+    status=1
   fi
 fi
 
-# 4) Informational drift print (non-blocking)
-if command -v curl >/dev/null 2>&1; then
-  lsha="$(sha256sum app_admin.py | awk '{print $1}')"
-  rsha="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py | sha256sum | awk '{print $1}')"
-  echo "app_admin.py sha256 local=$lsha remote(main)=$rsha"
-
-  llines="$(python3 - <<'PY'
+# 4) Non-blocking drift info (never fails the hook)
+{
+  if command -v curl >/dev/null 2>&1; then
+    lsha="$(sha256sum app_admin.py 2>/dev/null | awk '{print $1}')"
+    rsha="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py \
+      | sha256sum | awk '{print $1}')"
+    echo "app_admin.py sha256 local=${lsha:-n/a} remote(main)=${rsha:-n/a}"
+    llines="$(python3 - <<'PY' 2>/dev/null
 from pathlib import Path
-print(len(Path("app_admin.py").read_text(encoding="utf-8").splitlines()))
+print(len(Path("app_admin.py").read_text(encoding="utf-8", errors="ignore").splitlines()))
 PY
 )"
-  rlines="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py | python3 - <<'PY'
+    rlines="$(curl -sL https://raw.githubusercontent.com/mrbookend/providers-new/main/app_admin.py \
+      | python3 - <<'PY' 2>/dev/null
 import sys
 print(len(sys.stdin.read().splitlines()))
 PY
 )"
-  echo "lines local=$llines remote(main)=$rlines"
+    echo "lines local=${llines:-n/a} remote=${rlines:-n/a}"
+  fi
+} || true
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-push checks FAILED."
+  exit 1
 fi
 
 echo "pre-push checks passed."
