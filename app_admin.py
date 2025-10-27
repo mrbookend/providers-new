@@ -1827,18 +1827,19 @@ with _tabs[0]:
                 df.drop(columns=[_ban], inplace=True)
 
         try:
-    st.dataframe(
-        df.drop(
-            columns=[
-                "id", "created_at", "updated_at",
-                "updated_by", "updated by",
-                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-            ],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-    )
+st.dataframe(
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,
+    hide_index=True,
+)
+
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
 
@@ -1880,18 +1881,19 @@ except Exception as _e:
                 df.drop(columns=[_ban], inplace=True)
 
         try:
-    st.dataframe(
-        df.drop(
-            columns=[
-                "id", "created_at", "updated_at",
-                "updated_by", "updated by",
-                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-            ],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-    )
+st.dataframe(
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,
+    hide_index=True,
+)
+
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
 
@@ -3144,18 +3146,19 @@ def __HCR_browse_render_inline():
                 df.drop(columns=[_ban], inplace=True)
 
         try:
-    st.dataframe(
-        df.drop(
-            columns=[
-                "id", "created_at", "updated_at",
-                "updated_by", "updated by",
-                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-            ],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-    )
+st.dataframe(
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,
+    hide_index=True,
+)
+
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
 
