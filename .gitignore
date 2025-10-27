@@ -1,29 +1,32 @@
-.venv/
-__pycache__/
-*.pyc
-*.sqlite
-*.db
-.streamlit/
-app_admin.py.CONFLICT.BAK
-*.CONFLICT.BAK
-.pre-commit-config.yaml.BAK
 
-# pre-commit backups
-.pre-commit-config.yaml.BAK*
-
-# local patches
-*.patch
-
-# local backups
 app_admin.py.bak-*
-.github/workflows/ci.yml.bak-*
-
-# local backups
 app_admin.py.bak.*
-# sqlite junk
+app_admin.py.CONFLICT.BAK
+*backup*.py
+*.bak
+*.broken.py
+*.CONFLICT.BAK
+*.db
+*.db-shm
+*.db-wal
+df
+.githooks/
+.github/workflows/ci.yml.bak-*
+# local backups
+# local patches
+# local scratch
+*.patch
+# pre-commit backups
+.pre-commit-config.yaml.BAK
+.pre-commit-config.yaml.BAK*
 providers.db*
-
+*.pyc
+__pycache__/
+*.sqlite
+# sqlite junk
 # SQLite WAL/SHM
+.streamlit/
+.venv/
 *.db-wal
 *.db-shm
 
