@@ -1844,20 +1844,19 @@ except Exception as _e:
     st.error(f"Browse failed: {_e}")
 
 # show live count so we know what DB we’re actually reading
-        try:
-            with engine.connect() as cx:
-                # optional: see which sqlite file we're on
-                # dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                st.caption(f"rows={cnt}")
-        except Exception as e:
-            st.warning(f"count failed: {e}")
+try:
+    with eng.connect() as cx:
+        cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+    st.caption(f"rows={cnt}")
+except Exception as e:
+    st.warning(f"count failed: {e}")
 
 # load table
 df = pd.read_sql("SELECT * FROM vendors", eng)
 for _ban in ("city", "state", "zip"):
     if _ban in df.columns:
         df.drop(columns=[_ban], inplace=True)
+
 
 try:
     st.dataframe(
