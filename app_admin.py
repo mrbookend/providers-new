@@ -1826,17 +1826,7 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",      # cover both spellings
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra"
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,
-    hide_index=True,
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","updated_by","updated by","ckw","ckw_locked","ckw_version","ckw_manual_extra"], errors="ignore"), use_container_width=False, hide_index=True)
 )
 
 
@@ -1875,17 +1865,7 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",      # cover both spellings
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra"
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,
-    hide_index=True,
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","updated_by","updated by","ckw","ckw_locked","ckw_version","ckw_manual_extra"], errors="ignore"), use_container_width=False, hide_index=True)
 )
 
 
@@ -3135,17 +3115,7 @@ def __HCR_browse_render_inline():
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",      # cover both spellings
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra"
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,
-    hide_index=True,
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","updated_by","updated by","ckw","ckw_locked","ckw_version","ckw_manual_extra"], errors="ignore"), use_container_width=False, hide_index=True)
 )
 
 
