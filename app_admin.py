@@ -3113,6 +3113,14 @@ def __HCR_browse_render_inline():
 
         st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
 
+# show live count so we know what DB we’re actually reading
+try:
+    with eng.connect() as cx:
+        cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+    st.caption(f"rows={cnt}")
+except Exception as e:
+    st.warning(f"count failed: {e}")
+
 # --- load & render ---------------------------------------------------
 try:
     df = pd.read_sql("SELECT * FROM vendors", eng)
@@ -3140,8 +3148,6 @@ try:
     )
 except Exception as _e:
     st.error(f"Browse inline failed: {_e}")
-
-
 
 
 
