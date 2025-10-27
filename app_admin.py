@@ -1942,7 +1942,6 @@ else:
         # widths are optional; continue without them
         pass
 
-
     # CSV export of the filtered view
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     _csv_bytes = _view.to_csv(index=False).encode("utf-8")
@@ -1953,6 +1952,77 @@ else:
         mime="text/csv",
     )
 # --- /HScroll wrapper ---
+
+with _tabs[0]:
+    # HOTFIX: Browse table (sqlite direct)
+    import os
+    import sqlite3
+    import pandas as pd
+
+    db_path = os.environ.get("DB_PATH", "providers.db")
+    try:
+        con = sqlite3.connect(db_path)
+        try:
+            df = pd.read_sql_query("SELECT * FROM vendors", con)
+        finally:
+            con.close()
+    except Exception as _e:
+        st.warning(f"Browse load failed: {_e}")
+        df = pd.DataFrame()
+    st.dataframe(df, use_container_width=False, hide_index=True)
+
+
+# ----- Browse table renderer (scoped to Browse tab only) ---------------------
+def _render_browse_table():
+    """Render 'vendors' table; prefer SQLAlchemy engine, fall back to sqlite3."""
+    import pandas as pd
+
+    try:
+        eng = get_engine()
+        # unwrap tuple-returning variants of get_engine()
+        if not hasattr(eng, "connect"):
+            try:
+                eng = eng[0]
+            except Exception:
+                pass
+        # Primary path: SQLAlchemy
+        try:
+            with eng.connect() as cx:
+                df = pd.read_sql_query("SELECT * FROM vendors", cx)
+        except Exception as _e1:
+            # Fallback: sqlite3 direct
+            import os
+            import sqlite3
+
+            db_path = os.environ.get("DB_PATH", "providers.db")
+            try:
+                con = sqlite3.connect(db_path)
+                try:
+                    df = pd.read_sql_query("SELECT * FROM vendors", con)
+                finally:
+                    con.close()
+            except Exception as _e2:
+                st.warning(f"Browse load failed: {_e1} / fallback: {_e2}")
+                df = pd.DataFrame()
+    except Exception as _e:
+        st.warning(f"Browse load failed: {_e}")
+        df = pd.DataFrame()
+
+    # Render
+    try:
+        _hscroll_container_open()
+    except Exception:
+        pass
+    st.dataframe(df, use_container_width=False, hide_index=True)
+    try:
+        _hscroll_container_close()
+    except Exception:
+        pass
+
+
+# ----- Browse tab ------------------------------------------------------------
+with _tabs[0]:
+    _render_browse_table()
 
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
