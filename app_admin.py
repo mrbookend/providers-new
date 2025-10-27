@@ -1852,6 +1852,7 @@ except Exception as e:
     st.warning(f"count failed: {e}")
 
 # load table
+
 df = pd.read_sql("SELECT * FROM vendors", eng)
 for _ban in ("city", "state", "zip"):
     if _ban in df.columns:
@@ -3114,7 +3115,7 @@ def __HCR_browse_render_inline():
 
 # --- load & render ---------------------------------------------------
 try:
-    df = pd.read_sql("SELECT * FROM vendors", eng_norm)
+    df = pd.read_sql("SELECT * FROM vendors", eng)
 except Exception as e:
     st.warning(f"SELECT * failed: {e}")
     df = pd.DataFrame()
@@ -3130,6 +3131,7 @@ try:
                 "id", "created_at", "updated_at",
                 "updated_by", "updated by",
                 "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+                "computed_keywords",
             ],
             errors="ignore",
         ),
@@ -3138,6 +3140,7 @@ try:
     )
 except Exception as _e:
     st.error(f"Browse inline failed: {_e}")
+
 
 
 
