@@ -1803,7 +1803,31 @@ _tabs = st.tabs(
     ]
 )
 with _tabs[0]:
-    __HCR_browse_render_inline()
+    import pandas as pd
+    try:
+        eng = get_engine()
+        # show live count so we know what DB we’re actually reading
+        try:
+            with eng.connect() as cx:
+                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+                # you can comment this caption out later
+                st.caption(f"rows={cnt}")
+        except Exception as e:
+            st.warning(f"count failed: {e}")
+        # load table
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", eng)
+        except Exception as e:
+            st.warning(f"SELECT * failed: {e}")
+            df = pd.DataFrame()
+        # tolerate old CSV columns
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
+        st.dataframe(df, use_container_width=False)
+    except Exception as _e:
+        st.error(f"Browse failed: {_e}")
+
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
