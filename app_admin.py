@@ -1843,7 +1843,7 @@ try:
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
 
-        # show live count so we know what DB we’re actually reading
+# show live count so we know what DB we’re actually reading
         try:
             with engine.connect() as cx:
                 # optional: see which sqlite file we're on
