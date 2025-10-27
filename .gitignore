@@ -36,3 +36,17 @@ __pycache__/
 .githooks/
 *.bak
 df
+# Environments / tooling
+.venv/
+.streamlit/
+.githooks/
+
+# SQLite journaling
+*.db-wal
+*.db-shm
+
+# Local scratch
+*.broken.py
+*backup*.py
+*.bak
+df
