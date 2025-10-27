@@ -1954,6 +1954,7 @@ else:
     )
 # --- /HScroll wrapper ---
 
+# NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
     # ===== Add Vendor =====
