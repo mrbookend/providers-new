@@ -3128,6 +3128,7 @@ except Exception as e:
     st.warning(f"SELECT * failed: {e}")
     df = pd.DataFrame()
 
+# address-only: drop legacy location fields if present
 for _ban in ("city", "state", "zip"):
     if _ban in df.columns:
         df.drop(columns=[_ban], inplace=True)
@@ -3148,8 +3149,6 @@ try:
     )
 except Exception as _e:
     st.error(f"Browse inline failed: {_e}")
-
-
 
 
 # === END HCR INLINE BROWSE ==================================================
