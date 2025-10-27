@@ -1805,7 +1805,9 @@ _tabs = st.tabs(
 with _tabs[0]:
     import pandas as pd
     try:
-        eng = get_engine()
+        eng_raw = get_engine()
+        eng = eng_raw[0] if isinstance(eng_raw, tuple) else eng_raw
+
 
         # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
         engine = None
