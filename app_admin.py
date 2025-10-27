@@ -217,7 +217,6 @@ def _debug_where_am_i():
     except Exception:
         commit = "(no git)"
 
-    st.caption("RUNNING FILE INSPECTOR")
     st.code(
         {
             "file": path,
@@ -1942,31 +1941,8 @@ else:
         # widths are optional; continue without them
         pass
 
-    # --- Browse table render (balanced; no raw HTML wrappers) -----------------
-    _hscroll_container_open()
-    st.dataframe(
-        _view,
-        use_container_width=False,  # keep horizontal scroll available
-        hide_index=True,
-        column_config=col_cfg if col_cfg else None,
-    )
-    try:
-        _hscroll_container_close()
-    except Exception:
-        pass
-    # -------------------------------------------------------------------------
-
-    # CSV export of the filtered view
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    _csv_bytes = _view.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download filtered view (CSV)",
-        data=_csv_bytes,
-        file_name=f"providers_{ts}.csv",
-        mime="text/csv",
-    )
+        st.caption("Vendor rows hidden in this tab")
 # --- /HScroll wrapper ---
-
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
     # ===== Add Vendor =====
