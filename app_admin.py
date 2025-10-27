@@ -2999,3 +2999,54 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as _e:
         st.session_state["_ckw_schema_error"] = str(_e)
     return changed
+# === HCR INLINE BROWSE (seed-if-empty, address-only) =======================
+def __HCR_browse_render_inline():
+    import pandas as pd
+    try:
+        eng = get_engine()
+        # one-time seed if vendors missing/empty
+        try:
+            with eng.begin() as cx:
+                have = cx.exec_driver_sql(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vendors'"
+                ).fetchone()
+                if not have:
+                    cx.exec_driver_sql("""
+                        CREATE TABLE vendors (
+                          business_name TEXT, category TEXT, service TEXT, phone TEXT,
+                          contact TEXT, website TEXT, email TEXT, address TEXT,
+                          notes TEXT, keywords TEXT, computed_keywords TEXT
+                        )
+                    """)
+                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+                if not cnt or int(cnt) == 0:
+                    # seed from CSV if present
+                    import os
+                    seed_csv = "data/providers_seed.csv"
+                    if os.path.exists(seed_csv):
+                        df_seed = pd.read_csv(seed_csv)
+                        for ban in ("city","state","zip"):
+                            if ban in df_seed.columns:
+                                df_seed.drop(columns=[ban], inplace=True)
+                        cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()]
+                        df_seed = df_seed[[c for c in df_seed.columns if c in cols]].copy()
+                        df_seed.to_sql("vendors", eng, if_exists="append", index=False)
+        except Exception as e:
+            st.warning(f"Seed check skipped: {e}")
+
+        # load + render
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", eng)
+        except Exception as e:
+            st.warning(f"SELECT * failed: {e}")
+            df = pd.DataFrame()
+
+        for _ban in ("city","state","zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
+
+        st.caption(f"rows={len(df)}")
+        st.dataframe(df, use_container_width=False)
+    except Exception as _e:
+        st.error(f"Browse inline failed: {_e}")
+# === END HCR INLINE BROWSE ==================================================
