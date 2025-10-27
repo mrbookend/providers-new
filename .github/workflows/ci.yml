@@ -84,3 +84,11 @@ PY
 - name: Python compile
   run: python3 -m py_compile app_admin.py
 
+- name: Python compile
+  run: python3 -m py_compile app_admin.py
+
+- name: Guard: no zero-arg Streamlit headings
+  run: |
+    if grep -nE 'st\.(caption|title|header|subheader)\s*\(\s*\)' app_admin.py; then
+      echo "ERR: zero-arg Streamlit heading found"; exit 1
+    fi
