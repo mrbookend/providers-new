@@ -1806,24 +1806,42 @@ with _tabs[0]:
     import pandas as pd
     try:
         eng = get_engine()
+
+        # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
+        engine = None
+        if hasattr(eng, "connect"):
+            engine = eng
+        elif isinstance(eng, tuple):
+            for x in eng:
+                if hasattr(x, "connect"):
+                    engine = x
+                    break
+        if engine is None:
+            st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
+            raise SystemExit
+
         # show live count so we know what DB we’re actually reading
         try:
-            with eng.connect() as cx:
+            with engine.connect() as cx:
+                # optional: see which sqlite file we're on
+                # dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
                 cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                # you can comment this caption out later
                 st.caption(f"rows={cnt}")
         except Exception as e:
             st.warning(f"count failed: {e}")
+
         # load table
         try:
-            df = pd.read_sql("SELECT * FROM vendors", eng)
+            df = pd.read_sql("SELECT * FROM vendors", engine)
         except Exception as e:
             st.warning(f"SELECT * failed: {e}")
             df = pd.DataFrame()
+
         # tolerate old CSV columns
         for _ban in ("city", "state", "zip"):
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
+
         st.dataframe(df, use_container_width=False)
     except Exception as _e:
         st.error(f"Browse failed: {_e}")
@@ -3025,44 +3043,45 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as _e:
         st.session_state["_ckw_schema_error"] = str(_e)
     return changed
-# === HCR INLINE BROWSE (seed-if-empty, address-only) =======================
+# === HCR INLINE BROWSE (tuple-safe) ========================================
 def __HCR_browse_render_inline():
     import pandas as pd
     try:
         eng = get_engine()
-        # one-time seed if vendors missing/empty
-        try:
-            with eng.begin() as cx:
-                have = cx.exec_driver_sql(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vendors'"
-                ).fetchone()
-                if not have:
-                    cx.exec_driver_sql("""
-                        CREATE TABLE vendors (
-                          business_name TEXT, category TEXT, service TEXT, phone TEXT,
-                          contact TEXT, website TEXT, email TEXT, address TEXT,
-                          notes TEXT, keywords TEXT, computed_keywords TEXT
-                        )
-                    """)
-                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                if not cnt or int(cnt) == 0:
-                    # seed from CSV if present
-                    import os
-                    seed_csv = "data/providers_seed.csv"
-                    if os.path.exists(seed_csv):
-                        df_seed = pd.read_csv(seed_csv)
-                        for ban in ("city","state","zip"):
-                            if ban in df_seed.columns:
-                                df_seed.drop(columns=[ban], inplace=True)
-                        cols = [r[1] for r in cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()]
-                        df_seed = df_seed[[c for c in df_seed.columns if c in cols]].copy()
-                        df_seed.to_sql("vendors", eng, if_exists="append", index=False)
-        except Exception as e:
-            st.warning(f"Seed check skipped: {e}")
 
-        # load + render
+        # --- normalize engine: handle (engine, ...) tuples etc. -------------
+        eng_norm = None
+        if hasattr(eng, "connect"):
+            eng_norm = eng
+        elif isinstance(eng, tuple):
+            for x in eng:
+                if hasattr(x, "connect"):
+                    eng_norm = x
+                    break
+        if eng_norm is None:
+            st.error(f"Engine normalization failed; got {type(eng)} value={eng!r}")
+            return
+
+        # --- quick diagnostics ----------------------------------------------
         try:
-            df = pd.read_sql("SELECT * FROM vendors", eng)
+            with eng_norm.connect() as cx:
+                try:
+                    dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
+                except Exception:
+                    dbinfo = []
+                try:
+                    cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+                except Exception as e:
+                    cnt = f"err: {e}"
+        except Exception as e:
+            st.error(f"Engine connect failed: {e}")
+            return
+
+        st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
+
+        # --- load & render ---------------------------------------------------
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", eng_norm)
         except Exception as e:
             st.warning(f"SELECT * failed: {e}")
             df = pd.DataFrame()
@@ -3071,8 +3090,8 @@ def __HCR_browse_render_inline():
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.caption(f"rows={len(df)}")
         st.dataframe(df, use_container_width=False)
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
 # === END HCR INLINE BROWSE ==================================================
+
