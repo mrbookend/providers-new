@@ -639,6 +639,11 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
 
+def _engine():
+    """Return a real SQLAlchemy Engine, unwrapping tuples from get_engine()."""
+    eng_raw = get_engine()
+    return eng_raw[0] if isinstance(eng_raw, tuple) else eng_raw
+
 
 def _hscroll_container_open():
     st.markdown(
@@ -1802,6 +1807,61 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+with _tabs[0]:
+    import pandas as pd
+    try:
+        eng = _engine()  # ✅ replace chunk with this single line
+
+        # load table
+        df = pd.read_sql("SELECT * FROM vendors", eng)
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
+
+        st.dataframe(df, use_container_width=False)
+    except Exception as _e:
+        st.error(f"Browse failed: {_e}")
+
+
+        # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
+        engine = None
+        if hasattr(eng, "connect"):
+            engine = eng
+        elif isinstance(eng, tuple):
+            for x in eng:
+                if hasattr(x, "connect"):
+                    engine = x
+                    break
+        if engine is None:
+            st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
+            raise SystemExit
+
+        # show live count so we know what DB we’re actually reading
+        try:
+            with engine.connect() as cx:
+                # optional: see which sqlite file we're on
+                # dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
+                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+                st.caption(f"rows={cnt}")
+        except Exception as e:
+            st.warning(f"count failed: {e}")
+
+        # load table
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", engine)
+        except Exception as e:
+            st.warning(f"SELECT * failed: {e}")
+            df = pd.DataFrame()
+
+        # tolerate old CSV columns
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
+
+        st.dataframe(df, use_container_width=False)
+    except Exception as _e:
+        st.error(f"Browse failed: {_e}")
+
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
@@ -2999,3 +3059,55 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as _e:
         st.session_state["_ckw_schema_error"] = str(_e)
     return changed
+# === HCR INLINE BROWSE (tuple-safe) ========================================
+def __HCR_browse_render_inline():
+    import pandas as pd
+    try:
+        eng = get_engine()
+
+        # --- normalize engine: handle (engine, ...) tuples etc. -------------
+        eng_norm = None
+        if hasattr(eng, "connect"):
+            eng_norm = eng
+        elif isinstance(eng, tuple):
+            for x in eng:
+                if hasattr(x, "connect"):
+                    eng_norm = x
+                    break
+        if eng_norm is None:
+            st.error(f"Engine normalization failed; got {type(eng)} value={eng!r}")
+            return
+
+        # --- quick diagnostics ----------------------------------------------
+        try:
+            with eng_norm.connect() as cx:
+                try:
+                    dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
+                except Exception:
+                    dbinfo = []
+                try:
+                    cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+                except Exception as e:
+                    cnt = f"err: {e}"
+        except Exception as e:
+            st.error(f"Engine connect failed: {e}")
+            return
+
+        st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
+
+        # --- load & render ---------------------------------------------------
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", eng_norm)
+        except Exception as e:
+            st.warning(f"SELECT * failed: {e}")
+            df = pd.DataFrame()
+
+        for _ban in ("city","state","zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
+
+        st.dataframe(df, use_container_width=False)
+    except Exception as _e:
+        st.error(f"Browse inline failed: {_e}")
+# === END HCR INLINE BROWSE ==================================================
+

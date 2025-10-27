@@ -27,3 +27,12 @@ __pycache__/
 # SQLite WAL/SHM
 .streamlit/
 .venv/
+*.db-wal
+*.db-shm
+
+# local scratch
+*.broken.py
+*backup*.py
+.githooks/
+*.bak
+df
