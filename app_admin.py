@@ -1802,6 +1802,8 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+with _tabs[0]:
+    __HCR_browse_render_inline()
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
