@@ -362,12 +362,20 @@ def render_table_hscroll(df, *, key="browse_table"):
     col_cfg = _apply_column_widths(df, widths)
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
-        df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"),
-        use_container_width=False,  # force horizontal scroll
-        hide_index=True,
-        column_config=(col_cfg or None),
-        key=key,
-    )
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",     # cover both spellings
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,  # force horizontal scroll
+    hide_index=True,
+    column_config=(col_cfg or None),
+    key=key,
+)
+
 # ----------------------------------------------------------------------------
 
 
@@ -1818,9 +1826,19 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
-    except Exception as _e:
-        st.error(f"Browse failed: {_e}")
+        st.dataframe(
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",      # cover both spellings
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra"
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,
+    hide_index=True,
+)
+
 
         # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
         engine = None
@@ -1857,9 +1875,19 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
-    except Exception as _e:
-        st.error(f"Browse failed: {_e}")
+        st.dataframe(
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",      # cover both spellings
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra"
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,
+    hide_index=True,
+)
+
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
@@ -3107,9 +3135,19 @@ def __HCR_browse_render_inline():
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
-    except Exception as _e:
-        st.error(f"Browse inline failed: {_e}")
+        st.dataframe(
+    df.drop(
+        columns=[
+            "id", "created_at", "updated_at",
+            "updated_by", "updated by",      # cover both spellings
+            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra"
+        ],
+        errors="ignore",
+    ),
+    use_container_width=False,
+    hide_index=True,
+)
+
 
 
 # === END HCR INLINE BROWSE ==================================================
