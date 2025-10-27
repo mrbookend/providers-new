@@ -1820,7 +1820,7 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df, use_container_width=False)
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
     except Exception as _e:
         st.error(f"Browse failed: {_e}")
 
@@ -1859,7 +1859,7 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df, use_container_width=False)
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
     except Exception as _e:
         st.error(f"Browse failed: {_e}")
 
@@ -3109,7 +3109,7 @@ def __HCR_browse_render_inline():
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df, use_container_width=False)
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
 
