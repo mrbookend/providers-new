@@ -639,6 +639,11 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
 
+def _engine():
+    """Return a real SQLAlchemy Engine, unwrapping tuples from get_engine()."""
+    eng_raw = get_engine()
+    return eng_raw[0] if isinstance(eng_raw, tuple) else eng_raw
+
 
 def _hscroll_container_open():
     st.markdown(
@@ -1805,8 +1810,17 @@ _tabs = st.tabs(
 with _tabs[0]:
     import pandas as pd
     try:
-        eng_raw = get_engine()
-        eng = eng_raw[0] if isinstance(eng_raw, tuple) else eng_raw
+        eng = _engine()  # ✅ replace chunk with this single line
+
+        # load table
+        df = pd.read_sql("SELECT * FROM vendors", eng)
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
+
+        st.dataframe(df, use_container_width=False)
+    except Exception as _e:
+        st.error(f"Browse failed: {_e}")
 
 
         # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
