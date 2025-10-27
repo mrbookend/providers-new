@@ -639,6 +639,7 @@ def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
 
+
 def _engine():
     """Return a real SQLAlchemy Engine, unwrapping tuples from get_engine()."""
     eng_raw = get_engine()
@@ -1809,6 +1810,7 @@ _tabs = st.tabs(
 )
 with _tabs[0]:
     import pandas as pd
+
     try:
         eng = _engine()  # ✅ replace chunk with this single line
 
@@ -1821,7 +1823,6 @@ with _tabs[0]:
         st.dataframe(df, use_container_width=False)
     except Exception as _e:
         st.error(f"Browse failed: {_e}")
-
 
         # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
         engine = None
@@ -1861,7 +1862,6 @@ with _tabs[0]:
         st.dataframe(df, use_container_width=False)
     except Exception as _e:
         st.error(f"Browse failed: {_e}")
-
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
@@ -3059,9 +3059,12 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     except Exception as _e:
         st.session_state["_ckw_schema_error"] = str(_e)
     return changed
+
+
 # === HCR INLINE BROWSE (tuple-safe) ========================================
 def __HCR_browse_render_inline():
     import pandas as pd
+
     try:
         eng = get_engine()
 
@@ -3102,12 +3105,13 @@ def __HCR_browse_render_inline():
             st.warning(f"SELECT * failed: {e}")
             df = pd.DataFrame()
 
-        for _ban in ("city","state","zip"):
+        for _ban in ("city", "state", "zip"):
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
         st.dataframe(df, use_container_width=False)
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
-# === END HCR INLINE BROWSE ==================================================
 
+
+# === END HCR INLINE BROWSE ==================================================
