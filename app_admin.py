@@ -1843,23 +1843,6 @@ try:
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
 
-
-
-
-
-        # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
-        engine = None
-        if hasattr(eng, "connect"):
-            engine = eng
-        elif isinstance(eng, tuple):
-            for x in eng:
-                if hasattr(x, "connect"):
-                    engine = x
-                    break
-        if engine is None:
-            st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
-            raise SystemExit
-
         # show live count so we know what DB we’re actually reading
         try:
             with engine.connect() as cx:
