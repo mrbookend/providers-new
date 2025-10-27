@@ -1817,22 +1817,17 @@ _tabs = st.tabs(
 with _tabs[0]:
     import pandas as pd
 
-    try:
-        eng = _engine()  # ✅ replace chunk with this single line
-
-# load table
 try:
-    df = pd.read_sql("SELECT * FROM vendors", engine)
-except Exception as e:
-    st.warning(f"SELECT * failed: {e}")
-    df = pd.DataFrame()
+    eng = _engine()  # ✅ replace chunk with this single line
 
-# tolerate old CSV columns
-for _ban in ("city", "state", "zip"):
-    if _ban in df.columns:
-        df.drop(columns=[_ban], inplace=True)
+    # load table
+    df = pd.read_sql("SELECT * FROM vendors", eng)
 
-try:
+    # tolerate old CSV columns
+    for _ban in ("city", "state", "zip"):
+        if _ban in df.columns:
+            df.drop(columns=[_ban], inplace=True)
+
     st.dataframe(
         df.drop(
             columns=[
@@ -1847,6 +1842,7 @@ try:
     )
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
+
 
 
 
