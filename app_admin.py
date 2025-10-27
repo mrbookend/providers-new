@@ -1942,7 +1942,6 @@ else:
         # widths are optional; continue without them
         pass
 
-
     # CSV export of the filtered view
     ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     _csv_bytes = _view.to_csv(index=False).encode("utf-8")
@@ -1954,6 +1953,7 @@ else:
     )
 # --- /HScroll wrapper ---
 
+# NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
