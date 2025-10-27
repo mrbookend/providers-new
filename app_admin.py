@@ -1820,28 +1820,34 @@ with _tabs[0]:
     try:
         eng = _engine()  # ✅ replace chunk with this single line
 
-        # load table
-        df = pd.read_sql("SELECT * FROM vendors", eng)
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
+# load table
+try:
+    df = pd.read_sql("SELECT * FROM vendors", engine)
+except Exception as e:
+    st.warning(f"SELECT * failed: {e}")
+    df = pd.DataFrame()
 
-        try:
-st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,
-    hide_index=True,
-)
+# tolerate old CSV columns
+for _ban in ("city", "state", "zip"):
+    if _ban in df.columns:
+        df.drop(columns=[_ban], inplace=True)
 
+try:
+    st.dataframe(
+        df.drop(
+            columns=[
+                "id", "created_at", "updated_at",
+                "updated_by", "updated by",
+                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+            ],
+            errors="ignore",
+        ),
+        use_container_width=False,
+        hide_index=True,
+    )
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
+
 
 
 
@@ -1868,34 +1874,28 @@ except Exception as _e:
         except Exception as e:
             st.warning(f"count failed: {e}")
 
-        # load table
-        try:
-            df = pd.read_sql("SELECT * FROM vendors", engine)
-        except Exception as e:
-            st.warning(f"SELECT * failed: {e}")
-            df = pd.DataFrame()
+# load table
+df = pd.read_sql("SELECT * FROM vendors", eng)
+for _ban in ("city", "state", "zip"):
+    if _ban in df.columns:
+        df.drop(columns=[_ban], inplace=True)
 
-        # tolerate old CSV columns
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
-
-        try:
-st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,
-    hide_index=True,
-)
-
+try:
+    st.dataframe(
+        df.drop(
+            columns=[
+                "id", "created_at", "updated_at",
+                "updated_by", "updated by",
+                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+            ],
+            errors="ignore",
+        ),
+        use_container_width=False,
+        hide_index=True,
+    )
 except Exception as _e:
     st.error(f"Browse failed: {_e}")
+
 
 
 
@@ -3134,33 +3134,33 @@ def __HCR_browse_render_inline():
 
         st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
 
-        # --- load & render ---------------------------------------------------
-        try:
-            df = pd.read_sql("SELECT * FROM vendors", eng_norm)
-        except Exception as e:
-            st.warning(f"SELECT * failed: {e}")
-            df = pd.DataFrame()
+# --- load & render ---------------------------------------------------
+try:
+    df = pd.read_sql("SELECT * FROM vendors", eng_norm)
+except Exception as e:
+    st.warning(f"SELECT * failed: {e}")
+    df = pd.DataFrame()
 
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
+for _ban in ("city", "state", "zip"):
+    if _ban in df.columns:
+        df.drop(columns=[_ban], inplace=True)
 
-        try:
-st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,
-    hide_index=True,
-)
-
+try:
+    st.dataframe(
+        df.drop(
+            columns=[
+                "id", "created_at", "updated_at",
+                "updated_by", "updated by",
+                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+            ],
+            errors="ignore",
+        ),
+        use_container_width=False,
+        hide_index=True,
+    )
 except Exception as _e:
-    st.error(f"Browse failed: {_e}")
+    st.error(f"Browse inline failed: {_e}")
+
 
 
 
