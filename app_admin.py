@@ -362,14 +362,12 @@ def render_table_hscroll(df, *, key="browse_table"):
     col_cfg = _apply_column_widths(df, widths)
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
-        df,
+        df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"),
         use_container_width=False,  # force horizontal scroll
         hide_index=True,
         column_config=(col_cfg or None),
         key=key,
     )
-
-
 # ----------------------------------------------------------------------------
 
 
