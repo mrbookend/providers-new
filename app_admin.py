@@ -1944,12 +1944,6 @@ else:
 
     # --- Browse table render (balanced; no raw HTML wrappers) -----------------
     _hscroll_container_open()
-    st.dataframe(
-        _view,
-        use_container_width=False,  # keep horizontal scroll available
-        hide_index=True,
-        column_config=col_cfg if col_cfg else None,
-    )
     try:
         _hscroll_container_close()
     except Exception:
@@ -1969,6 +1963,7 @@ else:
 
 # ---------- Add/Edit/Delete Vendor
 with _tabs[1]:
+    st.caption("Vendor rows hidden in this tab")
     # ===== Add Vendor =====
     st.subheader("Add Vendor")
     _init_add_form_defaults()
