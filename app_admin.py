@@ -1821,54 +1821,62 @@ _tabs = st.tabs(
     ]
 )
 # ===== Browse render (providers) =====
-import pandas as pd
+import pandas as pd  # NOTE: if already imported at top, Ruff will remove this on format
 
 def _admin_hidden_cols(df_cols: list[str]) -> list[str]:
-    # Keep 'keywords' visible (user-entered); hide CKW + meta + raw phone
+    # Keep 'keywords' visible (user-entered); hide CKW/meta/raw phone
     hide = {
         "id", "created_at", "updated_at", "updated_by",
-        "computed_keywords", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-        "phone",  # raw digits column hidden; we show the formatted version only
+        "computed_keywords", "CKW", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+        "phone",  # raw digits column hidden; we'll expose a formatted 'Phone'
     }
-    # Only hide columns that actually exist
     return [c for c in df_cols if c in hide]
 
-# Load and prepare
 try:
     eng = get_engine()
     df = pd.read_sql("SELECT * FROM vendors", eng)
 
-    # Prefer formatted phone; expose as "Phone"
+    # Create visible Phone column (formatted preferred)
+    df = df.copy()
     if "phone_fmt" in df.columns:
-        df = df.copy()
         df["Phone"] = df["phone_fmt"]
     elif "phone" in df.columns:
-        # If no phone_fmt exists, leave the original phone column visible as-is
-        df = df.copy()
         df["Phone"] = df["phone"]
+    else:
+        df["Phone"] = ""
 
-    # Compute view columns: drop hidden/meta + internal CKW
+    # Hidden/meta columns (also drop phone_fmt after materializing Phone)
     hidden = set(_admin_hidden_cols(df.columns.tolist()))
-    # Also drop phone_fmt after we’ve created "Phone"
     if "phone_fmt" in df.columns:
         hidden.add("phone_fmt")
 
+    # Compute view columns (human-first order if present)
     view_cols = [c for c in df.columns if c not in hidden]
-
-    # Optional: ensure a stable, human-first order if present
     preferred = [
         "business_name", "category", "service", "Phone",
         "contact_name", "email", "website", "address",
-        "keywords",  # user-entered only
+        "keywords",  # user-entered
         "notes",
     ]
     ordered = [c for c in preferred if c in view_cols]
     tail = [c for c in view_cols if c not in ordered]
     view_cols = ordered + tail
 
-    # Render
+    # Render and keep the exact view for CSV export
     _view = df[view_cols]
     st.dataframe(_view, use_container_width=False, hide_index=True)
+
+    # --- CSV export (visible columns exactly) ---
+    try:
+        csv_bytes = _view.to_csv(index=False).encode("utf-8")  # no io import needed
+        st.download_button(
+            "Download CSV (visible columns)",
+            data=csv_bytes,
+            file_name="providers.csv",
+            mime="text/csv",
+        )
+    except Exception as _csv_e:
+        st.caption(f"CSV export unavailable: {_csv_e}")
 
 except Exception as _e:
     st.warning(f"Browse unavailable: {_e}")
