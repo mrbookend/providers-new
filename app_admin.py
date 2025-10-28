@@ -1934,64 +1934,9 @@ if _show_help:
 
 # Show a one-line runtime banner on the first tab for quick verification
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
-with _tabs[0]:
-    _debug_where_am_i()
-    st.caption("")
-    st.session_state.get("_browse_help_render", lambda: None)()
-
-
 # === ANCHOR: BROWSE_HEADER (start) ===
 # ---------- Browse
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
-with _tabs[0]:
-    df = load_df(engine)
-    ckw_ok = _has_ckw_column(engine)
-    # CKW schema tool (guarded)
-    if not ckw_ok:
-        with st.expander("Schema tools -- Computed Keywords (CKW)", expanded=False):
-            st.warning("This will ALTER TABLE to add a 'ckw' TEXT column and create an index.")
-            if st.button("Add 'ckw' column + index", type="primary"):
-                if _ensure_ckw_column_and_index(engine):
-                    st.success("CKW column/index created. Reload the page.")
-                else:
-                    st.info("No changes made (already present or failed).")
-
-    # Help -- Browse
-    if st.secrets.get("SHOW_BROWSE_HELP", False):
-        help_md = st.secrets.get("BROWSE_HELP_MD") or ""
-        st.expander("Help -- Browse", expanded=False).markdown(help_md or "_No help configured._")
-
-    # exact-pixel widths + horiz scroll
-    try:
-        _df_show = filtered
-    except NameError:
-        _df_show = df
-
-    view_cols_pref = [
-        "business_name",
-        "category",
-        "service",
-        "phone_fmt",
-        "contact_name",
-        "website",
-        "notes",
-        "keywords",
-        "ckw",
-    ]
-
-    view_cols = [c for c in view_cols_pref if c in _df_show.columns]
-    if not view_cols:
-        view_cols = list(_df_show.columns)
-
-    colcfg = _column_config_from_secrets(view_cols)
-    # CKW-first filter if a search query `q` exists
-    try:
-        _q = q  # if not defined, NameError -> skip
-    except NameError:
-        _q = ""
-    if isinstance(_q, str) and _q.strip():
-        _df_show = _filter_df_ckw_first(_df_show, _q)
-
 # --- HScroll wrapper for Browse table (+ Help + pixel widths) ---
 
 # Optional top-of-browse help, driven by secrets
@@ -2016,7 +1961,19 @@ except NameError:
 if _table is None:
     st.warning("Browse table not available (no DataFrame found).")
 else:
-    _view = _table[view_cols] if set(view_cols).issubset(_table.columns) else _table
+    # Derive visible columns for Browse (hide meta/tech fields)
+    _hide = {
+        "id","created_at","updated_at","updated_by",
+        "ckw","ckw_locked","ckw_version","ckw_manual_extra","computed_keywords",
+        "city","state","zip"
+    }
+    try:
+        if "phone_fmt" in _table.columns and "phone" in _table.columns:
+            _hide.add("phone")
+    except Exception:
+        pass
+    view_cols = [c for c in _table.columns if c not in _hide]
+    _view = _table[view_cols]
 
     # Build Streamlit column_config from secrets (exact pixel widths)
     col_cfg = {}
