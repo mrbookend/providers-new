@@ -3071,7 +3071,8 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # === HCR INLINE BROWSE (tuple-safe) ========================================
 # === ANCHOR: BROWSE_INLINE_DEF (start) ===
 def __HCR_browse_render_inline():
-    import pandas as pd  # noqa: PLC0415
+    # (imports moved to module top)
+
 
     try:
         eng = get_engine()
