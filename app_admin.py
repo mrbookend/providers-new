@@ -1,4 +1,5 @@
 # === ANCHOR: IMPORTS (start) ===
+# noop: browse-widths scaffold (no functional change)
 from __future__ import annotations
 
 import hashlib
