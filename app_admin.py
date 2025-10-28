@@ -48,21 +48,18 @@ from sqlalchemy.engine import Engine
 # --- HCR: auto app version (no manual bumps) --------------------------------
 # === ANCHOR: AUTO_VER (start) ===
 def _auto_app_ver() -> str:
-    from datetime import datetime  # noqa: PLC0415, I001
-    import os  # noqa: PLC0415
-    import subprocess  # noqa: PLC0415
-
+    # Imports moved to module top; keep function lean for Ruff.
     date = datetime.utcnow().strftime("%Y-%m-%d")
     short = os.environ.get("GITHUB_SHA", "")
-    if short:
-        short = short[:7]
-    else:
+    if not short:
         try:
             short = subprocess.check_output(
                 ["git", "rev-parse", "--short", "HEAD"], text=True
             ).strip()
         except Exception:
             short = "local"
+    else:
+        short = short[:7]
     return f"admin-{date}.{short}"
 
 
@@ -70,6 +67,7 @@ APP_VER = "auto"
 if APP_VER in (None, "", "auto"):
     APP_VER = _auto_app_ver()
 # ----------------------------------------------------------------------------
+
 
 
 def _sha256_of_this_file() -> str:
@@ -1730,7 +1728,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
     """
     CKW-first, case-insensitive filter.
     Priority:
-      1) computed_keywords (or legacy CKW) if present and non-empty
+      1) computed_keywords (or legacy CKW/ckw) if present and non-empty
       2) minimal join of common text columns (fallback)
     No regex; whitespace collapsed; safe per-column coercions.
     """
@@ -1746,17 +1744,18 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         def _minimal_src(_df: pd.DataFrame) -> pd.Series:
             pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
             if pick:
-                ser = _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
-            else:
-                ser = pd.Series([""] * len(_df), index=_df.index, dtype="string")
-            return ser
+                return _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
+            return pd.Series([""] * len(_df), index=_df.index, dtype="string")
 
-        ckw_col = "computed_keywords" if "computed_keywords" in cols else ("CKW" if "CKW" in cols else None)
+        # Prefer CKW when present and non-empty; accept 'computed_keywords', 'CKW', or 'ckw'
+        ckw_col = (
+            "computed_keywords" if "computed_keywords" in cols
+            else ("CKW" if "CKW" in cols else ("ckw" if "ckw" in cols else None))
+        )
+        base = _minimal_src(df)
         if ckw_col:
             ckw = df[ckw_col].astype("string").fillna("")
-            base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
-        else:
-            base = _minimal_src(df)
+            base = ckw.where(ckw.str.len() > 0, base)
 
         src = (
             base.astype("string")
@@ -1924,30 +1923,36 @@ if _show_help:
 # ----------------------------------------------------------------------------
 
 # Show a one-line runtime banner on the first tab for quick verification
-# === ANCHOR: TABS_BROWSE_ENTER (start) ===
 # === ANCHOR: BROWSE_HEADER (start) ===
 # ---------- Browse
-# === ANCHOR: TABS_BROWSE_ENTER (start) ===
-# --- HScroll wrapper for Browse table (+ Help + pixel widths) ---
+
 # Help — Browse
 with st.expander("Help — Browse", expanded=False):
     st.markdown(
         """
 **What you see**
 - **Phone** shows formatted numbers `(xxx) xxx-xxxx` (from `phone_fmt` when available).
-- Hidden technical columns: `id`, timestamps, `updated_by`, all CKW internals (`computed_keywords`/`CKW`, `ckw_locked`, `ckw_version`, `ckw_manual_extra`), and the raw `phone`.
+- Hidden technical columns: `id`, timestamps, `updated_by`, CKW internals (`computed_keywords`/`CKW`, `ckw_locked`, `ckw_version`, `ckw_manual_extra`), and the raw `phone`/`phone_fmt`.
 - **keywords** is user-entered text and remains visible.
 
 **Searching**
 - Case-insensitive.
-- If `computed_keywords` (or legacy `CKW`) exists, search runs **only** on that column.
-- Otherwise, fallback search spans common text fields.
+- If `computed_keywords` (or legacy `CKW`) exists and is non-empty, search runs **only** on that column.
+- Otherwise, fallback search spans `business_name`, `category`, `service`, `notes`, and `keywords`.
 
 **CSV export**
 - **Download CSV (visible columns)** exports exactly what you see on screen: same columns, same order, with **Phone** (not raw `phone`/`phone_fmt`).
 """
     )
 # ---- end Help — Browse ----
+
+
+# === ANCHOR: TABS_BROWSE_ENTER (start) ===
+with _tabs[0]:
+    # Route Browse rendering to the inline function (tuple-safe, CSV, phone formatting).
+    __HCR_browse_render_inline()
+# === ANCHOR: TABS_BROWSE_ENTER (end) ===
+
 
 # Optional top-of-browse help, driven by secrets
 try:
@@ -3071,13 +3076,15 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # === HCR INLINE BROWSE (tuple-safe) ========================================
 # === ANCHOR: BROWSE_INLINE_DEF (start) ===
 def __HCR_browse_render_inline():
-    # (imports moved to module top)
-
+    # Minimal, clean Browse render for Providers (admin)
+    # - Shows formatted Phone only
+    # - Hides raw phone + CKW/meta/internal columns
+    # - CSV exports exactly the visible columns
 
     try:
         eng = get_engine()
 
-        # --- normalize engine: handle (engine, ...) tuples etc. -------------
+        # unwrap engine (tuple-safe)
         eng_norm = None
         if hasattr(eng, "connect"):
             eng_norm = eng
@@ -3090,44 +3097,66 @@ def __HCR_browse_render_inline():
             st.error(f"Engine normalization failed; got {type(eng)} value={eng!r}")
             return
 
-        # --- quick diagnostics ----------------------------------------------
-        try:
-            with eng_norm.connect() as cx:
-                try:
-                    dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-                except Exception:
-                    dbinfo = []
-                try:
-                    cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                except Exception as e:
-                    cnt = f"err: {e}"
-        except Exception as e:
-            st.error(f"Engine connect failed: {e}")
-            return
-
-        st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
-
-        # --- load & render ---------------------------------------------------
+        # load rows
         try:
             df = pd.read_sql("SELECT * FROM vendors", eng_norm)
         except Exception as e:
-            st.warning(f"SELECT * failed: {e}")
-            df = pd.DataFrame()
+            st.warning(f"Browse unavailable (vendors load failed): {e}")
+            return
 
+        # legacy address columns (tolerate, but drop)
         for _ban in ("city", "state", "zip"):
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(
-            df.drop(
-                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
-                errors="ignore",
-            ),
-            use_container_width=False,
-            hide_index=True,
-        )
+        # visible Phone column
+        df = df.copy()
+        if "phone_fmt" in df.columns:
+            df["Phone"] = df["phone_fmt"]
+        elif "phone" in df.columns:
+            df["Phone"] = df["phone"]
+        else:
+            df["Phone"] = ""
+
+        # hide internals/meta/raw phone
+        hide = {
+            "id", "created_at", "updated_at", "updated_by",
+            "computed_keywords", "CKW", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+            "phone", "phone_fmt",
+        }
+        view_cols = [c for c in df.columns if c not in hide]
+
+        # human-first column order when present
+        preferred = [
+            "business_name", "category", "service", "Phone",
+            "contact_name", "email", "website", "address",
+            "keywords",
+            "notes",
+        ]
+        ordered = [c for c in preferred if c in view_cols]
+        tail = [c for c in view_cols if c not in ordered]
+        view_cols = ordered + tail
+
+        # (optional) apply your query filter here so CSV matches filtered view:
+        # qq = st.session_state.get("browse_query", "")
+        # df = _filter_df_by_query(df, qq)
+
+        _view = df[view_cols]
+        st.dataframe(_view, use_container_width=False, hide_index=True)
+
+        # CSV: exactly visible columns
+        try:
+            csv_bytes = _view.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download CSV (visible columns)",
+                data=csv_bytes,
+                file_name="providers.csv",
+                mime="text/csv",
+            )
+        except Exception as _csv_e:
+            st.caption(f"CSV export unavailable: {_csv_e}")
+
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
-
-
 # === END HCR INLINE BROWSE ==================================================
+    # save-test
