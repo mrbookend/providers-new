@@ -48,21 +48,18 @@ from sqlalchemy.engine import Engine
 # --- HCR: auto app version (no manual bumps) --------------------------------
 # === ANCHOR: AUTO_VER (start) ===
 def _auto_app_ver() -> str:
-    from datetime import datetime  # noqa: PLC0415, I001
-    import os  # noqa: PLC0415
-    import subprocess  # noqa: PLC0415
-
+    # Imports moved to module top; keep function lean for Ruff.
     date = datetime.utcnow().strftime("%Y-%m-%d")
     short = os.environ.get("GITHUB_SHA", "")
-    if short:
-        short = short[:7]
-    else:
+    if not short:
         try:
             short = subprocess.check_output(
                 ["git", "rev-parse", "--short", "HEAD"], text=True
             ).strip()
         except Exception:
             short = "local"
+    else:
+        short = short[:7]
     return f"admin-{date}.{short}"
 
 
@@ -70,6 +67,7 @@ APP_VER = "auto"
 if APP_VER in (None, "", "auto"):
     APP_VER = _auto_app_ver()
 # ----------------------------------------------------------------------------
+
 
 
 def _sha256_of_this_file() -> str:
@@ -1824,73 +1822,10 @@ _tabs = st.tabs(
 )
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
-    import pandas as pd
+    # Route Browse rendering to the inline function (tuple-safe, CSV, phone formatting).
+    __HCR_browse_render_inline()
+# === ANCHOR: TABS_BROWSE_ENTER (end) ===
 
-    try:
-        eng = _engine()  # replace chunk with this single line
-
-        # load table
-        df = pd.read_sql("SELECT * FROM vendors", eng)
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
-
-        st.dataframe(
-            df.drop(
-                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
-                errors="ignore",
-            ),
-            use_container_width=False,
-            hide_index=True,
-        )
-    except Exception as _e:
-        st.error(f"Browse failed: {_e}")
-
-        # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
-        engine = None
-        if hasattr(eng, "connect"):
-            engine = eng
-        elif isinstance(eng, tuple):
-            for x in eng:
-                if hasattr(x, "connect"):
-                    engine = x
-                    break
-        if engine is None:
-            st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
-            raise SystemExit  # noqa: B904
-
-        # show live count so we know what DB we're actually reading
-        try:
-            with engine.connect() as cx:
-                # optional: see which sqlite file we're on
-                # dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                st.caption(f"rows={cnt}")
-        except Exception as e:
-            st.warning(f"count failed: {e}")
-
-        # load table
-        try:
-            df = pd.read_sql("SELECT * FROM vendors", engine)
-        except Exception as e:
-            st.warning(f"SELECT * failed: {e}")
-            df = pd.DataFrame()
-
-        # tolerate old CSV columns
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
-
-        st.dataframe(
-            df.drop(
-                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
-                errors="ignore",
-            ),
-            use_container_width=False,
-            hide_index=True,
-        )
-    except Exception as _e:  # noqa: B025
-        st.error(f"Browse failed: {_e}")
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
@@ -3061,12 +2996,15 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # === HCR INLINE BROWSE (tuple-safe) ========================================
 # === ANCHOR: BROWSE_INLINE_DEF (start) ===
 def __HCR_browse_render_inline():
-    import pandas as pd  # noqa: PLC0415
+    # Minimal, clean Browse render for Providers (admin)
+    # - Shows formatted Phone only
+    # - Hides raw phone + CKW/meta/internal columns
+    # - Optional CSV of exactly the visible columns
 
     try:
         eng = get_engine()
 
-        # --- normalize engine: handle (engine, ...) tuples etc. -------------
+        # --- unwrap a real engine (handle tuple returns) ---------------------
         eng_norm = None
         if hasattr(eng, "connect"):
             eng_norm = eng
@@ -3079,44 +3017,66 @@ def __HCR_browse_render_inline():
             st.error(f"Engine normalization failed; got {type(eng)} value={eng!r}")
             return
 
-        # --- quick diagnostics ----------------------------------------------
-        try:
-            with eng_norm.connect() as cx:
-                try:
-                    dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-                except Exception:
-                    dbinfo = []
-                try:
-                    cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                except Exception as e:
-                    cnt = f"err: {e}"
-        except Exception as e:
-            st.error(f"Engine connect failed: {e}")
-            return
-
-        st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
-
-        # --- load & render ---------------------------------------------------
+        # --- load ------------------------------------------------------------
         try:
             df = pd.read_sql("SELECT * FROM vendors", eng_norm)
         except Exception as e:
-            st.warning(f"SELECT * failed: {e}")
-            df = pd.DataFrame()
+            st.warning(f"Browse unavailable (vendors load failed): {e}")
+            return
 
+        # Optional legacy cleanup (address-only schema now)
         for _ban in ("city", "state", "zip"):
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(
-            df.drop(
-                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
-                errors="ignore",
-            ),
-            use_container_width=False,
-            hide_index=True,
-        )
+        # --- visible Phone column (formatted preferred) ----------------------
+        df = df.copy()
+        if "phone_fmt" in df.columns:
+            df["Phone"] = df["phone_fmt"]
+        elif "phone" in df.columns:
+            df["Phone"] = df["phone"]
+        else:
+            df["Phone"] = ""
+
+        # --- hide internal/tech columns -------------------------------------
+        hide = {
+            "id", "created_at", "updated_at", "updated_by",
+            "computed_keywords", "CKW", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+            "phone", "phone_fmt",
+        }
+        view_cols = [c for c in df.columns if c not in hide]
+
+        # --- human-first ordering if present ---------------------------------
+        preferred = [
+            "business_name", "category", "service", "Phone",
+            "contact_name", "email", "website", "address",
+            "keywords",  # user-entered only
+            "notes",
+        ]
+        ordered = [c for c in preferred if c in view_cols]
+        tail = [c for c in view_cols if c not in ordered]
+        view_cols = ordered + tail
+
+        # If you already have a query var, filter here so CSV matches the view:
+        # qq = st.session_state.get("browse_query", "")
+        # df = _filter_df_by_query(df, qq)
+
+        _view = df[view_cols]
+        st.dataframe(_view, use_container_width=False, hide_index=True)
+
+        # --- CSV export (exactly the visible columns, same order) ------------
+        try:
+            csv_bytes = _view.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download CSV (visible columns)",
+                data=csv_bytes,
+                file_name="providers.csv",
+                mime="text/csv",
+            )
+        except Exception as _csv_e:
+            st.caption(f"CSV export unavailable: {_csv_e}")
+
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
-
-
 # === END HCR INLINE BROWSE ==================================================
+
