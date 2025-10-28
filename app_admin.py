@@ -2488,7 +2488,7 @@ with _tabs[3]:
                             "UPDATE vendors SET service=:new WHERE service=:old",
                             {"new": new.strip(), "old": old},
                         )
-                        st.success(f"Renamed service: {old} â†’ {new.strip()}")
+                        st.success(f"Renamed service: {old} -> {new.strip()}")
                         _queue_svc_reset()
                         st.rerun()
                     except Exception as e:
@@ -2547,7 +2547,7 @@ with _tabs[4]:
         try:
             out = sync_reference_tables(engine)
             st.success(
-                f"Backfilled reference tables. (categoriesâ‰ˆ{out.get('categories', 0)}, servicesâ‰ˆ{out.get('services', 0)})"
+                f"Backfilled reference tables. (categories~{out.get('categories', 0)}, services~{out.get('services', 0)})"
             )
         except Exception as e:
             st.error(f"Backfill failed: {e}")
@@ -2585,7 +2585,7 @@ with _tabs[4]:
             mime="text/csv",
         )
 
-    # â”€â”€ CKW tools (NOT in an expander, to avoid nested expanders) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # --- CKW tools (NOT in an expander, to avoid nested expanders) --------------------------------
     st.subheader("CKW â€” Recompute")
     c1, c2 = st.columns(2)
     if c1.button("Recompute Unlocked", help="Updates rows where ckw_locked = 0"):
