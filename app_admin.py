@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # === ANCHOR: IMPORTS (start) ===
 from __future__ import annotations
 import hashlib
@@ -1687,10 +1686,7 @@ def _execute_append_only(
 # Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
 # Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
 # exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-import streamlit as _st_ps
-
-
+# ------------------------------------------------------------------------
 def _coerce_int(_v, _default):
     try:
         if isinstance(_v, (int, float)):
