@@ -2994,7 +2994,7 @@ def _read_text_file_patch3(path: str) -> str:
             path = os.path.abspath(path)
         if not os.path.exists(path):
             return ""
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return fh.read()
     except Exception:
         return ""
