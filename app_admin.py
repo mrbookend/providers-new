@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# === ANCHOR: IMPORTS (start) ===
 from __future__ import annotations
 import hashlib
 import hmac
@@ -14,11 +15,12 @@ from typing import Dict, List, Tuple
 import pandas as pd
 import streamlit as st
 
+# === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
     try:
         st.set_page_config(
-            page_title="Providers — Admin",
+            page_title="Providers â€” Admin",
             layout="wide",
             initial_sidebar_state="expanded",
         )
@@ -42,6 +44,7 @@ from sqlalchemy.engine import Engine
 
 
 # --- HCR: auto app version (no manual bumps) --------------------------------
+# === ANCHOR: AUTO_VER (start) ===
 def _auto_app_ver() -> str:
     from datetime import datetime
     import os
@@ -158,6 +161,7 @@ def _build_ckw_row(row: dict) -> str:
 # ---------------------------------------------------------------------------#
 
 
+# === ANCHOR: COMMIT_SYNC_PROBE (start) ===
 def _commit_sync_probe() -> Dict:
     """
     Returns a dict with file facts and PASS/FAIL checks against optional secrets:
@@ -231,6 +235,7 @@ def _debug_where_am_i():
     )
 
 
+# === ANCHOR: LIBSQL_REGISTER (start) ===
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
 try:
     import sqlalchemy_libsql as _sqlalchemy_libsql  # noqa: F401
@@ -362,20 +367,12 @@ def render_table_hscroll(df, *, key="browse_table"):
     col_cfg = _apply_column_widths(df, widths)
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
-    df.drop(
-        columns=[
-            "id", "created_at", "updated_at",
-            "updated_by", "updated by",     # cover both spellings
-            "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-        ],
-        errors="ignore",
-    ),
-    use_container_width=False,  # force horizontal scroll
-    hide_index=True,
-    column_config=(col_cfg or None),
-    key=key,
-)
-
+        df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"),
+        use_container_width=False,  # force horizontal scroll
+        hide_index=True,
+        column_config=(col_cfg or None),
+        key=key,
+    )
 # ----------------------------------------------------------------------------
 
 
@@ -405,6 +402,7 @@ def _column_config_from_secrets(cols: list[str]) -> dict:
 
 
 # --- engine resolver (safe fallback) ---
+# === ANCHOR: ENSURE_ENGINE (start) ===
 def _ensure_engine(eng):
     if eng is not None:
         return eng
@@ -565,12 +563,13 @@ def _ensure_ckw_column_and_index(eng) -> bool:
         return False
 
 
-# Deterministic resolution (secrets → env → code default)
+# Deterministic resolution (secrets â†’ env â†’ code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
     v = _get_secret(name, None)
     return _as_bool(v, default=code_default)
 
 
+# === ANCHOR: RESOLVE_STR (start) ===
 def _resolve_str(name: str, code_default: str | None) -> str | None:
     v = _get_secret(name, None)
     return v if v is not None else code_default
@@ -800,7 +799,7 @@ def _init_edit_form_defaults():
 def _apply_edit_reset_if_needed():
     """
     Apply queued reset BEFORE rendering edit widgets.
-    Also clear the selection (edit_vendor_id) and the selectbox key so the UI returns to “— Select —”.
+    Also clear the selection (edit_vendor_id) and the selectbox key so the UI returns to â€œâ€” Select â€”â€.
     """
     if st.session_state.get("_pending_edit_reset"):
         # Clear all edit fields AND selection
@@ -871,7 +870,7 @@ def _set_empty(*keys: str) -> None:
         st.session_state[k] = ""
 
 
-def _reset_select(key: str, sentinel: str = "— Select —") -> None:
+def _reset_select(key: str, sentinel: str = "â€” Select â€”") -> None:
     st.session_state[key] = sentinel
 
 
@@ -947,7 +946,7 @@ st.markdown(
 # -----------------------------
 # Admin sign-in gate (deterministic toggle)
 # -----------------------------
-# Code defaults (lowest precedence) — change here if you want different code-fallbacks.
+# Code defaults (lowest precedence) â€” change here if you want different code-fallbacks.
 DISABLE_ADMIN_PASSWORD_DEFAULT = True  # True = bypass, False = require password
 ADMIN_PASSWORD_DEFAULT = "admin"
 
@@ -981,6 +980,7 @@ else:
 REQUIRED_VENDOR_COLUMNS: List[str] = ["business_name", "category"]  # service optional
 
 
+# === ANCHOR: BUILD_ENGINE (start) ===
 def build_engine() -> Tuple[Engine, Dict]:
     """Prefer Turso/libsql embedded replica; otherwise local sqlite if FORCE_LOCAL=1."""
     info: Dict = {}
@@ -992,7 +992,7 @@ def build_engine() -> Tuple[Engine, Dict]:
     )
 
     if not url:
-        # No remote configured → use DB_PATH from secrets/env (defaults to vendors.db)
+        # No remote configured â†’ use DB_PATH from secrets/env (defaults to vendors.db)
         db_path = _resolve_str("DB_PATH", "vendors.db") or "vendors.db"
         eng = create_engine(
             f"sqlite:///{db_path}",
@@ -1154,7 +1154,9 @@ def sync_reference_tables(engine: Engine) -> dict:
     return inserted
 
 
+# === ANCHOR: SEED_IF_EMPTY_START (start) ===
 # --- Seed if empty (address-only) --- START
+# === ANCHOR: SEED_IF_EMPTY_DEF (start) ===
 def _seed_if_empty(eng=None) -> None:
     """Seed vendors from CSV when table exists but has 0 rows (address-only schema)."""
     # Gate via secrets
@@ -1187,7 +1189,7 @@ def _seed_if_empty(eng=None) -> None:
             if int(count) > 0:
                 return
     except Exception:
-        # Can’t inspect; bail quietly
+        # Canâ€™t inspect; bail quietly
         return
 
     # Load, sanitize to address-only, align columns, append
@@ -1479,6 +1481,7 @@ if submit:
 # --- end Add/Edit form submit ------------------------------------------------
 
 
+# === ANCHOR: NORMALIZE_PHONE (start) ===
 def _normalize_phone(val: str | None) -> str:
     if not val:
         return ""
@@ -1488,6 +1491,7 @@ def _normalize_phone(val: str | None) -> str:
     return digits if len(digits) == 10 else digits
 
 
+# === ANCHOR: FORMAT_PHONE (start) ===
 def _format_phone(val: str | None) -> str:
     s = re.sub(r"\D", "", str(val or ""))
     if len(s) == 10:
@@ -1504,7 +1508,7 @@ def _sanitize_url(url: str | None) -> str:
     return url
 
 
-# ────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def load_df(engine: Engine) -> pd.DataFrame:
     with engine.begin() as conn:
         df = pd.read_sql(sql_text("SELECT * FROM vendors ORDER BY lower(business_name)"), conn)
@@ -1536,6 +1540,7 @@ def load_df(engine: Engine) -> pd.DataFrame:
     return df
 
 
+# === ANCHOR: LIST_NAMES (start) ===
 def list_names(engine: Engine, table: str) -> list[str]:
     with engine.begin() as conn:
         rows = conn.execute(sql_text(f"SELECT name FROM {table} ORDER BY lower(name)")).fetchall()
@@ -1682,7 +1687,7 @@ def _execute_append_only(
 # Patch 5 (2025-10-24): PAGE_SIZE from secrets (bounded, session-backed)
 # Reads PAGE_SIZE from st.secrets (int), bounds it [20..1000], default 200,
 # exposes get_page_size() and caches it in st.session_state["PAGE_SIZE"].
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import streamlit as _st_ps
 
 
@@ -1814,69 +1819,61 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
+# === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
     import pandas as pd
 
-try:
-    eng = _engine()  # ✅ replace chunk with this single line
+    try:
+        eng = _engine()  # âœ… replace chunk with this single line
 
-    # load table
-    df = pd.read_sql("SELECT * FROM vendors", eng)
+        # load table
+        df = pd.read_sql("SELECT * FROM vendors", eng)
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
 
-    # tolerate old CSV columns
-    for _ban in ("city", "state", "zip"):
-        if _ban in df.columns:
-            df.drop(columns=[_ban], inplace=True)
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
+    except Exception as _e:
+        st.error(f"Browse failed: {_e}")
 
-    st.dataframe(
-        df.drop(
-            columns=[
-                "id", "created_at", "updated_at",
-                "updated_by", "updated by",
-                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-            ],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-    )
-except Exception as _e:
-    st.error(f"Browse failed: {_e}")
+        # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
+        engine = None
+        if hasattr(eng, "connect"):
+            engine = eng
+        elif isinstance(eng, tuple):
+            for x in eng:
+                if hasattr(x, "connect"):
+                    engine = x
+                    break
+        if engine is None:
+            st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
+            raise SystemExit
 
-# show live count so we know what DB we’re actually reading
-try:
-    with eng.connect() as cx:
-        cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-    st.caption(f"rows={cnt}")
-except Exception as e:
-    st.warning(f"count failed: {e}")
+        # show live count so we know what DB weâ€™re actually reading
+        try:
+            with engine.connect() as cx:
+                # optional: see which sqlite file we're on
+                # dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
+                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+                st.caption(f"rows={cnt}")
+        except Exception as e:
+            st.warning(f"count failed: {e}")
 
-# load table
+        # load table
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", engine)
+        except Exception as e:
+            st.warning(f"SELECT * failed: {e}")
+            df = pd.DataFrame()
 
-df = pd.read_sql("SELECT * FROM vendors", eng)
-for _ban in ("city", "state", "zip"):
-    if _ban in df.columns:
-        df.drop(columns=[_ban], inplace=True)
+        # tolerate old CSV columns
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
 
-
-try:
-    st.dataframe(
-        df.drop(
-            columns=[
-                "id", "created_at", "updated_at",
-                "updated_by", "updated by",
-                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-            ],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-    )
-except Exception as _e:
-    st.error(f"Browse failed: {_e}")
-
-
-
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
+    except Exception as _e:
+        st.error(f"Browse failed: {_e}")
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
@@ -1904,7 +1901,7 @@ def _hscroll_container_close():
 _browse_help_block()
 # ---------------------------------------------------------------------------
 
-# --- HCR: Help — Browse -----------------------------------------------------
+# --- HCR: Help â€” Browse -----------------------------------------------------
 _show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
 if _show_help:
     help_md = st.secrets.get("BROWSE_HELP_MD", "")
@@ -1919,19 +1916,22 @@ if _show_help:
 # ----------------------------------------------------------------------------
 
 # Show a one-line runtime banner on the first tab for quick verification
+# === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
     _debug_where_am_i()
     st.caption("")
     st.session_state.get("_browse_help_render", lambda: None)()
 
 
+# === ANCHOR: BROWSE_HEADER (start) ===
 # ---------- Browse
+# === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
     df = load_df(engine)
     ckw_ok = _has_ckw_column(engine)
     # CKW schema tool (guarded)
     if not ckw_ok:
-        with st.expander("Schema tools — Computed Keywords (CKW)", expanded=False):
+        with st.expander("Schema tools â€” Computed Keywords (CKW)", expanded=False):
             st.warning("This will ALTER TABLE to add a 'ckw' TEXT column and create an index.")
             if st.button("Add 'ckw' column + index", type="primary"):
                 if _ensure_ckw_column_and_index(engine):
@@ -1939,10 +1939,10 @@ with _tabs[0]:
                 else:
                     st.info("No changes made (already present or failed).")
 
-    # Help — Browse
+    # Help â€” Browse
     if st.secrets.get("SHOW_BROWSE_HELP", False):
         help_md = st.secrets.get("BROWSE_HELP_MD") or ""
-        st.expander("Help — Browse", expanded=False).markdown(help_md or "_No help configured._")
+        st.expander("Help â€” Browse", expanded=False).markdown(help_md or "_No help configured._")
 
     # exact-pixel widths + horiz scroll
     try:
@@ -2046,7 +2046,7 @@ with _tabs[1]:
         with col1:
             st.text_input("Provider *", key="add_business_name")
 
-            # Category select—options include "" placeholder; we DON'T pass index when using session state
+            # Category selectâ€”options include "" placeholder; we DON'T pass index when using session state
             _add_cat_options = [""] + (cats or [])
             if (st.session_state.get("add_category") or "") not in _add_cat_options:
                 st.session_state["add_category"] = ""
@@ -2057,7 +2057,7 @@ with _tabs[1]:
                 placeholder="Select category",
             )
 
-            # Service select—same pattern
+            # Service selectâ€”same pattern
             _add_svc_options = [""] + (servs or [])
             if (st.session_state.get("add_service") or "") not in _add_svc_options:
                 st.session_state["add_service"] = ""
@@ -2067,7 +2067,7 @@ with _tabs[1]:
             st.text_input("Phone (10 digits or blank)", key="add_phone")
         with col2:
             st.text_area("Address", height=80, key="add_address")
-            st.text_input("Website (https://…)", key="add_website")
+            st.text_input("Website (https://â€¦)", key="add_website")
             st.text_area("Notes", height=100, key="add_notes")
             st.text_input("Keywords (comma separated)", key="add_keywords")
 
@@ -2147,7 +2147,7 @@ with _tabs[1]:
 
         def _fmt_vendor(i: int | None) -> str:
             if i is None:
-                return "— Select —"
+                return "â€” Select â€”"
             r = id_to_row.get(int(i), None)
             if r is None:
                 return f"{i}"
@@ -2155,7 +2155,7 @@ with _tabs[1]:
             svc = r.get("service") or ""
             tail = " / ".join([x for x in (cat, svc) if x]).strip(" /")
             name = str(r.get("business_name") or "")
-            return f"{name} — {tail}" if tail else name
+            return f"{name} â€” {tail}" if tail else name
 
         st.selectbox(
             "Select provider to edit (type to search)",
@@ -2213,7 +2213,7 @@ with _tabs[1]:
                 st.text_input("Phone (10 digits or blank)", key="edit_phone")
             with col2:
                 st.text_area("Address", height=80, key="edit_address")
-                st.text_input("Website (https://…)", key="edit_website")
+                st.text_input("Website (https://â€¦)", key="edit_website")
                 st.text_area("Notes", height=100, key="edit_notes")
                 st.text_input("Keywords (comma separated)", key="edit_keywords")
 
@@ -2294,10 +2294,10 @@ with _tabs[1]:
         # Use separate delete selection (ID-backed similar approach could be added later)
         sel_label_del = st.selectbox(
             "Select provider to delete (type to search)",
-            options=["— Select —"] + [_fmt_vendor(i) for i in ids],
+            options=["â€” Select â€”"] + [_fmt_vendor(i) for i in ids],
             key="delete_provider_label",
         )
-        if sel_label_del != "— Select —":
+        if sel_label_del != "â€” Select â€”":
             # map back to id cheaply
             rev = {_fmt_vendor(i): i for i in ids}
             st.session_state["delete_vendor_id"] = int(rev.get(sel_label_del))
@@ -2349,7 +2349,7 @@ with _tabs[2]:
     _apply_cat_reset_if_needed()
 
     cats = list_names(engine, "categories")
-    cat_opts = ["— Select —"] + cats  # sentinel first
+    cat_opts = ["â€” Select â€”"] + cats  # sentinel first
 
     colA, colB = st.columns(2)
     with colA:
@@ -2376,7 +2376,7 @@ with _tabs[2]:
             old = st.selectbox("Current", options=cat_opts, key="cat_old")  # no index
             new = st.text_input("New name", key="cat_rename")
             if st.button("Rename", key="cat_rename_btn"):
-                if old == "— Select —":
+                if old == "â€” Select â€”":
                     st.error("Pick a category to rename.")
                 elif not (new or "").strip():
                     st.error("Enter a new name.")
@@ -2402,7 +2402,7 @@ with _tabs[2]:
         st.subheader("Delete / Reassign")
         if cats:
             tgt = st.selectbox("Category to delete", options=cat_opts, key="cat_del")  # no index
-            if tgt == "— Select —":
+            if tgt == "â€” Select â€”":
                 st.write("Select a category.")
             else:
                 cnt = usage_count(engine, "category", tgt)
@@ -2419,12 +2419,12 @@ with _tabs[2]:
                         except Exception as e:
                             st.error(f"Delete category failed: {e}")
                 else:
-                    repl_options = ["— Select —"] + [c for c in cats if c != tgt]
+                    repl_options = ["â€” Select â€”"] + [c for c in cats if c != tgt]
                     repl = st.selectbox(
-                        "Reassign vendors to…", options=repl_options, key="cat_reassign_to"
+                        "Reassign vendors toâ€¦", options=repl_options, key="cat_reassign_to"
                     )  # no index
                     if st.button("Reassign vendors then delete", key="cat_reassign_btn"):
-                        if repl == "— Select —":
+                        if repl == "â€” Select â€”":
                             st.error("Choose a category to reassign to.")
                         else:
                             try:
@@ -2449,7 +2449,7 @@ with _tabs[3]:
     _apply_svc_reset_if_needed()
 
     servs = list_names(engine, "services")
-    svc_opts = ["— Select —"] + servs  # sentinel first
+    svc_opts = ["â€” Select â€”"] + servs  # sentinel first
 
     colA, colB = st.columns(2)
     with colA:
@@ -2476,7 +2476,7 @@ with _tabs[3]:
             old = st.selectbox("Current", options=svc_opts, key="svc_old")  # no index
             new = st.text_input("New name", key="svc_rename")
             if st.button("Rename Service", key="svc_rename_btn"):
-                if old == "— Select —":
+                if old == "â€” Select â€”":
                     st.error("Pick a service to rename.")
                 elif not (new or "").strip():
                     st.error("Enter a new name.")
@@ -2492,7 +2492,7 @@ with _tabs[3]:
                             "UPDATE vendors SET service=:new WHERE service=:old",
                             {"new": new.strip(), "old": old},
                         )
-                        st.success(f"Renamed service: {old} → {new.strip()}")
+                        st.success(f"Renamed service: {old} â†’ {new.strip()}")
                         _queue_svc_reset()
                         st.rerun()
                     except Exception as e:
@@ -2502,7 +2502,7 @@ with _tabs[3]:
         st.subheader("Delete / Reassign")
         if servs:
             tgt = st.selectbox("Service to delete", options=svc_opts, key="svc_del")  # no index
-            if tgt == "— Select —":
+            if tgt == "â€” Select â€”":
                 st.write("Select a service.")
             else:
                 cnt = usage_count(engine, "service", tgt)
@@ -2519,12 +2519,12 @@ with _tabs[3]:
                         except Exception as e:
                             st.error(f"Delete service failed: {e}")
                 else:
-                    repl_options = ["— Select —"] + [s for s in servs if s != tgt]
+                    repl_options = ["â€” Select â€”"] + [s for s in servs if s != tgt]
                     repl = st.selectbox(
-                        "Reassign vendors to…", options=repl_options, key="svc_reassign_to"
+                        "Reassign vendors toâ€¦", options=repl_options, key="svc_reassign_to"
                     )  # no index
                     if st.button("Reassign vendors then delete service", key="svc_reassign_btn"):
-                        if repl == "— Select —":
+                        if repl == "â€” Select â€”":
                             st.error("Choose a service to reassign to.")
                         else:
                             try:
@@ -2551,7 +2551,7 @@ with _tabs[4]:
         try:
             out = sync_reference_tables(engine)
             st.success(
-                f"Backfilled reference tables. (categories≈{out.get('categories', 0)}, services≈{out.get('services', 0)})"
+                f"Backfilled reference tables. (categoriesâ‰ˆ{out.get('categories', 0)}, servicesâ‰ˆ{out.get('services', 0)})"
             )
         except Exception as e:
             st.error(f"Backfill failed: {e}")
@@ -2563,7 +2563,7 @@ with _tabs[4]:
     with engine.begin() as conn:
         full = pd.read_sql(sql_text(query), conn)
 
-    # Dual exports: full dataset — formatted phones and digits-only
+    # Dual exports: full dataset â€” formatted phones and digits-only
     full_formatted = full.copy()
 
     def _format_phone_digits(x: str | int | None) -> str:
@@ -2589,8 +2589,8 @@ with _tabs[4]:
             mime="text/csv",
         )
 
-    # ── CKW tools (NOT in an expander, to avoid nested expanders) ────────────
-    st.subheader("CKW — Recompute")
+    # â”€â”€ CKW tools (NOT in an expander, to avoid nested expanders) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    st.subheader("CKW â€” Recompute")
     c1, c2 = st.columns(2)
     if c1.button("Recompute Unlocked", help="Updates rows where ckw_locked = 0"):
         n = recompute_ckw_unlocked(get_engine())
@@ -2619,7 +2619,7 @@ with _tabs[4]:
         with col3:
             normalize_phone = st.checkbox("Normalize phone to digits", value=True)
         with col4:
-            auto_id = st.checkbox("Missing `id` ➜ autoincrement", value=True)
+            auto_id = st.checkbox("Missing `id` âžœ autoincrement", value=True)
 
         if uploaded is not None:
             try:
@@ -2834,7 +2834,7 @@ with _tabs[4]:
 with _tabs[5]:
     _debug_where_am_i()
     st.info(
-        f"Active DB: {engine_info.get('sqlalchemy_url')}  •  remote={engine_info.get('using_remote')}"
+        f"Active DB: {engine_info.get('sqlalchemy_url')}  â€¢  remote={engine_info.get('using_remote')}"
     )
 
 with _tabs[5]:
@@ -2874,9 +2874,10 @@ with _tabs[5]:
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# === ANCHOR: PATCH1_HSCROLL (start) ===
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import streamlit as _st_patch1  # safe alias to avoid name shadowing
 
 
@@ -2906,9 +2907,10 @@ def _enable_horizontal_scroll() -> None:
 
 
 _enable_horizontal_scroll()
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# === ANCHOR: PATCH2_COLWIDTHS (start) ===
 # Patch 2 (2025-10-24): Secrets-driven exact pixel column widths (global)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import json as _json_patch2
 import streamlit as _st_patch2
 
@@ -2967,9 +2969,10 @@ def _apply_exact_column_widths_from_secrets() -> None:
 
 
 _apply_exact_column_widths_from_secrets()
-# ─────────────────────────────────────────────────────────────────────────────
-# Patch 3 (2025-10-24): Help — Browse helper (secrets-driven, reusable)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# === ANCHOR: PATCH3_HELP (start) ===
+# Patch 3 (2025-10-24): Help â€” Browse helper (secrets-driven, reusable)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import streamlit as _st_patch3
 
 
@@ -3014,7 +3017,7 @@ def _load_browse_help_md() -> str:
 
 
 def render_browse_help_expander() -> None:
-    """Render the Help — Browse expander if SHOW_BROWSE_HELP is true and content exists."""
+    """Render the Help â€” Browse expander if SHOW_BROWSE_HELP is true and content exists."""
     try:
         sec = _st_patch3.secrets
     except Exception:
@@ -3025,7 +3028,7 @@ def render_browse_help_expander() -> None:
     md = _load_browse_help_md()
     if not md:
         return
-    with _st_patch3.expander("Help — Browse", expanded=False):
+    with _st_patch3.expander("Help â€” Browse", expanded=False):
         _st_patch3.markdown(md)
 
 
@@ -3038,9 +3041,9 @@ st.session_state["_browse_help_render"] = render_browse_help_expander
 
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Patch 7 (2025-10-24): CKW schema helpers (additive only; no auto-exec)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _vendors_has_column(eng, col: str) -> bool:
@@ -3076,7 +3079,9 @@ def _ensure_ckw_column_and_index(eng) -> bool:
     return changed
 
 
+# === ANCHOR: BROWSE_INLINE_START (start) ===
 # === HCR INLINE BROWSE (tuple-safe) ========================================
+# === ANCHOR: BROWSE_INLINE_DEF (start) ===
 def __HCR_browse_render_inline():
     import pandas as pd
 
@@ -3113,42 +3118,20 @@ def __HCR_browse_render_inline():
 
         st.caption(f"engine={type(eng_norm).__name__} dbinfo={dbinfo} count={cnt}")
 
-# show live count so we know what DB we’re actually reading
-try:
-    with eng.connect() as cx:
-        cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-    st.caption(f"rows={cnt}")
-except Exception as e:
-    st.warning(f"count failed: {e}")
+        # --- load & render ---------------------------------------------------
+        try:
+            df = pd.read_sql("SELECT * FROM vendors", eng_norm)
+        except Exception as e:
+            st.warning(f"SELECT * failed: {e}")
+            df = pd.DataFrame()
 
-# --- load & render ---------------------------------------------------
-try:
-    df = pd.read_sql("SELECT * FROM vendors", eng)
-except Exception as e:
-    st.warning(f"SELECT * failed: {e}")
-    df = pd.DataFrame()
+        for _ban in ("city", "state", "zip"):
+            if _ban in df.columns:
+                df.drop(columns=[_ban], inplace=True)
 
-# address-only: drop legacy location fields if present
-for _ban in ("city", "state", "zip"):
-    if _ban in df.columns:
-        df.drop(columns=[_ban], inplace=True)
-
-try:
-    st.dataframe(
-        df.drop(
-            columns=[
-                "id", "created_at", "updated_at",
-                "updated_by", "updated by",
-                "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-                "computed_keywords",
-            ],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-    )
-except Exception as _e:
-    st.error(f"Browse inline failed: {_e}")
+        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
+    except Exception as _e:
+        st.error(f"Browse inline failed: {_e}")
 
 
 # === END HCR INLINE BROWSE ==================================================
