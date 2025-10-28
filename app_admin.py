@@ -1821,7 +1821,7 @@ _tabs = st.tabs(
     ]
 )
 # ===== Browse render (providers) =====
-import pandas as pd  # NOTE: if already imported at top, Ruff will remove this on format
+# (imports moved to top; no mid-file imports here)
 
 def _admin_hidden_cols(df_cols: list[str]) -> list[str]:
     # Keep 'keywords' visible (user-entered); hide CKW/meta/raw phone
