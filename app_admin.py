@@ -1730,7 +1730,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
     """
     CKW-first, case-insensitive filter.
     Priority:
-      1) computed_keywords if present and non-empty
+      1) computed_keywords (or legacy CKW) if present and non-empty
       2) minimal join of common text columns (fallback)
     No regex; whitespace collapsed; safe per-column coercions.
     """
@@ -1744,19 +1744,16 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         cols = set(map(str, getattr(df, "columns", [])))
 
         def _minimal_src(_df: pd.DataFrame) -> pd.Series:
-            pick = [
-                c
-                for c in ("business_name", "category", "service", "notes", "keywords")
-                if c in cols
-            ]
+            pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
             if pick:
                 ser = _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
             else:
                 ser = pd.Series([""] * len(_df), index=_df.index, dtype="string")
             return ser
 
-        if "computed_keywords" in cols:
-            ckw = df["computed_keywords"].astype("string").fillna("")
+        ckw_col = "computed_keywords" if "computed_keywords" in cols else ("CKW" if "CKW" in cols else None)
+        if ckw_col:
+            ckw = df[ckw_col].astype("string").fillna("")
             base = ckw.where(ckw.str.len() > 0, _minimal_src(df))
         else:
             base = _minimal_src(df)
@@ -1776,6 +1773,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         except Exception:
             pass
         return df
+
 
 
 # --- initialize engine and schema (order matters) ----------------------------
@@ -1814,83 +1812,68 @@ except Exception:
 
 _tabs = st.tabs(
     [
-        "Browse Vendors",
-        "Add / Edit / Delete Vendor",
+        "Browse Providers"
+        "Add / Edit / Delete Provider"
         "Category Admin",
         "Service Admin",
         "Maintenance",
         "Debug",
     ]
 )
-# === ANCHOR: TABS_BROWSE_ENTER (start) ===
-with _tabs[0]:
-    import pandas as pd
+# ===== Browse render (providers) =====
+import pandas as pd
 
-    try:
-        eng = _engine()  # replace chunk with this single line
+def _admin_hidden_cols(df_cols: list[str]) -> list[str]:
+    # Keep 'keywords' visible (user-entered); hide CKW + meta + raw phone
+    hide = {
+        "id", "created_at", "updated_at", "updated_by",
+        "computed_keywords", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
+        "phone",  # raw digits column hidden; we show the formatted version only
+    }
+    # Only hide columns that actually exist
+    return [c for c in df_cols if c in hide]
 
-        # load table
-        df = pd.read_sql("SELECT * FROM vendors", eng)
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
+# Load and prepare
+try:
+    eng = get_engine()
+    df = pd.read_sql("SELECT * FROM vendors", eng)
 
-        st.dataframe(
-            df.drop(
-                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
-                errors="ignore",
-            ),
-            use_container_width=False,
-            hide_index=True,
-        )
-    except Exception as _e:
-        st.error(f"Browse failed: {_e}")
+    # Prefer formatted phone; expose as "Phone"
+    if "phone_fmt" in df.columns:
+        df = df.copy()
+        df["Phone"] = df["phone_fmt"]
+    elif "phone" in df.columns:
+        # If no phone_fmt exists, leave the original phone column visible as-is
+        df = df.copy()
+        df["Phone"] = df["phone"]
 
-        # --- normalize: unwrap (engine, ...) to a real SQLAlchemy Engine
-        engine = None
-        if hasattr(eng, "connect"):
-            engine = eng
-        elif isinstance(eng, tuple):
-            for x in eng:
-                if hasattr(x, "connect"):
-                    engine = x
-                    break
-        if engine is None:
-            st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
-            raise SystemExit  # noqa: B904
+    # Compute view columns: drop hidden/meta + internal CKW
+    hidden = set(_admin_hidden_cols(df.columns.tolist()))
+    # Also drop phone_fmt after we’ve created "Phone"
+    if "phone_fmt" in df.columns:
+        hidden.add("phone_fmt")
 
-        # show live count so we know what DB we're actually reading
-        try:
-            with engine.connect() as cx:
-                # optional: see which sqlite file we're on
-                # dbinfo = cx.exec_driver_sql("PRAGMA database_list").fetchall()
-                cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-                st.caption(f"rows={cnt}")
-        except Exception as e:
-            st.warning(f"count failed: {e}")
+    view_cols = [c for c in df.columns if c not in hidden]
 
-        # load table
-        try:
-            df = pd.read_sql("SELECT * FROM vendors", engine)
-        except Exception as e:
-            st.warning(f"SELECT * failed: {e}")
-            df = pd.DataFrame()
+    # Optional: ensure a stable, human-first order if present
+    preferred = [
+        "business_name", "category", "service", "Phone",
+        "contact_name", "email", "website", "address",
+        "keywords",  # user-entered only
+        "notes",
+    ]
+    ordered = [c for c in preferred if c in view_cols]
+    tail = [c for c in view_cols if c not in ordered]
+    view_cols = ordered + tail
 
-        # tolerate old CSV columns
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
+    # Render
+    _view = df[view_cols]
+    st.dataframe(_view, use_container_width=False, hide_index=True)
 
-        st.dataframe(
-            df.drop(
-                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
-                errors="ignore",
-            ),
-            use_container_width=False,
-            hide_index=True,
-        )
-    except Exception as _e:  # noqa: B025
-        st.error(f"Browse failed: {_e}")
+except Exception as _e:
+    st.warning(f"Browse unavailable: {_e}")
+# ===== end Browse render (providers) =====
+
 
 
 # --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
@@ -1938,6 +1921,25 @@ if _show_help:
 # ---------- Browse
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
 # --- HScroll wrapper for Browse table (+ Help + pixel widths) ---
+# Help — Browse
+with st.expander("Help — Browse", expanded=False):
+    st.markdown(
+        """
+**What you see**
+- **Phone** shows formatted numbers `(xxx) xxx-xxxx` (from `phone_fmt` when available).
+- Hidden technical columns: `id`, timestamps, `updated_by`, all CKW internals (`computed_keywords`/`CKW`, `ckw_locked`, `ckw_version`, `ckw_manual_extra`), and the raw `phone`.
+- **keywords** is user-entered text and remains visible.
+
+**Searching**
+- Case-insensitive.
+- If `computed_keywords` (or legacy `CKW`) exists, search runs **only** on that column.
+- Otherwise, fallback search spans common text fields.
+
+**CSV export**
+- **Download CSV (visible columns)** exports exactly what you see on screen: same columns, same order, with **Phone** (not raw `phone`/`phone_fmt`).
+"""
+    )
+# ---- end Help — Browse ----
 
 # Optional top-of-browse help, driven by secrets
 try:
@@ -2103,7 +2105,7 @@ with _tabs[1]:
                     },
                 )
                 st.session_state["add_last_done"] = add_nonce
-                st.success(f"Vendor added: {business_name}")
+                st.success(f"Provider added: {business_name}")
                 _queue_add_form_reset()
                 _nonce_rotate("add")
                 st.rerun()
@@ -2406,7 +2408,7 @@ with _tabs[2]:
                     repl = st.selectbox(
                         "Reassign vendors to...", options=repl_options, key="cat_reassign_to"
                     )  # no index
-                    if st.button("Reassign vendors then delete", key="cat_reassign_btn"):
+                    if st.button("Reassign vendor then delete", key="cat_reassign_btn"):
                         if repl == "-- Select --":
                             st.error("Choose a category to reassign to.")
                         else:
@@ -2506,7 +2508,7 @@ with _tabs[3]:
                     repl = st.selectbox(
                         "Reassign vendors to...", options=repl_options, key="svc_reassign_to"
                     )  # no index
-                    if st.button("Reassign vendors then delete service", key="svc_reassign_btn"):
+                    if st.button("Reassign vendor then delete service", key="svc_reassign_btn"):
                         if repl == "-- Select --":
                             st.error("Choose a service to reassign to.")
                         else:
