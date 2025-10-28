@@ -2627,8 +2627,9 @@ with _tabs[4]:
                     df_in,
                     normalize_phone=normalize_phone,
                     trim_strings=trim_strings,
-                    treat_missing_id_as_autoincrement=auto_id,
+                    treat_missing_id_as_autoincrement=st.session_state.get("auto_id", True),
                 )
+
 
                 planned_inserts = len(with_id_df) + len(without_id_df)
 
@@ -2921,8 +2922,8 @@ def _apply_exact_column_widths_from_secrets() -> None:
             f"""
 <script>
 (function() {{
-  const cfgRaw = {json.dumps(cfg_raw)};
-  const cfgLow = {json.dumps({k.lower(): v for k, v in cfg_raw.items()})};
+  const cfgRaw = {_json_patch2.dumps(cfg_raw)};
+  const cfgLow = {_json_patch2.dumps({k.lower(): v for k, v in cfg_raw.items()})};
   // Utility: set width on a TH cell if its text matches a key
   function setWidth(th) {{
     if (!th) return;
