@@ -7,6 +7,7 @@ import re
 import subprocess
 import time
 import uuid
+import json
 from datetime import datetime
 
 from typing import Dict, List, Tuple
@@ -2922,8 +2923,8 @@ def _apply_exact_column_widths_from_secrets() -> None:
             f"""
 <script>
 (function() {{
-  const cfgRaw = {_json_patch2.dumps(cfg_raw)};
-  const cfgLow = {_json_patch2.dumps({k.lower(): v for k, v in cfg_raw.items()})};
+  const cfgRaw = {json.dumps(cfg_raw)};
+  const cfgLow = {json.dumps({k.lower(): v for k, v in cfg_raw.items()})};
   // Utility: set width on a TH cell if its text matches a key
   function setWidth(th) {{
     if (!th) return;
