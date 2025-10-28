@@ -19,13 +19,15 @@ import streamlit as st
 if not globals().get("_PAGE_CFG_DONE"):
     try:
         st.set_page_config(
-            page_title="Providers â€” Admin",
+            page_title="Providers - Admin",
             layout="wide",
             initial_sidebar_state="expanded",
         )
     except Exception:
         pass
     globals()["_PAGE_CFG_DONE"] = True
+# === ANCHOR: PAGE_CONFIG (end) ===
+
 # --- Session defaults (safe no-ops) --- START
 # Ensure optional callbacks/values exist to avoid KeyError at call sites.
 if "_browse_help_render" not in st.session_state:
@@ -562,7 +564,7 @@ def _ensure_ckw_column_and_index(eng) -> bool:
         return False
 
 
-# Deterministic resolution (secrets â†’ env â†’ code default)
+# Deterministic resolution (secrets -> env -> code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
     v = _get_secret(name, None)
     return _as_bool(v, default=code_default)
@@ -798,7 +800,7 @@ def _init_edit_form_defaults():
 def _apply_edit_reset_if_needed():
     """
     Apply queued reset BEFORE rendering edit widgets.
-    Also clear the selection (edit_vendor_id) and the selectbox key so the UI returns to â€œâ€” Select â€”â€.
+    # Also clear the selection (edit_vendor_id) and the selectbox key so the UI returns to "-- Select --".
     """
     if st.session_state.get("_pending_edit_reset"):
         # Clear all edit fields AND selection
