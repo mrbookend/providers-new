@@ -1190,7 +1190,7 @@ def _seed_if_empty(eng=None) -> None:
             if int(count) > 0:
                 return
     except Exception:
-        # Canâ€™t inspect; bail quietly
+        # Can't inspect; bail quietly
         return
 
     # Load, sanitize to address-only, align columns, append
@@ -1822,7 +1822,7 @@ with _tabs[0]:
     import pandas as pd
 
     try:
-        eng = _engine()  # âœ… replace chunk with this single line
+        eng = _engine() # replace chunk with this single line
 
         # load table
         df = pd.read_sql("SELECT * FROM vendors", eng)
@@ -1847,7 +1847,7 @@ with _tabs[0]:
             st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
             raise SystemExit
 
-        # show live count so we know what DB weâ€™re actually reading
+        # show live count so we know what DB we're actually reading
         try:
             with engine.connect() as cx:
                 # optional: see which sqlite file we're on
@@ -2065,7 +2065,7 @@ with _tabs[1]:
             st.text_input("Phone (10 digits or blank)", key="add_phone")
         with col2:
             st.text_area("Address", height=80, key="add_address")
-            st.text_input("Website (https://â€¦)", key="add_website")
+            st.text_input("Website (https://...)", key="add_website")
             st.text_area("Notes", height=100, key="add_notes")
             st.text_input("Keywords (comma separated)", key="add_keywords")
 
@@ -2211,7 +2211,7 @@ with _tabs[1]:
                 st.text_input("Phone (10 digits or blank)", key="edit_phone")
             with col2:
                 st.text_area("Address", height=80, key="edit_address")
-                st.text_input("Website (https://â€¦)", key="edit_website")
+                st.text_input("Website (https://...)", key="edit_website")
                 st.text_area("Notes", height=100, key="edit_notes")
                 st.text_input("Keywords (comma separated)", key="edit_keywords")
 
@@ -2419,7 +2419,7 @@ with _tabs[2]:
                 else:
                     repl_options = ["-- Select --"] + [c for c in cats if c != tgt]
                     repl = st.selectbox(
-                        "Reassign vendors toâ€¦", options=repl_options, key="cat_reassign_to"
+                        "Reassign vendors to...", options=repl_options, key="cat_reassign_to"
                     )  # no index
                     if st.button("Reassign vendors then delete", key="cat_reassign_btn"):
                         if repl == "-- Select --":
@@ -2519,7 +2519,7 @@ with _tabs[3]:
                 else:
                     repl_options = ["-- Select --"] + [s for s in servs if s != tgt]
                     repl = st.selectbox(
-                        "Reassign vendors toâ€¦", options=repl_options, key="svc_reassign_to"
+                        "Reassign vendors to...", options=repl_options, key="svc_reassign_to"
                     )  # no index
                     if st.button("Reassign vendors then delete service", key="svc_reassign_btn"):
                         if repl == "-- Select --":
@@ -2617,7 +2617,7 @@ with _tabs[4]:
         with col3:
             normalize_phone = st.checkbox("Normalize phone to digits", value=True)
         with col4:
-            auto_id = st.checkbox("Missing `id` âžœ autoincrement", value=True)
+            st.checkbox("Missing id -> autoincrement", value=True)
 
         if uploaded is not None:
             try:
@@ -2832,7 +2832,7 @@ with _tabs[4]:
 with _tabs[5]:
     _debug_where_am_i()
     st.info(
-        f"Active DB: {engine_info.get('sqlalchemy_url')}  â€¢  remote={engine_info.get('using_remote')}"
+        f"Active DB: {engine_info.get('sqlalchemy_url')} - remote={engine_info.get('using_remote')}"
     )
 
 with _tabs[5]:
