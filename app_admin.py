@@ -1963,9 +1963,18 @@ if _table is None:
 else:
     # Derive visible columns for Browse (hide meta/tech fields)
     _hide = {
-        "id","created_at","updated_at","updated_by",
-        "ckw","ckw_locked","ckw_version","ckw_manual_extra","computed_keywords",
-        "city","state","zip"
+        "id",
+        "created_at",
+        "updated_at",
+        "updated_by",
+        "ckw",
+        "ckw_locked",
+        "ckw_version",
+        "ckw_manual_extra",
+        "computed_keywords",
+        "city",
+        "state",
+        "zip",
     }
     try:
         if "phone_fmt" in _table.columns and "phone" in _table.columns:
