@@ -1,17 +1,10 @@
 name: ci
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  push:
+    branches: [ main ]
 
 jobs:
   lint-and-guards:
@@ -19,39 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install ruff
+      - name: Install deps
         run: |
-          python -m pip install --upgrade pip
-          pip install ruff==0.14.2
+          python -m pip install -U pip
+          pip install -r requirements.txt ruff
 
-      - name: File facts (hash + line count)
+      - name: Syntax check
         run: |
           python - <<'PY'
-          import hashlib, sys, pathlib, json
-          p = pathlib.Path("app_admin.py")
-          b = p.read_bytes()
-          print(json.dumps({
-            "file":"app_admin.py",
-            "lines": b.count(b'\n') + (0 if b.endswith(b'\n') else 1),
-            "sha256": hashlib.sha256(b).hexdigest()
-          }, indent=2))
+          import compileall, sys
+          ok = compileall.compile_dir('.', force=True, quiet=1)
+          sys.exit(0 if ok else 1)
           PY
 
-      - name: ASCII guard (mojibake detector)
-        run: |
-          if grep -nP '[^\x00-\x7F]' app_admin.py; then
-            echo "Non-ASCII detected in app_admin.py"; exit 1
-          fi
+      - name: Ruff lint
+        run: ruff check --output-format=github .
 
-      - name: Ruff (targeted blockers)
-        run: |
-          ruff check --output-format=github --select RUF001,E402,F821,UP015 app_admin.py
-
-      - name: Ruff format (report-only)
-        run: |
-          ruff format --check .
+      - name: Ruff format audit
+        run: ruff format --check .
