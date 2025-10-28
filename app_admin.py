@@ -871,7 +871,7 @@ def _set_empty(*keys: str) -> None:
         st.session_state[k] = ""
 
 
-def _reset_select(key: str, sentinel: str = "â€” Select â€”") -> None:
+def _reset_select(key: str, sentinel: str = "-- Select --") -> None:
     st.session_state[key] = sentinel
 
 
@@ -947,7 +947,7 @@ st.markdown(
 # -----------------------------
 # Admin sign-in gate (deterministic toggle)
 # -----------------------------
-# Code defaults (lowest precedence) â€” change here if you want different code-fallbacks.
+# Code defaults (lowest precedence) -- change here if you want different code-fallbacks.
 DISABLE_ADMIN_PASSWORD_DEFAULT = True  # True = bypass, False = require password
 ADMIN_PASSWORD_DEFAULT = "admin"
 
@@ -993,7 +993,7 @@ def build_engine() -> Tuple[Engine, Dict]:
     )
 
     if not url:
-        # No remote configured â†’ use DB_PATH from secrets/env (defaults to vendors.db)
+        # No remote configured -> use DB_PATH from secrets/env (defaults to vendors.db)
         db_path = _resolve_str("DB_PATH", "vendors.db") or "vendors.db"
         eng = create_engine(
             f"sqlite:///{db_path}",
@@ -1509,7 +1509,7 @@ def _sanitize_url(url: str | None) -> str:
     return url
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------------------
 def load_df(engine: Engine) -> pd.DataFrame:
     with engine.begin() as conn:
         df = pd.read_sql(sql_text("SELECT * FROM vendors ORDER BY lower(business_name)"), conn)
@@ -1702,22 +1702,22 @@ def _coerce_int(_v, _default):
 
 def _ensure_page_size_in_state():
     try:
-        sec = _st_ps.secrets
+        sec = st.secrets
     except Exception:
         sec = {}
     raw = sec.get("PAGE_SIZE", 200)
     n = _coerce_int(raw, 200)
     n = max(20, min(1000, n))
-    _st_ps.session_state["PAGE_SIZE"] = n
+    st.session_state["PAGE_SIZE"] = n
 
 
 def get_page_size() -> int:
     """Return the effective PAGE_SIZE (from secrets, bounded)."""
-    v = _st_ps.session_state.get("PAGE_SIZE")
+    v = st.session_state.get("PAGE_SIZE")
     if isinstance(v, int) and 20 <= v <= 1000:
         return v
     _ensure_page_size_in_state()
-    return int(_st_ps.session_state.get("PAGE_SIZE", 200))
+    return int(st.session_state.get("PAGE_SIZE", 200))
 
 
 # Patch 11 (2025-10-24): redefine _filter_df_by_query to be case-insensitive
@@ -1899,7 +1899,7 @@ def _hscroll_container_close():
 _browse_help_block()
 # ---------------------------------------------------------------------------
 
-# --- HCR: Help â€” Browse -----------------------------------------------------
+# --- HCR: Help -- Browse -----------------------------------------------------
 _show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
 if _show_help:
     help_md = st.secrets.get("BROWSE_HELP_MD", "")
@@ -1929,7 +1929,7 @@ with _tabs[0]:
     ckw_ok = _has_ckw_column(engine)
     # CKW schema tool (guarded)
     if not ckw_ok:
-        with st.expander("Schema tools â€” Computed Keywords (CKW)", expanded=False):
+        with st.expander("Schema tools -- Computed Keywords (CKW)", expanded=False):
             st.warning("This will ALTER TABLE to add a 'ckw' TEXT column and create an index.")
             if st.button("Add 'ckw' column + index", type="primary"):
                 if _ensure_ckw_column_and_index(engine):
@@ -1937,10 +1937,10 @@ with _tabs[0]:
                 else:
                     st.info("No changes made (already present or failed).")
 
-    # Help â€” Browse
+    # Help -- Browse
     if st.secrets.get("SHOW_BROWSE_HELP", False):
         help_md = st.secrets.get("BROWSE_HELP_MD") or ""
-        st.expander("Help â€” Browse", expanded=False).markdown(help_md or "_No help configured._")
+        st.expander("Help -- Browse", expanded=False).markdown(help_md or "_No help configured._")
 
     # exact-pixel widths + horiz scroll
     try:
@@ -2044,7 +2044,7 @@ with _tabs[1]:
         with col1:
             st.text_input("Provider *", key="add_business_name")
 
-            # Category selectâ€”options include "" placeholder; we DON'T pass index when using session state
+            # Category select--options include "" placeholder; we DON'T pass index when using session state
             _add_cat_options = [""] + (cats or [])
             if (st.session_state.get("add_category") or "") not in _add_cat_options:
                 st.session_state["add_category"] = ""
@@ -2055,7 +2055,7 @@ with _tabs[1]:
                 placeholder="Select category",
             )
 
-            # Service selectâ€”same pattern
+            # Service select--same pattern
             _add_svc_options = [""] + (servs or [])
             if (st.session_state.get("add_service") or "") not in _add_svc_options:
                 st.session_state["add_service"] = ""
@@ -2145,7 +2145,7 @@ with _tabs[1]:
 
         def _fmt_vendor(i: int | None) -> str:
             if i is None:
-                return "â€” Select â€”"
+                return "-- Select --"
             r = id_to_row.get(int(i), None)
             if r is None:
                 return f"{i}"
@@ -2153,7 +2153,7 @@ with _tabs[1]:
             svc = r.get("service") or ""
             tail = " / ".join([x for x in (cat, svc) if x]).strip(" /")
             name = str(r.get("business_name") or "")
-            return f"{name} â€” {tail}" if tail else name
+            return f"{name} -- {tail}" if tail else name
 
         st.selectbox(
             "Select provider to edit (type to search)",
@@ -2292,10 +2292,10 @@ with _tabs[1]:
         # Use separate delete selection (ID-backed similar approach could be added later)
         sel_label_del = st.selectbox(
             "Select provider to delete (type to search)",
-            options=["â€” Select â€”"] + [_fmt_vendor(i) for i in ids],
+            options=["-- Select --"] + [_fmt_vendor(i) for i in ids],
             key="delete_provider_label",
         )
-        if sel_label_del != "â€” Select â€”":
+        if sel_label_del != "-- Select --":
             # map back to id cheaply
             rev = {_fmt_vendor(i): i for i in ids}
             st.session_state["delete_vendor_id"] = int(rev.get(sel_label_del))
@@ -2347,7 +2347,7 @@ with _tabs[2]:
     _apply_cat_reset_if_needed()
 
     cats = list_names(engine, "categories")
-    cat_opts = ["â€” Select â€”"] + cats  # sentinel first
+    cat_opts = ["-- Select --"] + cats  # sentinel first
 
     colA, colB = st.columns(2)
     with colA:
@@ -2374,7 +2374,7 @@ with _tabs[2]:
             old = st.selectbox("Current", options=cat_opts, key="cat_old")  # no index
             new = st.text_input("New name", key="cat_rename")
             if st.button("Rename", key="cat_rename_btn"):
-                if old == "â€” Select â€”":
+                if old == "-- Select --":
                     st.error("Pick a category to rename.")
                 elif not (new or "").strip():
                     st.error("Enter a new name.")
@@ -2400,7 +2400,7 @@ with _tabs[2]:
         st.subheader("Delete / Reassign")
         if cats:
             tgt = st.selectbox("Category to delete", options=cat_opts, key="cat_del")  # no index
-            if tgt == "â€” Select â€”":
+            if tgt == "-- Select --":
                 st.write("Select a category.")
             else:
                 cnt = usage_count(engine, "category", tgt)
@@ -2417,12 +2417,12 @@ with _tabs[2]:
                         except Exception as e:
                             st.error(f"Delete category failed: {e}")
                 else:
-                    repl_options = ["â€” Select â€”"] + [c for c in cats if c != tgt]
+                    repl_options = ["-- Select --"] + [c for c in cats if c != tgt]
                     repl = st.selectbox(
                         "Reassign vendors toâ€¦", options=repl_options, key="cat_reassign_to"
                     )  # no index
                     if st.button("Reassign vendors then delete", key="cat_reassign_btn"):
-                        if repl == "â€” Select â€”":
+                        if repl == "-- Select --":
                             st.error("Choose a category to reassign to.")
                         else:
                             try:
@@ -2447,7 +2447,7 @@ with _tabs[3]:
     _apply_svc_reset_if_needed()
 
     servs = list_names(engine, "services")
-    svc_opts = ["â€” Select â€”"] + servs  # sentinel first
+    svc_opts = ["-- Select --"] + servs  # sentinel first
 
     colA, colB = st.columns(2)
     with colA:
@@ -2474,7 +2474,7 @@ with _tabs[3]:
             old = st.selectbox("Current", options=svc_opts, key="svc_old")  # no index
             new = st.text_input("New name", key="svc_rename")
             if st.button("Rename Service", key="svc_rename_btn"):
-                if old == "â€” Select â€”":
+                if old == "-- Select --":
                     st.error("Pick a service to rename.")
                 elif not (new or "").strip():
                     st.error("Enter a new name.")
@@ -2500,7 +2500,7 @@ with _tabs[3]:
         st.subheader("Delete / Reassign")
         if servs:
             tgt = st.selectbox("Service to delete", options=svc_opts, key="svc_del")  # no index
-            if tgt == "â€” Select â€”":
+            if tgt == "-- Select --":
                 st.write("Select a service.")
             else:
                 cnt = usage_count(engine, "service", tgt)
@@ -2517,12 +2517,12 @@ with _tabs[3]:
                         except Exception as e:
                             st.error(f"Delete service failed: {e}")
                 else:
-                    repl_options = ["â€” Select â€”"] + [s for s in servs if s != tgt]
+                    repl_options = ["-- Select --"] + [s for s in servs if s != tgt]
                     repl = st.selectbox(
                         "Reassign vendors toâ€¦", options=repl_options, key="svc_reassign_to"
                     )  # no index
                     if st.button("Reassign vendors then delete service", key="svc_reassign_btn"):
-                        if repl == "â€” Select â€”":
+                        if repl == "-- Select --":
                             st.error("Choose a service to reassign to.")
                         else:
                             try:
@@ -2561,7 +2561,7 @@ with _tabs[4]:
     with engine.begin() as conn:
         full = pd.read_sql(sql_text(query), conn)
 
-    # Dual exports: full dataset â€” formatted phones and digits-only
+    # Dual exports: full dataset -- formatted phones and digits-only
     full_formatted = full.copy()
 
     def _format_phone_digits(x: str | int | None) -> str:
@@ -2588,7 +2588,7 @@ with _tabs[4]:
         )
 
     # --- CKW tools (NOT in an expander, to avoid nested expanders) --------------------------------
-    st.subheader("CKW â€” Recompute")
+    st.subheader("CKW -- Recompute")
     c1, c2 = st.columns(2)
     if c1.button("Recompute Unlocked", help="Updates rows where ckw_locked = 0"):
         n = recompute_ckw_unlocked(get_engine())
@@ -2872,16 +2872,13 @@ with _tabs[5]:
         }
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# === ANCHOR: PATCH1_HSCROLL (start) ===
+# ------------------------------------------------------------------------
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-import streamlit as _st_patch1  # safe alias to avoid name shadowing
-
+# ------------------------------------------------------------------------
 
 def _enable_horizontal_scroll() -> None:
     try:
-        _st_patch1.markdown(
+        st.markdown(
             """
             <style>
             /* Make Streamlit dataframes and table containers horizontally scrollable */
@@ -2905,27 +2902,27 @@ def _enable_horizontal_scroll() -> None:
 
 
 _enable_horizontal_scroll()
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# === ANCHOR: PATCH2_COLWIDTHS (start) ===
+# ------------------------------------------------------------------------
+
 # Patch 2 (2025-10-24): Secrets-driven exact pixel column widths (global)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-import json as _json_patch2
-import streamlit as _st_patch2
+# ------------------------------------------------------------------------
+
+
 
 
 def _apply_exact_column_widths_from_secrets() -> None:
     try:
-        cfg = dict(_st_patch2.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
+        cfg = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
         if not cfg:
             return
         # Serialize once; provide raw map; lower-cased map is generated inline in JS
         cfg_raw = {str(k): int(v) for k, v in cfg.items() if str(v).isdigit() or isinstance(v, int)}
-        _st_patch2.markdown(
+        st.markdown(
             f"""
 <script>
 (function() {{
-  const cfgRaw = {_json_patch2.dumps(cfg_raw)};
-  const cfgLow = {_json_patch2.dumps({k.lower(): v for k, v in cfg_raw.items()})};
+  const cfgRaw = {json.dumps(cfg_raw)};
+  const cfgLow = {json.dumps({k.lower(): v for k, v in cfg_raw.items()})};
   // Utility: set width on a TH cell if its text matches a key
   function setWidth(th) {{
     if (!th) return;
@@ -2967,11 +2964,11 @@ def _apply_exact_column_widths_from_secrets() -> None:
 
 
 _apply_exact_column_widths_from_secrets()
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# === ANCHOR: PATCH3_HELP (start) ===
-# Patch 3 (2025-10-24): Help â€” Browse helper (secrets-driven, reusable)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-import streamlit as _st_patch3
+# # -------------------------------------------------------
+
+# Patch 3 (2025-10-24): Help -- Browse helper (secrets-driven, reusable)
+# ------------------------------------------------------------------------
+
 
 
 def _as_bool_patch3(v, default=False):
@@ -3004,7 +3001,7 @@ def _read_text_file_patch3(path: str) -> str:
 
 def _load_browse_help_md() -> str:
     try:
-        sec = _st_patch3.secrets
+        sec = st.secrets
     except Exception:
         return ""
     inline_md = str(sec.get("BROWSE_HELP_MD", "") or "").strip()
@@ -3015,9 +3012,9 @@ def _load_browse_help_md() -> str:
 
 
 def render_browse_help_expander() -> None:
-    """Render the Help â€” Browse expander if SHOW_BROWSE_HELP is true and content exists."""
+    """Render the Help -- Browse expander if SHOW_BROWSE_HELP is true and content exists."""
     try:
-        sec = _st_patch3.secrets
+        sec = st.secrets
     except Exception:
         return
     show = _as_bool_patch3(sec.get("SHOW_BROWSE_HELP", False), default=False)
@@ -3026,8 +3023,8 @@ def render_browse_help_expander() -> None:
     md = _load_browse_help_md()
     if not md:
         return
-    with _st_patch3.expander("Help â€” Browse", expanded=False):
-        _st_patch3.markdown(md)
+    with st.expander("Help -- Browse", expanded=False):
+        st.markdown(md)
 
 
 func = st.session_state.get("_browse_help_render")
@@ -3039,9 +3036,9 @@ st.session_state["_browse_help_render"] = render_browse_help_expander
 
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ------------------------------------------------------------------------
 # Patch 7 (2025-10-24): CKW schema helpers (additive only; no auto-exec)
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 
 
 def _vendors_has_column(eng, col: str) -> bool:
