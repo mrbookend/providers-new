@@ -1,16 +1,14 @@
 # app_readonly.py
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
 import csv
+import os
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy import text as T
 import streamlit as st
+from sqlalchemy import text as T
 
 # ---- Streamlit page config MUST be first ----
 st.set_page_config(page_title="Providers — Read-Only", page_icon="📒", layout="wide")
@@ -87,7 +85,7 @@ def _db_rowcount() -> int:
             return 0
 
 
-def _bootstrap_from_csv_if_needed() -> Optional[str]:
+def _bootstrap_from_csv_if_needed() -> str | None:
     """
     If DB is missing/empty and CSV seed exists, import it once.
     Returns a status string if import happened, else None.

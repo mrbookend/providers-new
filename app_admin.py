@@ -1,15 +1,16 @@
 # === ANCHOR: IMPORTS (start) ===
 from __future__ import annotations
+
 import hashlib
 import hmac
+import json
 import os
 import re
 import subprocess
 import time
 import uuid
 from datetime import datetime
-
-from typing import Dict, List, Tuple
+from typing import dict, list, tuple
 
 import pandas as pd
 import streamlit as st
@@ -17,7 +18,7 @@ import streamlit as st
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
-    try:
+    try:  # noqa: SIM105
         st.set_page_config(
             page_title="Providers - Admin",
             layout="wide",
@@ -47,9 +48,9 @@ from sqlalchemy.engine import Engine
 # --- HCR: auto app version (no manual bumps) --------------------------------
 # === ANCHOR: AUTO_VER (start) ===
 def _auto_app_ver() -> str:
-    from datetime import datetime
-    import os
-    import subprocess
+    from datetime import datetime  # noqa: PLC0415, I001
+    import os  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
 
     date = datetime.utcnow().strftime("%Y-%m-%d")
     short = os.environ.get("GITHUB_SHA", "")
@@ -73,8 +74,8 @@ if APP_VER in (None, "", "auto"):
 
 def _sha256_of_this_file() -> str:
     try:
-        import hashlib
-        import pathlib
+        import hashlib  # noqa: PLC0415
+        import pathlib  # noqa: PLC0415
 
         p = pathlib.Path(__file__)
         return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -84,8 +85,8 @@ def _sha256_of_this_file() -> str:
 
 def _mtime_of_this_file() -> str:
     try:
-        import pathlib
-        import datetime as _dt
+        import pathlib  # noqa: PLC0415, I001
+        import datetime as _dt  # noqa: PLC0415
 
         p = pathlib.Path(__file__)
         ts = os.path.getmtime(str(p))
@@ -163,7 +164,7 @@ def _build_ckw_row(row: dict) -> str:
 
 
 # === ANCHOR: COMMIT_SYNC_PROBE (start) ===
-def _commit_sync_probe() -> Dict:
+def _commit_sync_probe() -> dict:
     """
     Returns a dict with file facts and PASS/FAIL checks against optional secrets:
       - EXPECTED_SHA256
@@ -182,7 +183,7 @@ def _commit_sync_probe() -> Dict:
     if expected_sha:
         checks["sha256_match"] = facts["file_sha256"] == expected_sha
     if expected_ver:
-        checks["app_ver_match"] = APP_VER == expected_ver
+        checks["app_ver_match"] = APP_VER == expected_ver  # noqa: SIM300
 
     return {"facts": facts, "checks": checks}
 
@@ -238,7 +239,7 @@ def _debug_where_am_i():
 
 # === ANCHOR: LIBSQL_REGISTER (start) ===
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
-try:
+try:  # noqa: SIM105
     import sqlalchemy_libsql as _sqlalchemy_libsql  # noqa: F401
 except Exception:
     pass
@@ -254,8 +255,8 @@ def _build_engine_fallback():
     except Exception:
         pass
     # Minimal fallback so the app can run even without Turso
-    from sqlalchemy import create_engine as _create_engine
-    import os as _os
+    from sqlalchemy import create_engine as _create_engine  # noqa: PLC0415, I001
+    import os as _os  # noqa: PLC0415
 
     _db = _os.getenv("DB_PATH", "providers.db")
     return _create_engine(f"sqlite+pysqlite:///{_db}")
@@ -287,8 +288,8 @@ def _build_engine_fallback():
     except Exception:
         pass
     # Minimal, non-breaking fallback (keeps app bootable even off Turso)
-    from sqlalchemy import create_engine as _create_engine
-    import os as _os
+    from sqlalchemy import create_engine as _create_engine  # noqa: PLC0415, I001
+    import os as _os  # noqa: PLC0415
 
     _db = _os.getenv("DB_PATH", "providers.db")
     return _create_engine(f"sqlite+pysqlite:///{_db}")
@@ -320,7 +321,7 @@ def _apply_column_widths(df, widths: dict) -> dict:
         w = widths.get(col)
         if w is None:
             continue
-        try:
+        try:  # noqa: SIM105
             cfg[col] = st.column_config.Column(width=int(w))
         except Exception:
             pass
@@ -368,12 +369,16 @@ def render_table_hscroll(df, *, key="browse_table"):
     col_cfg = _apply_column_widths(df, widths)
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
-        df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"),
+        df.drop(
+            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"], errors="ignore"
+        ),
         use_container_width=False,  # force horizontal scroll
         hide_index=True,
         column_config=(col_cfg or None),
         key=key,
     )
+
+
 # ----------------------------------------------------------------------------
 
 
@@ -589,7 +594,7 @@ def _is_hrana_stale_stream_error(err: Exception) -> bool:
     return ("hrana" in s and "404" in s and "stream not found" in s) or ("stream not found" in s)
 
 
-def _exec_with_retry(engine: Engine, sql: str, params: Dict | None = None, *, tries: int = 2):
+def _exec_with_retry(engine: Engine, sql: str, params: dict | None = None, *, tries: int = 2):
     """
     Execute a write (INSERT/UPDATE/DELETE) with a one-time retry on Hrana 'stream not found'.
     Returns the result proxy so you can read .rowcount.
@@ -602,7 +607,7 @@ def _exec_with_retry(engine: Engine, sql: str, params: Dict | None = None, *, tr
                 return conn.execute(sql_text(sql), params or {})
         except Exception as e:
             if attempt < tries and _is_hrana_stale_stream_error(e):
-                try:
+                try:  # noqa: SIM105
                     engine.dispose()  # drop pooled connections
                 except Exception:
                     pass
@@ -612,7 +617,7 @@ def _exec_with_retry(engine: Engine, sql: str, params: Dict | None = None, *, tr
 
 
 def _fetch_with_retry(
-    engine: Engine, sql: str, params: Dict | None = None, *, tries: int = 2
+    engine: Engine, sql: str, params: dict | None = None, *, tries: int = 2
 ) -> pd.DataFrame:
     """
     Execute a read (SELECT) with a one-time retry on Hrana 'stream not found'.
@@ -626,7 +631,7 @@ def _fetch_with_retry(
                 return pd.DataFrame(res.mappings().all())
         except Exception as e:
             if attempt < tries and _is_hrana_stale_stream_error(e):
-                try:
+                try:  # noqa: SIM105
                     engine.dispose()
                 except Exception:
                     pass
@@ -805,7 +810,7 @@ def _apply_edit_reset_if_needed():
     if st.session_state.get("_pending_edit_reset"):
         # Clear all edit fields AND selection
         for k in EDIT_FORM_KEYS:
-            if k == "edit_vendor_id":
+            if k == "edit_vendor_id":  # noqa: SIM114
                 st.session_state[k] = None
             elif k in ("edit_row_updated_at", "edit_last_loaded_id"):
                 st.session_state[k] = None
@@ -978,13 +983,13 @@ else:
 # -----------------------------
 # DB helpers
 # -----------------------------
-REQUIRED_VENDOR_COLUMNS: List[str] = ["business_name", "category"]  # service optional
+REQUIRED_VENDOR_COLUMNS: list[str] = ["business_name", "category"]  # service optional
 
 
 # === ANCHOR: BUILD_ENGINE (start) ===
-def build_engine() -> Tuple[Engine, Dict]:
+def build_engine() -> tuple[Engine, dict]:
     """Prefer Turso/libsql embedded replica; otherwise local sqlite if FORCE_LOCAL=1."""
-    info: Dict = {}
+    info: dict = {}
 
     url = (_resolve_str("TURSO_DATABASE_URL", "") or "").strip()
     token = (_resolve_str("TURSO_AUTH_TOKEN", "") or "").strip()
@@ -1158,7 +1163,7 @@ def sync_reference_tables(engine: Engine) -> dict:
 # === ANCHOR: SEED_IF_EMPTY_START (start) ===
 # --- Seed if empty (address-only) --- START
 # === ANCHOR: SEED_IF_EMPTY_DEF (start) ===
-def _seed_if_empty(eng=None) -> None:
+def _seed_if_empty(eng=None) -> None:  # noqa: PLR0911
     """Seed vendors from CSV when table exists but has 0 rows (address-only schema)."""
     # Gate via secrets
     allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
@@ -1169,7 +1174,7 @@ def _seed_if_empty(eng=None) -> None:
     # Resolve an Engine if one wasn't provided
     eng = _ensure_engine(eng)
     if eng is None or not hasattr(eng, "begin"):
-        try:
+        try:  # noqa: SIM105
             st.warning("Seed-if-empty skipped: engine object invalid or missing.")
         except Exception:
             pass
@@ -1218,12 +1223,12 @@ def _seed_if_empty(eng=None) -> None:
         with eng.begin():
             df.to_sql("vendors", eng, if_exists="append", index=False)
 
-        try:
+        try:  # noqa: SIM105
             st.success(f"Seeded vendors from {seed_csv}")
         except Exception:
             pass
     except Exception as e:
-        try:
+        try:  # noqa: SIM105
             st.warning(f"Seed-if-empty skipped: {e}")
         except Exception:
             pass
@@ -1331,7 +1336,7 @@ def _seed_if_empty(eng=None) -> None:
         df = df.fillna("")
 
         # Normalize phone to digits-only
-        import re as _re
+        import re as _re  # noqa: PLC0415
 
         def _digits_only(x):
             s = str(x).strip()
@@ -1380,7 +1385,7 @@ if submit:
     phone_digits = _digits_only(phone_raw)
     phone_fmt = (
         f"({phone_digits[0:3]}) {phone_digits[3:6]}-{phone_digits[6:10]}"
-        if len(phone_digits) == 10
+        if len(phone_digits) == 10  # noqa: PLR2004
         else phone_raw
     )
 
@@ -1470,7 +1475,7 @@ if submit:
                 )
             st.success("Provider added.")
 
-        try:
+        try:  # noqa: SIM105
             st.cache_data.clear()
         except Exception:
             pass
@@ -1487,15 +1492,15 @@ def _normalize_phone(val: str | None) -> str:
     if not val:
         return ""
     digits = re.sub(r"\D", "", str(val))
-    if len(digits) == 11 and digits.startswith("1"):
+    if len(digits) == 11 and digits.startswith("1"):  # noqa: PLR2004
         digits = digits[1:]
-    return digits if len(digits) == 10 else digits
+    return digits
 
 
 # === ANCHOR: FORMAT_PHONE (start) ===
 def _format_phone(val: str | None) -> str:
     s = re.sub(r"\D", "", str(val or ""))
-    if len(s) == 10:
+    if len(s) == 10:  # noqa: PLR2004
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
     return (val or "").strip()
 
@@ -1714,7 +1719,7 @@ def _ensure_page_size_in_state():
 def get_page_size() -> int:
     """Return the effective PAGE_SIZE (from secrets, bounded)."""
     v = st.session_state.get("PAGE_SIZE")
-    if isinstance(v, int) and 20 <= v <= 1000:
+    if isinstance(v, int) and 20 <= v <= 1000:  # noqa: PLR2004
         return v
     _ensure_page_size_in_state()
     return int(st.session_state.get("PAGE_SIZE", 200))
@@ -1766,7 +1771,7 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         mask = src.str.contains(s, regex=False, na=False)
         return df.loc[mask]
     except Exception as _e:
-        try:
+        try:  # noqa: SIM105
             st.session_state["_filter_df_error"] = str(_e)
         except Exception:
             pass
@@ -1780,12 +1785,12 @@ engine, engine_info = build_engine()
 ensure_schema(engine)
 
 # Now ensure CKW (both legacy 'ckw' and modern 'computed_keywords' are tolerated)
-try:
+try:  # noqa: SIM105
     st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
 except Exception:
     pass
 
-try:
+try:  # noqa: SIM105
     st.session_state["_ENGINE"] = engine
 except Exception:
     pass
@@ -1793,7 +1798,7 @@ except Exception:
 # Optionally seed (guarded)
 _seed_if_empty(engine)
 
-try:
+try:  # noqa: SIM105
     sync_reference_tables(engine)
 except Exception:
     pass
@@ -1822,7 +1827,7 @@ with _tabs[0]:
     import pandas as pd
 
     try:
-        eng = _engine() # replace chunk with this single line
+        eng = _engine()  # replace chunk with this single line
 
         # load table
         df = pd.read_sql("SELECT * FROM vendors", eng)
@@ -1830,7 +1835,14 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
+        st.dataframe(
+            df.drop(
+                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
+                errors="ignore",
+            ),
+            use_container_width=False,
+            hide_index=True,
+        )
     except Exception as _e:
         st.error(f"Browse failed: {_e}")
 
@@ -1845,7 +1857,7 @@ with _tabs[0]:
                     break
         if engine is None:
             st.error(f"Invalid engine from get_engine(): {type(eng)} {eng!r}")
-            raise SystemExit
+            raise SystemExit  # noqa: B904
 
         # show live count so we know what DB we're actually reading
         try:
@@ -1869,8 +1881,15 @@ with _tabs[0]:
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
-    except Exception as _e:
+        st.dataframe(
+            df.drop(
+                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
+                errors="ignore",
+            ),
+            use_container_width=False,
+            hide_index=True,
+        )
+    except Exception as _e:  # noqa: B025
         st.error(f"Browse failed: {_e}")
 
 
@@ -2088,7 +2107,7 @@ with _tabs[1]:
         keywords = (st.session_state["add_keywords"] or "").strip()
 
         # Minimal-change validation: phone must be 10 digits or blank
-        if phone_norm and len(phone_norm) != 10:
+        if phone_norm and len(phone_norm) != 10:  # noqa: PLR2004
             st.error("Phone must be 10 digits or blank.")
         elif not business_name or not category:
             st.error("Business Name and Category are required.")
@@ -2157,13 +2176,13 @@ with _tabs[1]:
 
         st.selectbox(
             "Select provider to edit (type to search)",
-            options=[None] + ids,
+            options=[None] + ids,  # noqa: RUF005
             format_func=_fmt_vendor,
             key="edit_vendor_id",
         )
 
         # Prefill only when selection changes
-        if st.session_state["edit_vendor_id"] is not None:
+        if st.session_state["edit_vendor_id"] is not None:  # noqa: SIM102
             if st.session_state["edit_last_loaded_id"] != st.session_state["edit_vendor_id"]:
                 row = id_to_row[int(st.session_state["edit_vendor_id"])]
                 st.session_state.update(
@@ -2230,7 +2249,7 @@ with _tabs[1]:
                 bn = (st.session_state["edit_business_name"] or "").strip()
                 cat = (st.session_state["edit_category"] or "").strip()
                 phone_norm = _normalize_phone(st.session_state["edit_phone"])
-                if phone_norm and len(phone_norm) != 10:
+                if phone_norm and len(phone_norm) != 10:  # noqa: PLR2004
                     st.error("Phone must be 10 digits or blank.")
                 elif not bn or not cat:
                     st.error("Business Name and Category are required.")
@@ -2347,7 +2366,7 @@ with _tabs[2]:
     _apply_cat_reset_if_needed()
 
     cats = list_names(engine, "categories")
-    cat_opts = ["-- Select --"] + cats  # sentinel first
+    cat_opts = ["-- Select --"] + cats  # sentinel first  # noqa: RUF005
 
     colA, colB = st.columns(2)
     with colA:
@@ -2447,7 +2466,7 @@ with _tabs[3]:
     _apply_svc_reset_if_needed()
 
     servs = list_names(engine, "services")
-    svc_opts = ["-- Select --"] + servs  # sentinel first
+    svc_opts = ["-- Select --"] + servs  # sentinel first  # noqa: RUF005
 
     colA, colB = st.columns(2)
     with colA:
@@ -2566,7 +2585,7 @@ with _tabs[4]:
 
     def _format_phone_digits(x: str | int | None) -> str:
         s = re.sub(r"\D+", "", str(x or ""))
-        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s  # noqa: PLR2004
 
     if "phone" in full_formatted.columns:
         full_formatted["phone"] = full_formatted["phone"].apply(_format_phone_digits)
@@ -2630,16 +2649,15 @@ with _tabs[4]:
                     treat_missing_id_as_autoincrement=st.session_state.get("auto_id", True),
                 )
 
-
                 planned_inserts = len(with_id_df) + len(without_id_df)
 
                 st.write("**Validation summary**")
                 st.write(
                     {
-                        "csv_rows": int(len(df_in)),
+                        "csv_rows": int(len(df_in)),  # noqa: RUF046
                         "insertable_columns": insertable_cols,
-                        "rows_with_explicit_id": int(len(with_id_df)),
-                        "rows_autoincrement_id": int(len(without_id_df)),
+                        "rows_with_explicit_id": int(len(with_id_df)),  # noqa: RUF046
+                        "rows_autoincrement_id": int(len(without_id_df)),  # noqa: RUF046
                         "rows_rejected_due_to_existing_id": rejected_ids,
                         "planned_inserts": int(planned_inserts),
                     }
@@ -2647,7 +2665,7 @@ with _tabs[4]:
 
                 if dry_run:
                     st.success("Dry run complete. No changes applied.")
-                else:
+                else:  # noqa: PLR5501
                     if planned_inserts == 0:
                         st.info("Nothing to insert (all rows rejected or CSV empty after filters).")
                     else:
@@ -2877,8 +2895,9 @@ with _tabs[5]:
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
 # ------------------------------------------------------------------------
 
+
 def _enable_horizontal_scroll() -> None:
-    try:
+    try:  # noqa: SIM105
         st.markdown(
             """
             <style>
@@ -2909,8 +2928,6 @@ _enable_horizontal_scroll()
 # ------------------------------------------------------------------------
 
 
-
-
 def _apply_exact_column_widths_from_secrets() -> None:
     try:
         cfg = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
@@ -2922,8 +2939,8 @@ def _apply_exact_column_widths_from_secrets() -> None:
             f"""
 <script>
 (function() {{
-  const cfgRaw = {_json_patch2.dumps(cfg_raw)};
-  const cfgLow = {_json_patch2.dumps({k.lower(): v for k, v in cfg_raw.items()})};
+  const cfgRaw = {json.dumps(cfg_raw)};
+  const cfgLow = {json.dumps({k.lower(): v for k, v in cfg_raw.items()})};
   // Utility: set width on a TH cell if its text matches a key
   function setWidth(th) {{
     if (!th) return;
@@ -2969,7 +2986,6 @@ _apply_exact_column_widths_from_secrets()
 
 # Patch 3 (2025-10-24): Help -- Browse helper (secrets-driven, reusable)
 # ------------------------------------------------------------------------
-
 
 
 def _as_bool_patch3(v, default=False):
@@ -3079,7 +3095,7 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # === HCR INLINE BROWSE (tuple-safe) ========================================
 # === ANCHOR: BROWSE_INLINE_DEF (start) ===
 def __HCR_browse_render_inline():
-    import pandas as pd
+    import pandas as pd  # noqa: PLC0415
 
     try:
         eng = get_engine()
@@ -3125,7 +3141,14 @@ def __HCR_browse_render_inline():
             if _ban in df.columns:
                 df.drop(columns=[_ban], inplace=True)
 
-        st.dataframe(df.drop(columns=["id","created_at","updated_at","ckw_locked","ckw_version"], errors="ignore"), use_container_width=False, hide_index=True)
+        st.dataframe(
+            df.drop(
+                columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"],
+                errors="ignore",
+            ),
+            use_container_width=False,
+            hide_index=True,
+        )
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
 
