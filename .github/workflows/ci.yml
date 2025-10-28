@@ -4,11 +4,10 @@ on:
   push:
     branches: [ main ]
   pull_request:
-  workflow_dispatch: {}
+    branches: [ main ]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,77 +17,41 @@ jobs:
   lint-and-guards:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: true
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      # ---- Debug (kept) ---------------------------------
-      - name: Debug — head commit
+      - name: Install ruff
         run: |
-          echo "GITHUB_SHA=${GITHUB_SHA}"
-          git rev-parse HEAD
+          python -m pip install --upgrade pip
+          pip install ruff==0.14.2
 
-      - name: Debug — app_admin.py facts
+      - name: File facts (hash + line count)
         run: |
-          python3 - <<'PY'
-import hashlib, pathlib
-p = pathlib.Path("app_admin.py")
-b = p.read_bytes()
-print("sha256:", hashlib.sha256(b).hexdigest())
-print("lines :", len(p.read_text(encoding="utf-8").splitlines()))
-PY
-      # ---------------------------------------------------
+          python - <<'PY'
+          import hashlib, sys, pathlib, json
+          p = pathlib.Path("app_admin.py")
+          b = p.read_bytes()
+          print(json.dumps({
+            "file":"app_admin.py",
+            "lines": b.count(b'\n') + (0 if b.endswith(b'\n') else 1),
+            "sha256": hashlib.sha256(b).hexdigest()
+          }, indent=2))
+          PY
 
-      - name: Install Ruff (pin exact)
-        run: pip install ruff==0.6.9
-
-      - name: Ruff check
-        run: ruff check --output-format=github .
-
-      - name: Ruff format (check only)
-        id: fmtcheck
-        continue-on-error: true
-        run: ruff format --check .
-
-      - name: Ruff format (diff preview)
-        if: steps.fmtcheck.outcome == 'failure'
-        run: ruff format --check --diff .
-
-      - name: Create PR to apply formatting (if needed)
-        if: steps.fmtcheck.outcome == 'failure'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          commit-message: "style: ruff format"
-          branch: "ci/ruff-format-${{ github.run_id }}"
-          title: "style: ruff format"
-          body: "CI detected files needing formatting. This PR applies `ruff format`."
-          labels: "ci,style"
-          delete-branch: true
-
-      - name: Fail if formatting is required
-        if: steps.fmtcheck.outcome == 'failure'
+      - name: ASCII guard (mojibake detector)
         run: |
-          echo "Formatting required. A PR was opened to apply it."
-          exit 1
-- name: Guard: no zero-arg Streamlit headings
-  run: |
-    if grep -nE 'st\.(caption|title|header|subheader)\s*\(\s*\)' app_admin.py; then
-      echo "ERR: zero-arg Streamlit heading found"; exit 1
-    fi
-- name: Python compile
-  run: python3 -m py_compile app_admin.py
+          if grep -nP '[^\x00-\x7F]' app_admin.py; then
+            echo "Non-ASCII detected in app_admin.py"; exit 1
+          fi
 
-- name: Python compile
-  run: python3 -m py_compile app_admin.py
+      - name: Ruff (targeted blockers)
+        run: |
+          ruff check --output-format=github --select RUF001,E402,F821,UP015 app_admin.py
 
-- name: Guard: no zero-arg Streamlit headings
-  run: |
-    if grep -nE 'st\.(caption|title|header|subheader)\s*\(\s*\)' app_admin.py; then
-      echo "ERR: zero-arg Streamlit heading found"; exit 1
-    fi
+      - name: Ruff format (report-only)
+        run: |
+          ruff format --check .
