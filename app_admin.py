@@ -1,4 +1,5 @@
 # === ANCHOR: IMPORTS (start) ===
+# ruff: noqa: I001
 from __future__ import annotations
 
 # Standard library
@@ -678,9 +679,9 @@ def __HCR_browse_render():
 
         def _fmt_phone(raw: str) -> str:
             digits = "".join(ch for ch in str(raw) if ch.isdigit())
-            if len(digits) == PHONE_LEN_WITH_CC and digits.startswith("1"):  # noqa: PLR2004
+            if len(digits) == PHONE_LEN_WITH_CC and digits.startswith("1"):  # 
                 digits = digits[1:]
-            if len(digits) == PHONE_LEN:  # noqa: PLR2004
+            if len(digits) == PHONE_LEN:  # 
                 return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
             return str(raw)
 
@@ -1289,7 +1290,7 @@ def _normalize_phone(val: str | None) -> str:
     if not val:
         return ""
     digits = re.sub(r"\D", "", str(val))
-    if len(digits) == PHONE_LEN_WITH_CC and digits.startswith("1"):  # noqa: PLR2004
+    if len(digits) == PHONE_LEN_WITH_CC and digits.startswith("1"):  # 
         digits = digits[1:]
     return digits
 
@@ -1516,7 +1517,7 @@ def _ensure_page_size_in_state():
 def get_page_size() -> int:
     """Return the effective PAGE_SIZE (from secrets, bounded)."""
     v = st.session_state.get("PAGE_SIZE")
-    if isinstance(v, int) and 20 <= v <= 1000:  # noqa: PLR2004
+    if isinstance(v, int) and 20 <= v <= 1000:  # 
         return v
     _ensure_page_size_in_state()
     return int(st.session_state.get("PAGE_SIZE", 200))
@@ -1706,7 +1707,7 @@ with _tabs[1]:
         keywords = (st.session_state["add_keywords"] or "").strip()
 
         # Minimal-change validation: phone must be 10 digits or blank
-        if phone_norm and len(phone_norm) != 10:  # noqa: PLR2004
+        if phone_norm and len(phone_norm) != 10:  # 
             st.error("Phone must be 10 digits or blank.")
         elif not business_name or not category:
             st.error("Business Name and Category are required.")
@@ -1848,7 +1849,7 @@ with _tabs[1]:
                 bn = (st.session_state["edit_business_name"] or "").strip()
                 cat = (st.session_state["edit_category"] or "").strip()
                 phone_norm = _normalize_phone(st.session_state["edit_phone"])
-                if phone_norm and len(phone_norm) != 10:  # noqa: PLR2004
+                if phone_norm and len(phone_norm) != 10:  # 
                     st.error("Phone must be 10 digits or blank.")
                 elif not bn or not cat:
                     st.error("Business Name and Category are required.")
@@ -2184,7 +2185,7 @@ with _tabs[4]:
 
     def _format_phone_digits(x: str | int | None) -> str:
         s = re.sub(r"\D+", "", str(x or ""))
-        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else s
 
     if "phone" in full_formatted.columns:
         full_formatted["phone"] = full_formatted["phone"].apply(_format_phone_digits)
