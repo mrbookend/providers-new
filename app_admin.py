@@ -623,6 +623,8 @@ def __HCR_browse_render():
     # Engine + load
     eng = get_engine()
     try:
+        _eng_raw = get_engine()
+        eng = _eng_raw[0] if isinstance(_eng_raw, tuple) else _eng_raw
         df = pd.read_sql("SELECT * FROM vendors", eng)
     except Exception as e:
         st.error(f"Browse load failed: {e}")
