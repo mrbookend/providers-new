@@ -1297,7 +1297,7 @@ def _normalize_phone(val: str | None) -> str:
 # === ANCHOR: FORMAT_PHONE (start) ===
 def _format_phone(val: str | None) -> str:
     s = re.sub(r"\D", "", str(val or ""))
-    if len(s) == 10:  # noqa: PLR2004
+    if len(s) == 10:  
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
     return (val or "").strip()
 
@@ -1364,7 +1364,7 @@ def usage_count(engine: Engine, col: str, name: str) -> int:
 def _get_table_columns(engine: Engine, table: str) -> list[str]:
     with engine.connect() as conn:
         res = conn.execute(sql_text(f"SELECT * FROM {table} LIMIT 0"))
-        return list(res.keys())
+        return list(res)
 
 
 def _fetch_existing_ids(engine: Engine, table: str = "vendors") -> set[int]:
@@ -2437,7 +2437,7 @@ if st.button("Trim whitespace in text fields (safe)"):
                     "phone": _norm_phone(before["phone"]),
                 }
 
-                if any(after[k] != (before.get(k) or "") for k in after.keys()):
+                if any(v != (before.get(k) or "") for k, v in after.items()):
                     now = datetime.utcnow().isoformat(timespec="seconds")
                     conn.execute(
                         sql_text(
