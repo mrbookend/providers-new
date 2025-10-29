@@ -1,0 +1,34 @@
+name: format-pr (temporary)
+on:
+  push:
+    branches:
+      - chore/ruff-format-20251029
+
+jobs:
+  ruff-format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run ruff format (idempotent)
+        run: |
+          ruff format app_admin.py || true
+
+      - name: Commit changes if any
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(format): apply Ruff formatter to app_admin.py"
+          file_pattern: app_admin.py
