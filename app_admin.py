@@ -28,6 +28,7 @@ PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
 
 
+
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
@@ -334,18 +335,19 @@ def render_table_hscroll(df, *, key="browse_table"):
             s = s[1:]
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else s
 
-    cols_lower = {c.lower(): c for c in df.columns}
+    # case-insensitive column lookup
+    colmap = {c.lower().strip(): c for c in df.columns}
 
-    # format phone (or derive from phone_fmt if phone missing)
-    if "phone" in cols_lower:
-        c = cols_lower["phone"]
+    # format phone (avoid `.keys()` per SIM118)
+    if "phone" in colmap:
+        c = colmap["phone"]
         df[c] = df[c].map(_fmt10)
-    elif "phone_fmt" in cols_lower:
-        c = cols_lower["phone_fmt"]
+    elif "phone_fmt" in colmap:
+        c = colmap["phone_fmt"]
         df["phone"] = df[c].map(_fmt10)
 
-    # hide any phone_fmt (case-insensitive exact match)
-    drop_exact = [c for c in df.columns if c.strip().lower() == "phone_fmt"]
+    # hide phone_fmt (case-insensitive)
+    drop_phone_fmt = [c for c in df.columns if c.lower().strip() == "phone_fmt"]
 
     widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
     col_cfg = _apply_column_widths(df, widths)
@@ -353,7 +355,7 @@ def render_table_hscroll(df, *, key="browse_table"):
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
         df.drop(
-            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", *drop_exact],
+            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", *drop_phone_fmt],
             errors="ignore",
         ),
         use_container_width=False,
@@ -1297,7 +1299,7 @@ def _normalize_phone(val: str | None) -> str:
 # === ANCHOR: FORMAT_PHONE (start) ===
 def _format_phone(val: str | None) -> str:
     s = re.sub(r"\D", "", str(val or ""))
-    if len(s) == 10:  # noqa: PLR2004
+    if len(s) == PHONE_LEN:  # noqa: PLR2004
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
     return (val or "").strip()
 
@@ -2419,7 +2421,7 @@ if st.button("Trim whitespace in text fields (safe)"):
 
             def _norm_phone(v: str) -> str:
                 s = re.sub(r"\D+", "", str(v or ""))
-                if len(s) == 11 and s.startswith("1"):
+                if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                     s = s[1:]
                 return s  # store digits-only (10 if valid)
 
