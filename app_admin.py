@@ -514,26 +514,6 @@ def _get_secret(name: str, default: str | None = None) -> str | None:
         pass
     return os.getenv(name, default)
 
-
-# --- CKW schema ensure (DDL) ---
-def _ensure_ckw_column_and_index(eng) -> bool:
-    """Add vendors.ckw and its index if missing. Returns True if changed."""
-    changed = False
-    try:
-        with eng.begin() as cx:
-            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
-            has_ckw = any(r[1] == "ckw" for r in rows)
-            if not has_ckw:
-                cx.exec_driver_sql("ALTER TABLE vendors ADD COLUMN ckw TEXT DEFAULT ''")
-                changed = True
-            # index (safe if-not-exists)
-            cx.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(ckw)")
-        return changed
-    except Exception as e:
-        st.warning(f"CKW DDL failed: {e}")
-        return False
-
-
 # Deterministic resolution (secrets -> env -> code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
     v = _get_secret(name, None)
@@ -1674,18 +1654,7 @@ except Exception as _e:
     st.warning(f"Browse unavailable: {_e}")
 # ===== end Browse render (providers) =====
 
-
-
-# --- PATCH: Browse Help + H-scroll wrapper (safe, additive) -----------------
-def _browse_help_block():
-    """Render optional help content for the Browse tab from secrets."""
-    _s = st.secrets
-    show = str(_s.get("SHOW_BROWSE_HELP", "0")).strip() in {"1", "true", "yes", "on"}
-    if not show:
-        return
-
-
-
+# (removed unused _browse_help_block; help is handled by the HCR Help — Browse section)
 
 # --- HCR: Help -- Browse -----------------------------------------------------
 _show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
@@ -1705,8 +1674,8 @@ if _show_help:
 # === ANCHOR: BROWSE_HEADER (start) ===
 # ---------- Browse
 
-# Help â€” Browse
-with st.expander("Help â€” Browse", expanded=False):
+# Help — Browse
+with st.expander("Help — Browse", expanded=False):
     st.markdown(
         """
 **What you see**
@@ -1723,7 +1692,7 @@ with st.expander("Help â€” Browse", expanded=False):
 - **Download CSV (visible columns)** exports exactly what you see on screen: same columns, same order, with **Phone** (not raw `phone`/`phone_fmt`).
 """
     )
-# ---- end Help â€” Browse ----
+# ---- end Help — Browse ----
 
 
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
@@ -1733,77 +1702,9 @@ with _tabs[0]:
 # === ANCHOR: TABS_BROWSE_ENTER (end) ===
 
 
-# Optional top-of-browse help, driven by secrets
-try:
-    if st.secrets.get("SHOW_BROWSE_HELP", "0") in ("1", 1, True, "true", "True"):
-        # Help content intentionally disabled.
-        pass
-except Exception:
-    # Secrets not available or other non-fatal issue
-    pass
-# Resolve a table DataFrame that actually exists in scope
+# Optional top-of-browse help (intentionally disabled here; canonical Browse already rendered)
+# (legacy fallback table block intentionally removed)
 
-try:
-    _table = filtered  # preferred
-except NameError:
-    try:
-        _table = df  # fallback
-    except NameError:
-        _table = None
-
-
-if _table is None:
-    st.warning("Browse table not available (no DataFrame found).")
-else:
-    # Derive visible columns for Browse (hide meta/tech fields)
-    _hide = {
-        "id",
-        "created_at",
-        "updated_at",
-        "updated_by",
-        "ckw",
-        "ckw_locked",
-        "ckw_version",
-        "ckw_manual_extra",
-        "computed_keywords",
-        "city",
-        "state",
-        "zip",
-    }
-    try:
-        if "phone_fmt" in _table.columns and "phone" in _table.columns:
-            _hide.add("phone")
-    except Exception:
-        pass
-    view_cols = [c for c in _table.columns if c not in _hide]
-    _view = _table[view_cols]
-
-    # Build Streamlit column_config from secrets (exact pixel widths)
-    col_cfg = {}
-    try:
-        _w = st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {})
-        if isinstance(_w, dict):
-            for _col, _px in _w.items():
-                try:
-                    _wpx = int(_px)
-                except Exception:
-                    continue
-                if _col in _view.columns:
-                    col_cfg[_col] = st.column_config.Column(width=_wpx)
-    except Exception:
-        # widths are optional; continue without them
-        pass
-
-    # CSV export of the filtered view
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    _csv_bytes = _view.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download filtered view (CSV)",
-        data=_csv_bytes,
-        file_name=f"providers_{ts}.csv",
-        mime="text/csv",
-    )
-# --- /HScroll wrapper ---
 
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
