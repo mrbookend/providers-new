@@ -5,30 +5,29 @@ from __future__ import annotations
 # Standard library
 import contextlib
 import datetime as _dt
+from datetime import datetime
 import hashlib
 import hmac
 import importlib
 import json
 import os
-import os as _os
 import pathlib
 import re
 import subprocess
 import time
 import uuid
-from datetime import datetime
 
 # Third-party
 import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text as sql_text
-from sqlalchemy import create_engine as _create_engine
 from sqlalchemy.engine import Engine
 
 # App constants
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
+
 
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
@@ -255,8 +254,8 @@ def _build_engine_fallback():
         pass
     
 
-    _db = _os.getenv("DB_PATH", "providers.db")
-    return _create_engine(f"sqlite+pysqlite:///{_db}")
+    _db = os.getenv("DB_PATH", "providers.db")
+    return create_engine(f"sqlite+pysqlite:///{_db}")
 
 
 # Provide get_engine() if missing
