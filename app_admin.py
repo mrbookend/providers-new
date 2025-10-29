@@ -614,7 +614,6 @@ def _hscroll_container_close():
     st.markdown("</div>", unsafe_allow_html=True)
 def __HCR_browse_render():
     """Canonical Browse renderer: secrets-driven order/widths, hide meta cols, CSV export of visible columns."""
-    import pandas as pd
 
     # Engine + load
     eng = get_engine()
@@ -647,16 +646,15 @@ def __HCR_browse_render():
     if "phone_fmt" not in df.columns and "phone" in df.columns:
         def _fmt_phone(raw: str) -> str:
             digits = "".join(ch for ch in str(raw) if ch.isdigit())
-            if len(digits) == 11 and digits.startswith("1"):
+            if len(digits) == 11 and digits.startswith("1"):  # noqa: PLR2004
                 digits = digits[1:]
-            if len(digits) == 10:
+            if len(digits) == 10:  # noqa: PLR2004
                 return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
             return str(raw)
         df["phone_fmt"] = df["phone"].map(_fmt_phone)
 
     # Secrets-driven order & widths
     browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-    col_widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))  # reserved for future styled grid
 
     # Visible/view columns (ordered)
     visible_cols = [c for c in df.columns if c not in hidden_cols]
@@ -1176,7 +1174,7 @@ def sync_reference_tables(engine: Engine) -> dict:
 # === ANCHOR: SEED_IF_EMPTY_START (start) ===
 # --- Seed if empty (address-only) --- START
 # === ANCHOR: SEED_IF_EMPTY_DEF (start) ===
-def _seed_if_empty(eng=None) -> None:  # noqa: PLR0911
+def _seed_if_empty(eng=None) -> None:
     """Seed vendors from CSV when table exists but has 0 rows (address-only schema)."""
     # Gate via secrets
     allow = int(str(st.secrets.get("ALLOW_SEED_IMPORT", "0")).strip() or "0") == 1
