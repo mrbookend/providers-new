@@ -66,7 +66,6 @@ if APP_VER in (None, "", "auto"):
 # ----------------------------------------------------------------------------
 
 
-
 def _sha256_of_this_file() -> str:
     try:
         import hashlib  # noqa: PLC0415
@@ -357,6 +356,7 @@ def _as_bool(v, default=False) -> bool:
         return False
     return bool(default)
 
+
 def _ensure_ckw_schema(eng) -> bool:
     """
     Ensure vendors has CKW fields and indexes. Returns True if any change was applied.
@@ -371,7 +371,8 @@ def _ensure_ckw_schema(eng) -> bool:
     changed = False
     with eng.begin() as cx:
         # Ensure base table exists (address-only schema; minimal set)
-        cx.execute(sql_text("""
+        cx.execute(
+            sql_text("""
             CREATE TABLE IF NOT EXISTS vendors (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 category TEXT NOT NULL,
@@ -393,7 +394,8 @@ def _ensure_ckw_schema(eng) -> bool:
                 updated_at TEXT,
                 updated_by TEXT
             )
-        """))
+        """)
+        )
 
         # Probe live columns
         cols = [r[1] for r in cx.execute(sql_text("PRAGMA table_info(vendors)")).fetchall()]
@@ -418,6 +420,7 @@ def _ensure_ckw_schema(eng) -> bool:
             changed = True
 
     return changed
+
 
 # --- Helper: column widths from secrets ---
 def _column_config_from_secrets(cols: list[str]) -> dict:
@@ -466,7 +469,6 @@ def _ckw_for_form_row(data: dict) -> tuple[str, str]:
 # --- CKW schema ensure -------------------------------------------------------
 
 
-
 # --- CKW-first filter (read-only) ---
 def _filter_df_ckw_first(df, q: str):
     if not isinstance(q, str) or not q.strip():
@@ -513,6 +515,7 @@ def _get_secret(name: str, default: str | None = None) -> str | None:
     except Exception:
         pass
     return os.getenv(name, default)
+
 
 # Deterministic resolution (secrets -> env -> code default)
 def _resolve_bool(name: str, code_default: bool) -> bool:
@@ -612,6 +615,8 @@ def _hscroll_container_open():
 def _hscroll_container_close():
     """Close the horizontal scroll container."""
     st.markdown("</div>", unsafe_allow_html=True)
+
+
 def __HCR_browse_render():
     """Canonical Browse renderer: secrets-driven order/widths, hide meta cols, CSV export of visible columns."""
 
@@ -644,6 +649,7 @@ def __HCR_browse_render():
 
     # Ensure phone_fmt exists for display
     if "phone_fmt" not in df.columns and "phone" in df.columns:
+
         def _fmt_phone(raw: str) -> str:
             digits = "".join(ch for ch in str(raw) if ch.isdigit())
             if len(digits) == 11 and digits.startswith("1"):  # noqa: PLR2004
@@ -651,6 +657,7 @@ def __HCR_browse_render():
             if len(digits) == 10:  # noqa: PLR2004
                 return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
             return str(raw)
+
         df["phone_fmt"] = df["phone"].map(_fmt_phone)
 
     # Secrets-driven order & widths
@@ -688,7 +695,8 @@ def __HCR_browse_render():
     except Exception as ex:
         st.warning(f"CSV export unavailable: {ex}")
 
-def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int: 
+
+def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
     if not rows:
         return 0
     upd = 0
@@ -733,6 +741,7 @@ def recompute_ckw_all(eng) -> int:
     with eng.begin() as cx:
         ids = [r[0] for r in cx.execute(sql_text("SELECT id FROM vendors")).fetchall()]
     return recompute_ckw_for_ids(eng, ids, override_locks=True)
+
 
 # ---------- Form state helpers (Add / Edit / Delete) ----------
 # Add form keys
@@ -1245,6 +1254,7 @@ def _seed_if_empty(eng=None) -> None:
             pass
         return
 
+
 # --- end Add/Edit form submit ------------------------------------------------
 
 
@@ -1505,14 +1515,19 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         cols = set(map(str, getattr(df, "columns", [])))
 
         def _minimal_src(_df: pd.DataFrame) -> pd.Series:
-            pick = [c for c in ("business_name", "category", "service", "notes", "keywords") if c in cols]
+            pick = [
+                c
+                for c in ("business_name", "category", "service", "notes", "keywords")
+                if c in cols
+            ]
             if pick:
                 return _df[pick].astype("string").fillna("").agg(" ".join, axis=1)
             return pd.Series([""] * len(_df), index=_df.index, dtype="string")
 
         # Prefer CKW when present and non-empty; accept 'computed_keywords', 'CKW', or 'ckw'
         ckw_col = (
-            "computed_keywords" if "computed_keywords" in cols
+            "computed_keywords"
+            if "computed_keywords" in cols
             else ("CKW" if "CKW" in cols else ("ckw" if "ckw" in cols else None))
         )
         base = _minimal_src(df)
@@ -1535,7 +1550,6 @@ def _filter_df_by_query(df: pd.DataFrame, qq: str | None) -> pd.DataFrame:
         except Exception:
             pass
         return df
-
 
 
 # --- initialize engine and schema (order matters) ----------------------------
@@ -2602,6 +2616,7 @@ def render_browse_help_expander() -> None:
     with st.expander("Help -- Browse", expanded=False):
         st.markdown(md)
 
+
 # Expose a callable so main/Browse can invoke without re-import details.
 st.session_state["_browse_help_render"] = render_browse_help_expander
 
@@ -2621,5 +2636,6 @@ def _vendors_has_column(eng, col: str) -> bool:
         return col.lower() in names
     except Exception:
         return False
+
 
 # (removed legacy inline browse block; canonical __HCR_browse_render() is used)
