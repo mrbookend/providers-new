@@ -183,7 +183,7 @@ fi
 echo "[4/5] Code diagnostics…"
 case "$MODE" in
   audit)
-    if [ -n "$WRAP_RUFF" ] && [ "$WRAP_RUFF" != "$VENV_RUFF" ]; then "$WRAP_RUFF" audit; else audit_repo; fi
+    if [ -n "$WRAP_RUFF" ] && [ "$WRAP_RUFF" != "$VENV_RUFF" ]; then "$WRAP_RUFF" check --output-format=github . && "$WRAP_RUFF" format --check .; else audit_repo; fi
     ;;
   pr)
     if [ -n "$WRAP_RUFF" ] && [ "$WRAP_RUFF" != "$VENV_RUFF" ]; then "$WRAP_RUFF" pr; else audit_pr; fi
