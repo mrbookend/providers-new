@@ -325,38 +325,36 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.fillna("")
 
 
-def render_table_hscroll(df, *, key="browse_table"):
-    df = df.copy()
-
+def render_table_hscroll(df, *, key: str = "browse_table"):
+    """
+    Render the Browse table with horizontal scroll, hiding meta columns and phone_fmt,
+    and formatting 'phone' as (xxx) xxx-xxxx when it contains 10 US digits (or 11 with a leading '1').
+    """
+    # Phone formatter (uses module-level constants PHONE_LEN / PHONE_LEN_WITH_CC)
     def _fmt10(v: str) -> str:
         s = re.sub(r"\D+", "", str(v or ""))
         if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
             s = s[1:]
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else s
 
-    cols_lower = {c.lower(): c for c in df.columns}
+    # Apply phone formatting to the display column
+    if "phone" in df.columns:
+        df = df.copy()  # avoid mutating upstream callers
+        df["phone"] = df["phone"].map(_fmt10)
 
-    # format phone (or derive from phone_fmt if phone missing)
-    if "phone" in cols_lower:
-        c = cols_lower["phone"]
-        df[c] = df[c].map(_fmt10)
-    elif "phone_fmt" in cols_lower:
-        c = cols_lower["phone_fmt"]
-        df["phone"] = df[c].map(_fmt10)
+    # Drop columns we never show in Browse (including phone_fmt)
+    drop_cols = ["id", "created_at", "updated_at", "ckw_locked", "ckw_version", "phone_fmt"]
+    df_show = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
 
-    # hide any phone_fmt (case-insensitive exact match)
-    drop_exact = [c for c in df.columns if c.strip().lower() == "phone_fmt"]
-
+    # Column widths from secrets (exact pixels if provided)
     widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    col_cfg = _apply_column_widths(df, widths)
+    col_cfg = _apply_column_widths(df_show, widths)
 
+    # Force horizontal scroll with an outer wrapper
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
-        df.drop(
-            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", *drop_exact],
-            errors="ignore",
-        ),
-        use_container_width=False,
+        df_show,
+        use_container_width=False,  # keep h-scroll
         hide_index=True,
         column_config=(col_cfg or None),
         key=key,
