@@ -18,14 +18,15 @@ import uuid
 
 # Third-party
 import pandas as pd
-import streamlit as st
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
+import streamlit as st
 
 # App constants
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
+
 
 
 # === ANCHOR: PAGE_CONFIG (start) ===
@@ -1297,7 +1298,7 @@ def _normalize_phone(val: str | None) -> str:
 # === ANCHOR: FORMAT_PHONE (start) ===
 def _format_phone(val: str | None) -> str:
     s = re.sub(r"\D", "", str(val or ""))
-    if len(s) == 10:  
+    if len(s) == PHONE_LEN:  
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
     return (val or "").strip()
 
@@ -2184,7 +2185,7 @@ with _tabs[4]:
 
     def _format_phone_digits(x: str | int | None) -> str:
         s = re.sub(r"\D+", "", str(x or ""))
-        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s  # noqa: PLR2004
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else s  # noqa: PLR2004
 
     if "phone" in full_formatted.columns:
         full_formatted["phone"] = full_formatted["phone"].apply(_format_phone_digits)
@@ -2419,7 +2420,7 @@ if st.button("Trim whitespace in text fields (safe)"):
 
             def _norm_phone(v: str) -> str:
                 s = re.sub(r"\D+", "", str(v or ""))
-                if len(s) == 11 and s.startswith("1"):
+                if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                     s = s[1:]
                 return s  # store digits-only (10 if valid)
 
