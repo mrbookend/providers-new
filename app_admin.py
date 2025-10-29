@@ -632,9 +632,85 @@ def _hscroll_container_open():
 def _hscroll_container_close():
     """Close the horizontal scroll container."""
     st.markdown("</div>", unsafe_allow_html=True)
+def __HCR_browse_render():
+    """Canonical Browse renderer: secrets-driven order/widths, hide meta cols, CSV export of visible columns."""
+    import pandas as pd
 
+    # Engine + load
+    eng = get_engine()
+    try:
+        df = pd.read_sql("SELECT * FROM vendors", eng)
+    except Exception as e:
+        st.error(f"Browse load failed: {e}")
+        return
 
-def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
+    # Hidden/meta columns — single source of truth
+    hidden_cols_default = {
+        "id",
+        "created_at",
+        "updated_at",
+        "updated_by",
+        "ckw",
+        "ckw_locked",
+        "ckw_version",
+        "ckw_manual_extra",
+        "computed_keywords",
+    }
+    hidden_cols = set(hidden_cols_default)
+
+    # Tolerate legacy columns if present
+    for legacy in ("city", "state", "zip"):
+        if legacy in df.columns:
+            hidden_cols.add(legacy)
+
+    # Ensure phone_fmt exists for display
+    if "phone_fmt" not in df.columns and "phone" in df.columns:
+        def _fmt_phone(raw: str) -> str:
+            digits = "".join(ch for ch in str(raw) if ch.isdigit())
+            if len(digits) == 11 and digits.startswith("1"):
+                digits = digits[1:]
+            if len(digits) == 10:
+                return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
+            return str(raw)
+        df["phone_fmt"] = df["phone"].map(_fmt_phone)
+
+    # Secrets-driven order & widths
+    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+    col_widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))  # reserved for future styled grid
+
+    # Visible/view columns (ordered)
+    visible_cols = [c for c in df.columns if c not in hidden_cols]
+    if browse_order:
+        view_cols = [c for c in browse_order if c in visible_cols]
+        view_cols += [c for c in visible_cols if c not in view_cols]
+    else:
+        view_cols = visible_cols
+
+    # Render (keep horizontal scroll via wrapper)
+    _hscroll_container_open()
+    try:
+        st.dataframe(
+            df[view_cols],
+            use_container_width=False,  # keep h-scroll
+            hide_index=True,
+        )
+    finally:
+        _hscroll_container_close()
+
+    # Export exactly the visible columns (same order)
+    try:
+        csv = df[view_cols].to_csv(index=False)
+        st.download_button(
+            label="Download CSV (visible columns)",
+            data=csv,
+            file_name="providers_visible.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    except Exception as ex:
+        st.warning(f"CSV export unavailable: {ex}")
+
+def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int: 
     if not rows:
         return 0
     upd = 0
@@ -1652,8 +1728,8 @@ with st.expander("Help â€” Browse", expanded=False):
 
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
-    # Route Browse rendering to the inline function (tuple-safe, CSV, phone formatting).
-    __HCR_browse_render_inline()
+    # === Browse (canonical, secrets-driven) ===
+    __HCR_browse_render()
 # === ANCHOR: TABS_BROWSE_ENTER (end) ===
 
 
@@ -2778,7 +2854,6 @@ def _ensure_ckw_column_and_index(eng) -> bool:
 # === ANCHOR: BROWSE_INLINE_START (start) ===
 # === HCR INLINE BROWSE (tuple-safe) ========================================
 # === ANCHOR: BROWSE_INLINE_DEF (start) ===
-def __HCR_browse_render_inline():
     # Minimal, clean Browse render for Providers (admin)
     # - Shows formatted Phone only
     # - Hides raw phone + CKW/meta/internal columns
