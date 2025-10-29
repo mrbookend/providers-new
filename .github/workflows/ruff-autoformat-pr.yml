@@ -1,0 +1,36 @@
+name: ruff-autoformat-pr
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ chore/ruff-autoformat-pr ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  format-and-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ruff
+        run: pipx install ruff
+      - name: Run ruff format
+        run: ruff format .
+      - name: Create PR with formatted files
+        uses: peter-evans/create-pull-request@v7
+        with:
+          title: "style: ruff format"
+          body: "Apply ruff formatting so CI stops failing with 'Would reformat'."
+          branch: chore/ruff-autoformat-output
+          base: main
+          commit-message: "style: ruff format"
+          signoff: false
+          delete-branch: false
