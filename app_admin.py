@@ -275,39 +275,6 @@ if "engine" not in globals():
         engine = None
 # --- END TEMP ENGINE SHIMS ----------------------------------------------------
 
-# --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
-
-
-def _build_engine_fallback():
-    """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
-    try:
-        # If your file defines build_engine(), prefer it.
-        return build_engine()  # type: ignore[name-defined]
-    except Exception:
-        pass
-    # Minimal, non-breaking fallback (keeps app bootable even off Turso)
-    from sqlalchemy import create_engine as _create_engine  # noqa: PLC0415, I001
-    import os as _os  # noqa: PLC0415
-
-    _db = _os.getenv("DB_PATH", "providers.db")
-    return _create_engine(f"sqlite+pysqlite:///{_db}")
-
-
-# Provide get_engine() if missing
-if "get_engine" not in globals():
-
-    def get_engine():
-        return _build_engine_fallback()
-
-
-# Legacy global alias to satisfy code paths that reference `engine` directly
-if "engine" not in globals():
-    try:
-        engine = get_engine()
-    except Exception:
-        engine = None
-# --- END TEMP ENGINE SHIMS ----------------------------------------------------
-
 
 # -----------------------------
 # Helpers
@@ -1230,258 +1197,8 @@ def _seed_if_empty(eng=None) -> None:  # noqa: PLR0911
             st.warning(f"Seed-if-empty skipped: {e}")
         except Exception:
             pass
-        # --- Seed if empty (address-only) --- END
+        return
 
-        # --- ensure minimal schema BEFORE any queries (idempotent) ---
-        try:
-            with eng.begin() as cx:
-                cx.exec_driver_sql("""
-                    CREATE TABLE IF NOT EXISTS vendors (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        category TEXT NOT NULL,
-                        service  TEXT,
-                        business_name TEXT NOT NULL,
-                        contact_name  TEXT,
-                        phone   TEXT,
-                        phone_fmt TEXT,
-                        email   TEXT,
-                        address TEXT,
-                        website TEXT,
-                        notes   TEXT,
-                        keywords TEXT,
-                        computed_keywords TEXT DEFAULT '',
-                        ckw_version TEXT DEFAULT '',
-                        ckw_locked INTEGER DEFAULT 0,
-                        ckw_manual_extra TEXT DEFAULT '',
-                        created_at TEXT,
-                        updated_at TEXT,
-                        updated_by TEXT
-                    );
-                """)
-
-                cx.exec_driver_sql(
-                    "CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);"
-                )
-                cx.exec_driver_sql(
-                    "CREATE TABLE IF NOT EXISTS services   (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);"
-                )
-                cx.exec_driver_sql(
-                    "CREATE INDEX IF NOT EXISTS idx_vendors_bus ON vendors(business_name);"
-                )
-                cx.exec_driver_sql(
-                    "CREATE INDEX IF NOT EXISTS idx_vendors_cat ON vendors(category);"
-                )
-                cx.exec_driver_sql(
-                    "CREATE INDEX IF NOT EXISTS idx_vendors_svc ON vendors(service);"
-                )
-                cx.exec_driver_sql(
-                    "CREATE INDEX IF NOT EXISTS idx_vendors_kw  ON vendors(keywords);"
-                )
-                cx.exec_driver_sql(
-                    "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords);"
-                )
-        except Exception as e2:
-            st.warning(f"Seed-if-empty skipped (schema create failed): {e2}")
-            return
-
-        # --- proceed only if table exists and is empty ---
-        try:
-            with eng.begin() as cx:
-                cnt = cx.exec_driver_sql("SELECT COUNT(1) FROM vendors").scalar()
-        except Exception as e3:
-            st.warning(f"Seed-if-empty skipped (cannot COUNT vendors): {e3}")
-            return
-
-        if cnt and int(cnt) > 0:
-            return  # already has rows
-
-        if not os.path.exists(seed_csv):
-            st.warning(f"SEED_CSV not found: {seed_csv}")
-            return
-
-        df = pd.read_csv(seed_csv)
-        df = _sanitize_seed_df(df)
-
-        # Map CSV headers to table columns as needed
-        df = df.rename(
-            columns={
-                "contact name": "contact_name",
-                "email address": "email",
-            }
-        )
-
-        # Columns we will insert into the vendors table
-        keep = [
-            "category",
-            "service",
-            "business_name",
-            "contact_name",
-            "phone",
-            "phone_fmt",
-            "email",
-            "address",
-            "website",
-            "notes",
-            "keywords",
-        ]
-
-        # Ensure every required column exists; fill missing with ""
-        for col in keep:
-            if col not in df.columns:
-                df[col] = ""
-
-        # Basic cleanup + type coercions
-        df = df.fillna("")
-
-        # Normalize phone to digits-only
-        import re as _re  # noqa: PLC0415
-
-        def _digits_only(x):
-            s = str(x).strip()
-            if s.endswith(".0"):
-                s = s[:-2]
-            return _re.sub(r"\D+", "", s)
-
-        if "phone" in df.columns:
-            df["phone"] = df["phone"].apply(_digits_only)
-
-        # Force strings for text columns
-        for col in keep:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
-
-        st.warning(f"Seed-if-empty skipped: {e}")
-
-
-# (moved) _seed_if_empty() will be invoked after ensure_schema(engine) below.
-
-# ---------- end seed-if-empty ----------
-
-# --- Add/Edit form submit ----------------------------------------------------
-if "submit_ctx" not in st.session_state:
-    st.session_state["submit_ctx"] = {}
-
-submit = st.session_state.get("_do_submit", False)
-
-if submit:
-    # Collect form fields (adapt keys to your form variable names)
-    business_name = (st.session_state.get("business_name") or "").strip()
-    category = (st.session_state.get("category") or "").strip()
-    service = (st.session_state.get("service") or "").strip()
-    contact_name = (st.session_state.get("contact_name") or "").strip()
-    phone_raw = (st.session_state.get("phone") or "").strip()
-    email = (st.session_state.get("email") or "").strip()
-    website = (st.session_state.get("website") or "").strip()
-    address = (st.session_state.get("address") or "").strip()
-    notes = (st.session_state.get("notes") or "").strip()
-    keywords = (st.session_state.get("keywords") or "").strip()
-    ckw_manual_extra = (st.session_state.get("ckw_manual_extra") or "").strip()
-
-    def _digits_only(s: str) -> str:
-        return "".join(ch for ch in str(s) if ch.isdigit())
-
-    phone_digits = _digits_only(phone_raw)
-    phone_fmt = (
-        f"({phone_digits[0:3]}) {phone_digits[3:6]}-{phone_digits[6:10]}"
-        if len(phone_digits) == 10  # noqa: PLR2004
-        else phone_raw
-    )
-
-    form_values_dict = {
-        "business_name": business_name,
-        "category": category,
-        "service": service,
-        "contact_name": contact_name,
-        "phone": phone_digits,
-        "phone_fmt": phone_fmt,
-        "email": email,
-        "website": website,
-        "address": address,
-        "notes": notes,
-        "keywords": keywords,
-        "ckw_locked": 0,
-        "ckw_manual_extra": ckw_manual_extra,
-        "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
-    }
-
-    # Compute CKW for this one row
-    try:
-        ckw, ver = _ckw_for_form_row(form_values_dict)
-    except Exception:
-        parts = [business_name, category, service, keywords, ckw_manual_extra, notes]
-        ckw, ver = (" ".join(p for p in parts if p).strip(), 1)
-
-    form_values_dict["computed_keywords"] = ckw
-    form_values_dict["ckw_version"] = ver
-
-    try:
-        eng = get_engine()
-        vendor_id = st.session_state.get("edit_vendor_id")
-
-        if vendor_id:
-            with eng.begin() as cx:
-                cx.execute(
-                    sql_text(
-                        """
-                        UPDATE vendors
-                        SET business_name=:business_name,
-                            category=:category,
-                            service=NULLIF(:service,''),
-                            contact_name=:contact_name,
-                            phone=:phone,
-                            phone_fmt=:phone_fmt,
-                            email=:email,
-                            website=:website,
-                            address=:address,
-                            notes=:notes,
-                            keywords=:keywords,
-                            computed_keywords=:computed_keywords,
-                            ckw_version=:ckw_version,
-                            ckw_locked=:ckw_locked,
-                            ckw_manual_extra=:ckw_manual_extra,
-                            updated_at=:updated_at
-                        WHERE id=:id
-                        """
-                    ),
-                    {**form_values_dict, "id": int(vendor_id)},
-                )
-            st.success("Provider updated.")
-        else:
-            with eng.begin() as cx:
-                cx.execute(
-                    sql_text(
-                        """
-                        INSERT INTO vendors (
-                            category, service, business_name, contact_name,
-                            phone, phone_fmt, email, website, address,
-                            notes, keywords,
-                            computed_keywords, ckw_version, ckw_locked,
-                            ckw_manual_extra,
-                            created_at, updated_at, updated_by
-                        )
-                        VALUES (
-                            :category, NULLIF(:service,''), :business_name, :contact_name,
-                            :phone, :phone_fmt, :email, :website, :address,
-                            :notes, :keywords,
-                            :computed_keywords, :ckw_version, :ckw_locked,
-                            :ckw_manual_extra,
-                            CURRENT_TIMESTAMP, :updated_at, 'form'
-                        )
-                        """
-                    ),
-                    form_values_dict,
-                )
-            st.success("Provider added.")
-
-        try:  # noqa: SIM105
-            st.cache_data.clear()
-        except Exception:
-            pass
-
-        st.session_state["DATA_VER"] = st.session_state.get("DATA_VER", 0) + 1
-
-    except Exception as ex:
-        st.error(f"Database write failed: {ex}")
 # --- end Add/Edit form submit ------------------------------------------------
 
 
@@ -1811,8 +1528,8 @@ except Exception:
 
 _tabs = st.tabs(
     [
-        "Browse Providers"
-        "Add / Edit / Delete Provider"
+        "Browse Providers",
+        "Add / Edit / Delete Provider",
         "Category Admin",
         "Service Admin",
         "Maintenance",
@@ -1892,21 +1609,7 @@ def _browse_help_block():
         return
 
 
-def _hscroll_container_open():
-    st.markdown(
-        '<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">',
-        unsafe_allow_html=True,
-    )
 
-
-def _hscroll_container_close():
-    """Close the horizontal scroll container."""
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# Call the help block at the top of Browse
-_browse_help_block()
-# ---------------------------------------------------------------------------
 
 # --- HCR: Help -- Browse -----------------------------------------------------
 _show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
@@ -1926,8 +1629,8 @@ if _show_help:
 # === ANCHOR: BROWSE_HEADER (start) ===
 # ---------- Browse
 
-# Help — Browse
-with st.expander("Help — Browse", expanded=False):
+# Help â€” Browse
+with st.expander("Help â€” Browse", expanded=False):
     st.markdown(
         """
 **What you see**
@@ -1944,7 +1647,7 @@ with st.expander("Help — Browse", expanded=False):
 - **Download CSV (visible columns)** exports exactly what you see on screen: same columns, same order, with **Phone** (not raw `phone`/`phone_fmt`).
 """
     )
-# ---- end Help — Browse ----
+# ---- end Help â€” Browse ----
 
 
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
@@ -3159,4 +2862,3 @@ def __HCR_browse_render_inline():
     except Exception as _e:
         st.error(f"Browse inline failed: {_e}")
 # === END HCR INLINE BROWSE ==================================================
-    # save-test
