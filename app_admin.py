@@ -31,7 +31,6 @@ CSV_MAX_ROWS = 1000
 # === ANCHOR: IMPORTS (end) ===
 
 
-
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
@@ -54,8 +53,6 @@ if "_browse_help_render" not in st.session_state:
 
 
 # ---------------------------------------------------------------------------
-
-
 
 
 # --- HCR: auto app version (no manual bumps) --------------------------------
@@ -84,7 +81,6 @@ if APP_VER in (None, "", "auto"):
 
 def _sha256_of_this_file() -> str:
     try:
-
         p = pathlib.Path(__file__)
         return hashlib.sha256(p.read_bytes()).hexdigest()
     except Exception:
@@ -97,8 +93,6 @@ def _mtime_of_this_file() -> str:
         return datetime.fromtimestamp(ts).isoformat(timespec="seconds")
     except Exception as e:
         return str(e) or ""
-
-
 
 
 # --- CKW constants & secrets -------------------------------------------------
@@ -248,6 +242,7 @@ with contextlib.suppress(Exception):
     importlib.import_module("sqlalchemy_libsql")
 # ---- end dialect registration ----
 
+
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
 def _build_engine_fallback():
     """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
@@ -256,7 +251,6 @@ def _build_engine_fallback():
         return build_engine()  # type: ignore[name-defined]
     except Exception:
         pass
-    
 
     _db = os.getenv("DB_PATH", "providers.db")
     return create_engine(f"sqlite+pysqlite:///{_db}")
@@ -329,6 +323,8 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     if present:
         df = df[present]
     return df.fillna("")
+
+
 def render_table_hscroll(df, *, key="browse_table"):
     df = df.copy()
 
@@ -365,7 +361,6 @@ def render_table_hscroll(df, *, key="browse_table"):
         column_config=(col_cfg or None),
         key=key,
     )
-
 
 
 # ----------------------------------------------------------------------------
@@ -1301,7 +1296,7 @@ def _normalize_phone(val: str | None) -> str:
 # === ANCHOR: FORMAT_PHONE (start) ===
 def _format_phone(val: str | None) -> str:
     s = re.sub(r"\D", "", str(val or ""))
-    if len(s) == PHONE_LEN:  
+    if len(s) == PHONE_LEN:
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
     return (val or "").strip()
 
@@ -2400,15 +2395,19 @@ if st.button("Trim whitespace in text fields (safe)"):
 
         # use existing engine
         with engine.begin() as conn:
-            rows = conn.execute(
-                sql_text(
-                    """
+            rows = (
+                conn.execute(
+                    sql_text(
+                        """
                     SELECT id, category, service, business_name, contact_name,
                            address, website, notes, keywords, phone, updated_at
                     FROM vendors
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
 
             def _norm(v: str) -> str:
                 s = str(v or "")
@@ -2417,8 +2416,8 @@ if st.button("Trim whitespace in text fields (safe)"):
 
             def _norm_notes(v: str) -> str:
                 s = str(v or "").replace("\r\n", "\n")
-                s = re.sub(r"[ \t]+", " ", s)          # collapse spaces/tabs only (keep newlines)
-                s = re.sub(r"[ \t]*\n[ \t]*", "\n", s) # trim spaces around newlines
+                s = re.sub(r"[ \t]+", " ", s)  # collapse spaces/tabs only (keep newlines)
+                s = re.sub(r"[ \t]*\n[ \t]*", "\n", s)  # trim spaces around newlines
                 return s.strip()
 
             def _norm_phone(v: str) -> str:
