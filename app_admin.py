@@ -27,6 +27,7 @@ PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
 
+
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
@@ -2389,61 +2390,86 @@ with _tabs[4]:
             st.error(f"Backfill failed: {e}")
 
     # Trim extra whitespace across common text fields (preserves newlines in notes)
-    if st.button("Trim whitespace in text fields (safe)"):
-        try:
-            changed = 0
-            with engine.begin() as conn:
-                rows = conn.execute(
-                    sql_text(
-                        """
-                        SELECT id, category, service, business_name, contact_name, address, website, notes, keywords, phone
-                        FROM vendors
-                        """
-                    )
-                ).fetchall()
+if st.button("Trim whitespace in text fields (safe)"):
+    try:
+        changed = 0
 
-                def clean_soft(s: str | None) -> str:
-                    s = (s or "").strip()
-                    # collapse runs of spaces/tabs only; KEEP line breaks
-                    s = re.sub(r"[ \t]+", " ", s)
-                    return s
+        # use existing engine
+        with engine.begin() as conn:
+            rows = conn.execute(
+                sql_text(
+                    """
+                    SELECT id, category, service, business_name, contact_name,
+                           address, website, notes, keywords, phone, updated_at
+                    FROM vendors
+                    """
+                )
+            ).mappings().all()
 
-                for r in rows:
-                    pid = int(r[0])
-                    vals = {
-                        "category": clean_soft(r[1]),
-                        "service": clean_soft(r[2]),
-                        "business_name": clean_soft(r[3]),
-                        "contact_name": clean_soft(r[4]),
-                        "address": clean_soft(r[5]),
-                        "website": _sanitize_url(clean_soft(r[6])),
-                        "notes": clean_soft(r[7]),  # preserves newlines
-                        "keywords": clean_soft(r[8]),
-                        "phone": r[9],  # leave phone unchanged here
-                        "id": pid,
-                    }
+            def _norm(v: str) -> str:
+                s = str(v or "")
+                s = re.sub(r"\s+", " ", s).strip()  # collapse all whitespace to single space
+                return s
+
+            def _norm_notes(v: str) -> str:
+                s = str(v or "").replace("\r\n", "\n")
+                s = re.sub(r"[ \t]+", " ", s)          # collapse spaces/tabs only (keep newlines)
+                s = re.sub(r"[ \t]*\n[ \t]*", "\n", s) # trim spaces around newlines
+                return s.strip()
+
+            def _norm_phone(v: str) -> str:
+                s = re.sub(r"\D+", "", str(v or ""))
+                if len(s) == 11 and s.startswith("1"):
+                    s = s[1:]
+                return s  # store digits-only (10 if valid)
+
+            for r in rows:
+                before = dict(r)
+                after = {
+                    "category": _norm(before["category"]),
+                    "service": _norm(before["service"]),
+                    "business_name": _norm(before["business_name"]),
+                    "contact_name": _norm(before["contact_name"]),
+                    "address": _norm(before["address"]),
+                    "website": _norm(before["website"]),
+                    "notes": _norm_notes(before["notes"]),
+                    "keywords": _norm(before["keywords"]),
+                    "phone": _norm_phone(before["phone"]),
+                }
+
+                if any(after[k] != (before.get(k) or "") for k in after.keys()):
+                    now = datetime.utcnow().isoformat(timespec="seconds")
                     conn.execute(
                         sql_text(
                             """
                             UPDATE vendors
-                               SET category=:category,
-                                   service=NULLIF(:service,''),
-                                   business_name=:business_name,
-                                   contact_name=:contact_name,
-                                   phone=:phone,
-                                   address=:address,
-                                   website=:website,
-                                   notes=:notes,
-                                   keywords=:keywords
-                             WHERE id=:id
+                               SET category = :category,
+                                   service = :service,
+                                   business_name = :business_name,
+                                   contact_name = :contact_name,
+                                   address = :address,
+                                   website = :website,
+                                   notes = :notes,
+                                   keywords = :keywords,
+                                   phone = :phone,
+                                   updated_at = :now
+                             WHERE id = :id
+                               AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'')
                             """
                         ),
-                        vals,
+                        {
+                            **after,
+                            "now": now,
+                            "id": before["id"],
+                            "prev_updated": before.get("updated_at", ""),
+                        },
                     )
                     changed += 1
-            st.success(f"Whitespace trimmed on {changed} row(s).")
-        except Exception as e:
-            st.error(f"Trim failed: {e}")
+
+        st.success(f"Trimmed whitespace for {changed} row(s).")
+    except Exception as e:
+        st.error(f"Trim failed: {e}")
+
 
 # ---------- Debug
 with _tabs[5]:
