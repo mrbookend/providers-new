@@ -4,7 +4,6 @@ from __future__ import annotations
 
 # Standard library
 import contextlib
-import datetime as _dt
 from datetime import datetime
 import hashlib
 import hmac
@@ -27,7 +26,6 @@ from sqlalchemy.engine import Engine
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
-
 
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
@@ -91,9 +89,10 @@ def _sha256_of_this_file() -> str:
 def _mtime_of_this_file() -> str:
     try:
         ts = pathlib.Path(__file__).stat().st_mtime
-        return _dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(ts).isoformat(timespec="seconds")
     except Exception as e:
         return str(e) or ""
+
 
 
 
