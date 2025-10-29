@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # Standard library
 from datetime import datetime
+import contextlib
 import datetime as _dt
 import hashlib
 import hmac
@@ -28,6 +29,7 @@ from sqlalchemy.engine import Engine
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
+
 
 
 
@@ -242,14 +244,10 @@ def _debug_where_am_i():
 
 # === ANCHOR: LIBSQL_REGISTER (start) ===
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
-try:
+with contextlib.suppress(Exception):
     importlib.import_module("sqlalchemy_libsql")
-except Exception:
-    pass
-
-
-
 # ---- end dialect registration ----
+
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
 def _build_engine_fallback():
     """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
