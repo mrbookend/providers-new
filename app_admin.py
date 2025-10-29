@@ -2,6 +2,7 @@
 # noop: browse-widths scaffold (no functional change)
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
 import hmac
 import json
@@ -10,10 +11,17 @@ import re
 import subprocess
 import time
 import uuid
-from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import create_engine, text as sql_text
+from sqlalchemy.engine import Engine
+
+# --- Phone formatting constants ---
+PHONE_LEN = 10
+PHONE_LEN_WITH_CC = 11
+# === ANCHOR: IMPORTS (end) ===
+
 
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
@@ -38,8 +46,7 @@ if "_browse_help_render" not in st.session_state:
 
 # ---------------------------------------------------------------------------
 
-from sqlalchemy import create_engine, text as sql_text
-from sqlalchemy.engine import Engine
+
 
 
 # --- HCR: auto app version (no manual bumps) --------------------------------
@@ -324,15 +331,13 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
         df = df[present]
     return df.fillna("")
 def render_table_hscroll(df, *, key="browse_table"):
-    import re
-
     df = df.copy()
 
     def _fmt10(v: str) -> str:
         s = re.sub(r"\D+", "", str(v or ""))
-        if len(s) == 11 and s.startswith("1"):
+        if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
             s = s[1:]
-        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else s
 
     cols_lower = {c.lower(): c for c in df.columns}
 
@@ -361,6 +366,7 @@ def render_table_hscroll(df, *, key="browse_table"):
         column_config=(col_cfg or None),
         key=key,
     )
+
 
 
 # ----------------------------------------------------------------------------
