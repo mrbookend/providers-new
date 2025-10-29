@@ -360,6 +360,67 @@ def _as_bool(v, default=False) -> bool:
         return False
     return bool(default)
 
+def _ensure_ckw_schema(eng) -> bool:
+    """
+    Ensure vendors has CKW fields and indexes. Returns True if any change was applied.
+    Columns:
+      - computed_keywords TEXT
+      - ckw_locked INTEGER DEFAULT 0 (0/1)
+      - ckw_version TEXT DEFAULT ''
+      - ckw_manual_extra TEXT DEFAULT ''
+    Index:
+      - vendors_ckw (computed_keywords)  -- non-unique
+    """
+    changed = False
+    with eng.begin() as cx:
+        # Ensure base table exists (address-only schema; minimal set)
+        cx.execute(sql_text("""
+            CREATE TABLE IF NOT EXISTS vendors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                service TEXT,
+                business_name TEXT NOT NULL,
+                contact_name TEXT,
+                phone TEXT,
+                phone_fmt TEXT,
+                email TEXT,
+                address TEXT,
+                website TEXT,
+                notes TEXT,
+                keywords TEXT,
+                computed_keywords TEXT DEFAULT '',
+                ckw_version TEXT DEFAULT '',
+                ckw_locked INTEGER DEFAULT 0,
+                ckw_manual_extra TEXT DEFAULT '',
+                created_at TEXT,
+                updated_at TEXT,
+                updated_by TEXT
+            )
+        """))
+
+        # Probe live columns
+        cols = [r[1] for r in cx.execute(sql_text("PRAGMA table_info(vendors)")).fetchall()]
+
+        def addcol(col, ddl):
+            nonlocal changed
+            if col not in cols:
+                cx.execute(sql_text(f"ALTER TABLE vendors ADD COLUMN {ddl}"))
+                cols.append(col)
+                changed = True
+
+        addcol("computed_keywords", "computed_keywords TEXT DEFAULT ''")
+        addcol("ckw_locked", "ckw_locked INTEGER DEFAULT 0")
+        addcol("ckw_version", "ckw_version TEXT DEFAULT ''")
+        addcol("ckw_manual_extra", "ckw_manual_extra TEXT DEFAULT ''")
+
+        # Ensure index on computed_keywords (use a stable name)
+        idx_rows = cx.execute(sql_text("PRAGMA index_list(vendors)")).fetchall()
+        idx_names = {r[1] for r in idx_rows}
+        if "vendors_ckw" not in idx_names:
+            cx.execute(sql_text("CREATE INDEX vendors_ckw ON vendors(computed_keywords)"))
+            changed = True
+
+    return changed
 
 # --- Helper: column widths from secrets ---
 def _column_config_from_secrets(cols: list[str]) -> dict:
@@ -385,14 +446,6 @@ def _ensure_engine(eng):
 
 
 # --- CKW schema probe ---
-def _has_ckw_column(eng) -> bool:
-    try:
-        with eng.connect() as cx:
-            rows = cx.exec_driver_sql("PRAGMA table_info(vendors)").all()
-        return any(r[1] == "ckw" for r in rows)
-    except Exception:
-        return False
-
 
 # --- CKW write hooks (Add/Edit) ---------------------------------------------
 
@@ -414,57 +467,7 @@ def _ckw_for_form_row(data: dict) -> tuple[str, str]:
 
 
 # --- CKW schema ensure -------------------------------------------------------
-def _ensure_ckw_schema(eng) -> bool:
-    """
-    Ensure vendors has CKW fields and indexes. Returns True if any change was applied.
-    Columns:
-      - computed_keywords TEXT
-      - ckw_locked INTEGER DEFAULT 0 (0/1)
-      - ckw_version TEXT DEFAULT ''
-      - ckw_manual_extra TEXT DEFAULT ''
-    Index:
-      - vendors_ckw (computed_keywords)  -- non-unique
-    """
-    changed = False
-    with eng.begin() as cx:
-        # add columns if missing
-        cx.execute(
-            sql_text("""
-        CREATE TABLE IF NOT EXISTS vendors (
-            id INTEGER PRIMARY KEY,
-            business_name TEXT,
-            category TEXT, service TEXT,
-            contact_name TEXT, phone TEXT, email TEXT, website TEXT,
-            address TEXT,
-            notes TEXT, keywords TEXT
-        )
-        """)
-        )
-        # probe pragma table_info
-        cols = [r[1] for r in cx.execute(sql_text("PRAGMA table_info(vendors)")).fetchall()]
 
-        def addcol(col, ddl):
-            nonlocal changed
-            if col not in cols:
-                cx.execute(sql_text(f"ALTER TABLE vendors ADD COLUMN {ddl}"))
-                changed = True
-                cols.append(col)
-
-        addcol("computed_keywords", "computed_keywords TEXT")
-        addcol("ckw_locked", "ckw_locked INTEGER DEFAULT 0")
-        addcol("ckw_version", "ckw_version TEXT DEFAULT ''")
-        addcol("ckw_manual_extra", "ckw_manual_extra TEXT DEFAULT ''")
-
-        # index on computed_keywords
-        idx_rows = cx.execute(sql_text("PRAGMA index_list(vendors)")).fetchall()
-        idx_names = {r[1] for r in idx_rows}
-        if "vendors_ckw" not in idx_names:
-            cx.execute(sql_text("CREATE INDEX vendors_ckw ON vendors(computed_keywords)"))
-            changed = True
-    return changed
-
-
-# ---------------------------------------------------------------------------#
 
 
 # --- CKW-first filter (read-only) ---
@@ -735,14 +738,6 @@ def recompute_ckw_all(eng) -> int:
     with eng.begin() as cx:
         ids = [r[0] for r in cx.execute(sql_text("SELECT id FROM vendors")).fetchall()]
     return recompute_ckw_for_ids(eng, ids, override_locks=True)
-    # ---------------------------------------------------------------------------#
-    try:
-        # TODO: replace with the real ensure-CKW implementation
-        return False
-    except Exception:
-        # Defensive: never crash the app on ensure; report False
-        return False
-
 
 # ---------- Form state helpers (Add / Edit / Delete) ----------
 # Add form keys
@@ -1556,7 +1551,7 @@ ensure_schema(engine)
 
 # Now ensure CKW (both legacy 'ckw' and modern 'computed_keywords' are tolerated)
 try:  # noqa: SIM105
-    st.session_state.get("_ckw_schema_ensure", _ensure_ckw_column_and_index)(engine)
+    st.session_state.get("_ckw_schema_ensure", _ensure_ckw_schema)(engine)
 except Exception:
     pass
 
@@ -1592,67 +1587,8 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
-# ===== Browse render (providers) =====
-# (imports moved to top; no mid-file imports here)
+# (removed duplicate top-level Browse render; only _tabs[0] → __HCR_browse_render() remains)
 
-def _admin_hidden_cols(df_cols: list[str]) -> list[str]:
-    # Keep 'keywords' visible (user-entered); hide CKW/meta/raw phone
-    hide = {
-        "id", "created_at", "updated_at", "updated_by",
-        "computed_keywords", "CKW", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-        "phone",  # raw digits column hidden; we'll expose a formatted 'Phone'
-    }
-    return [c for c in df_cols if c in hide]
-
-try:
-    eng = get_engine()
-    df = pd.read_sql("SELECT * FROM vendors", eng)
-
-    # Create visible Phone column (formatted preferred)
-    df = df.copy()
-    if "phone_fmt" in df.columns:
-        df["Phone"] = df["phone_fmt"]
-    elif "phone" in df.columns:
-        df["Phone"] = df["phone"]
-    else:
-        df["Phone"] = ""
-
-    # Hidden/meta columns (also drop phone_fmt after materializing Phone)
-    hidden = set(_admin_hidden_cols(df.columns.tolist()))
-    if "phone_fmt" in df.columns:
-        hidden.add("phone_fmt")
-
-    # Compute view columns (human-first order if present)
-    view_cols = [c for c in df.columns if c not in hidden]
-    preferred = [
-        "business_name", "category", "service", "Phone",
-        "contact_name", "email", "website", "address",
-        "keywords",  # user-entered
-        "notes",
-    ]
-    ordered = [c for c in preferred if c in view_cols]
-    tail = [c for c in view_cols if c not in ordered]
-    view_cols = ordered + tail
-
-    # Render and keep the exact view for CSV export
-    _view = df[view_cols]
-    st.dataframe(_view, use_container_width=False, hide_index=True)
-
-    # --- CSV export (visible columns exactly) ---
-    try:
-        csv_bytes = _view.to_csv(index=False).encode("utf-8")  # no io import needed
-        st.download_button(
-            "Download CSV (visible columns)",
-            data=csv_bytes,
-            file_name="providers.csv",
-            mime="text/csv",
-        )
-    except Exception as _csv_e:
-        st.caption(f"CSV export unavailable: {_csv_e}")
-
-except Exception as _e:
-    st.warning(f"Browse unavailable: {_e}")
-# ===== end Browse render (providers) =====
 
 # (removed unused _browse_help_block; help is handled by the HCR Help — Browse section)
 
@@ -2728,113 +2664,4 @@ def _vendors_has_column(eng, col: str) -> bool:
     except Exception:
         return False
 
-
-def _ensure_ckw_column_and_index(eng) -> bool:
-    """
-    Ensure vendors.computed_keywords exists (TEXT, default ''), and an index exists.
-    Returns True if any schema change was applied, else False.
-    """
-    changed = False
-    try:
-        have_col = _vendors_has_column(eng, "computed_keywords")
-        if not have_col:
-            with eng.begin() as cx:
-                cx.exec_driver_sql(
-                    "ALTER TABLE vendors ADD COLUMN computed_keywords TEXT DEFAULT ''"
-                )
-            changed = True
-        with eng.begin() as cx:
-            cx.exec_driver_sql(
-                "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)"
-            )
-    except Exception as _e:
-        st.session_state["_ckw_schema_error"] = str(_e)
-    return changed
-
-
-# === ANCHOR: BROWSE_INLINE_START (start) ===
-# === HCR INLINE BROWSE (tuple-safe) ========================================
-# === ANCHOR: BROWSE_INLINE_DEF (start) ===
-    # Minimal, clean Browse render for Providers (admin)
-    # - Shows formatted Phone only
-    # - Hides raw phone + CKW/meta/internal columns
-    # - CSV exports exactly the visible columns
-
-    try:
-        eng = get_engine()
-
-        # unwrap engine (tuple-safe)
-        eng_norm = None
-        if hasattr(eng, "connect"):
-            eng_norm = eng
-        elif isinstance(eng, tuple):
-            for x in eng:
-                if hasattr(x, "connect"):
-                    eng_norm = x
-                    break
-        if eng_norm is None:
-            st.error(f"Engine normalization failed; got {type(eng)} value={eng!r}")
-            return
-
-        # load rows
-        try:
-            df = pd.read_sql("SELECT * FROM vendors", eng_norm)
-        except Exception as e:
-            st.warning(f"Browse unavailable (vendors load failed): {e}")
-            return
-
-        # legacy address columns (tolerate, but drop)
-        for _ban in ("city", "state", "zip"):
-            if _ban in df.columns:
-                df.drop(columns=[_ban], inplace=True)
-
-        # visible Phone column
-        df = df.copy()
-        if "phone_fmt" in df.columns:
-            df["Phone"] = df["phone_fmt"]
-        elif "phone" in df.columns:
-            df["Phone"] = df["phone"]
-        else:
-            df["Phone"] = ""
-
-        # hide internals/meta/raw phone
-        hide = {
-            "id", "created_at", "updated_at", "updated_by",
-            "computed_keywords", "CKW", "ckw", "ckw_locked", "ckw_version", "ckw_manual_extra",
-            "phone", "phone_fmt",
-        }
-        view_cols = [c for c in df.columns if c not in hide]
-
-        # human-first column order when present
-        preferred = [
-            "business_name", "category", "service", "Phone",
-            "contact_name", "email", "website", "address",
-            "keywords",
-            "notes",
-        ]
-        ordered = [c for c in preferred if c in view_cols]
-        tail = [c for c in view_cols if c not in ordered]
-        view_cols = ordered + tail
-
-        # (optional) apply your query filter here so CSV matches filtered view:
-        # qq = st.session_state.get("browse_query", "")
-        # df = _filter_df_by_query(df, qq)
-
-        _view = df[view_cols]
-        st.dataframe(_view, use_container_width=False, hide_index=True)
-
-        # CSV: exactly visible columns
-        try:
-            csv_bytes = _view.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download CSV (visible columns)",
-                data=csv_bytes,
-                file_name="providers.csv",
-                mime="text/csv",
-            )
-        except Exception as _csv_e:
-            st.caption(f"CSV export unavailable: {_csv_e}")
-
-    except Exception as _e:
-        st.error(f"Browse inline failed: {_e}")
-# === END HCR INLINE BROWSE ==================================================
+# (removed legacy inline browse block; canonical __HCR_browse_render() is used)
