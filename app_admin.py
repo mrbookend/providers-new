@@ -323,17 +323,29 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     if present:
         df = df[present]
     return df.fillna("")
-
-
 def render_table_hscroll(df, *, key="browse_table"):
+    import re
+
+    def _fmt10(v: str) -> str:
+        s = re.sub(r"\D+", "", str(v or ""))
+        if len(s) == 11 and s.startswith("1"):
+            s = s[1:]
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s
+
+    if "phone" in df.columns:
+        df["phone"] = df["phone"].map(_fmt10)
+    if "phone_fmt" in df.columns:
+        df.drop(columns=["phone_fmt"], inplace=True)
+
     widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
     col_cfg = _apply_column_widths(df, widths)
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
         df.drop(
-            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version"], errors="ignore"
+            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", "phone_fmt"],
+            errors="ignore",
         ),
-        use_container_width=False,  # force horizontal scroll
+        use_container_width=False,
         hide_index=True,
         column_config=(col_cfg or None),
         key=key,
