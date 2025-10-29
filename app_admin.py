@@ -326,23 +326,34 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
 def render_table_hscroll(df, *, key="browse_table"):
     import re
 
+    df = df.copy()
+
     def _fmt10(v: str) -> str:
         s = re.sub(r"\D+", "", str(v or ""))
         if len(s) == 11 and s.startswith("1"):
             s = s[1:]
         return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else s
 
-    if "phone" in df.columns:
-        df["phone"] = df["phone"].map(_fmt10)
-    if "phone_fmt" in df.columns:
-        df.drop(columns=["phone_fmt"], inplace=True)
+    cols_lower = {c.lower(): c for c in df.columns}
+
+    # format phone (or derive from phone_fmt if phone missing)
+    if "phone" in cols_lower:
+        c = cols_lower["phone"]
+        df[c] = df[c].map(_fmt10)
+    elif "phone_fmt" in cols_lower:
+        c = cols_lower["phone_fmt"]
+        df["phone"] = df[c].map(_fmt10)
+
+    # hide any phone_fmt (case-insensitive exact match)
+    drop_exact = [c for c in df.columns if c.strip().lower() == "phone_fmt"]
 
     widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
     col_cfg = _apply_column_widths(df, widths)
+
     st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
     st.dataframe(
         df.drop(
-            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", "phone_fmt"],
+            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", *drop_exact],
             errors="ignore",
         ),
         use_container_width=False,
