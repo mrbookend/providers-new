@@ -2,22 +2,29 @@
 # noop: browse-widths scaffold (no functional change)
 from __future__ import annotations
 
+# Standard library
 from datetime import datetime
+import datetime as _dt
 import hashlib
 import hmac
+import importlib
 import json
 import os
+import os as _os
+import pathlib
 import re
 import subprocess
 import time
 import uuid
 
+# Third-party
 import pandas as pd
 import streamlit as st
 from sqlalchemy import create_engine, text as sql_text
+from sqlalchemy import create_engine as _create_engine
 from sqlalchemy.engine import Engine
 
-# --- Phone formatting constants ---
+# App constants
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 # === ANCHOR: IMPORTS (end) ===
@@ -76,8 +83,6 @@ if APP_VER in (None, "", "auto"):
 
 def _sha256_of_this_file() -> str:
     try:
-        import hashlib  # noqa: PLC0415
-        import pathlib  # noqa: PLC0415
 
         p = pathlib.Path(__file__)
         return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -87,15 +92,11 @@ def _sha256_of_this_file() -> str:
 
 def _mtime_of_this_file() -> str:
     try:
-        import pathlib  # noqa: PLC0415, I001
-        import datetime as _dt  # noqa: PLC0415
+        ts = pathlib.Path(__file__).stat().st_mtime
+        return _dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+    except Exception as e:
+        return str(e) or ""
 
-        p = pathlib.Path(__file__)
-        ts = os.path.getmtime(str(p))
-
-        return _dt.datetime.utcfromtimestamp(ts).isoformat(timespec="seconds") + "Z"
-    except Exception:
-        return ""
 
 
 # --- CKW constants & secrets -------------------------------------------------
@@ -241,10 +242,11 @@ def _debug_where_am_i():
 
 # === ANCHOR: LIBSQL_REGISTER (start) ===
 # ---- register libsql dialect (must be AFTER "import streamlit as st") ----
-try:  # noqa: SIM105
-    import sqlalchemy_libsql as _sqlalchemy_libsql  # noqa: F401
+try:
+    importlib.import_module("sqlalchemy_libsql")
 except Exception:
     pass
+
 
 
 # ---- end dialect registration ----
@@ -256,9 +258,7 @@ def _build_engine_fallback():
         return build_engine()  # type: ignore[name-defined]
     except Exception:
         pass
-    # Minimal fallback so the app can run even without Turso
-    from sqlalchemy import create_engine as _create_engine  # noqa: PLC0415, I001
-    import os as _os  # noqa: PLC0415
+    
 
     _db = _os.getenv("DB_PATH", "providers.db")
     return _create_engine(f"sqlite+pysqlite:///{_db}")
