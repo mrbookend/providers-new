@@ -35,9 +35,6 @@ if "_browse_help_render" not in st.session_state:
     st.session_state["_browse_help_render"] = lambda: None
 # --- Session defaults (safe no-ops) --- END
 
-# Ensure browse help renderer exists (no-op by default)
-if "_browse_help_render" not in st.session_state:
-    st.session_state["_browse_help_render"] = lambda: None
 
 # ---------------------------------------------------------------------------
 
@@ -1592,44 +1589,11 @@ _tabs = st.tabs(
 
 # (removed unused _browse_help_block; help is handled by the HCR Help — Browse section)
 
-# --- HCR: Help -- Browse -----------------------------------------------------
-_show_help = bool(st.secrets.get("SHOW_BROWSE_HELP", False))
-if _show_help:
-    help_md = st.secrets.get("BROWSE_HELP_MD", "")
-    help_file = st.secrets.get("BROWSE_HELP_FILE", "")
-    if not help_md and help_file:
-        try:
-            import pathlib
-
-            help_md = pathlib.Path(help_file).read_text(encoding="utf-8")
-        except Exception:
-            help_md = f"_Could not read help file: {help_file}_"
-# ----------------------------------------------------------------------------
-
-# Show a one-line runtime banner on the first tab for quick verification
-# === ANCHOR: BROWSE_HEADER (start) ===
-# ---------- Browse
-
-# Help — Browse
-with st.expander("Help — Browse", expanded=False):
-    st.markdown(
-        """
-**What you see**
-- **Phone** shows formatted numbers `(xxx) xxx-xxxx` (from `phone_fmt` when available).
-- Hidden technical columns: `id`, timestamps, `updated_by`, CKW internals (`computed_keywords`/`CKW`, `ckw_locked`, `ckw_version`, `ckw_manual_extra`), and the raw `phone`/`phone_fmt`.
-- **keywords** is user-entered text and remains visible.
-
-**Searching**
-- Case-insensitive.
-- If `computed_keywords` (or legacy `CKW`) exists and is non-empty, search runs **only** on that column.
-- Otherwise, fallback search spans `business_name`, `category`, `service`, `notes`, and `keywords`.
-
-**CSV export**
-- **Download CSV (visible columns)** exports exactly what you see on screen: same columns, same order, with **Phone** (not raw `phone`/`phone_fmt`).
-"""
-    )
+# --- HCR: Help -- Browse (secrets-driven) -----------------------------------
+func = st.session_state.get("_browse_help_render")
+if callable(func):
+    func()
 # ---- end Help — Browse ----
-
 
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
@@ -2640,13 +2604,9 @@ def render_browse_help_expander() -> None:
     with st.expander("Help -- Browse", expanded=False):
         st.markdown(md)
 
-
-func = st.session_state.get("_browse_help_render")
-if callable(func):
-    func()
-
 # Expose a callable so main/Browse can invoke without re-import details.
 st.session_state["_browse_help_render"] = render_browse_help_expander
+
 
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
