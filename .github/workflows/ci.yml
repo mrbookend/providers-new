@@ -32,3 +32,5 @@ jobs:
 
       - name: Ruff format audit
         run: ruff format --check .
+      - name: ASCII comments/strings check
+        run: python3 scripts/check_ascii_pytext.py
