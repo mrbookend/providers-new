@@ -17,3 +17,9 @@ repos:
         types: [python]
         pass_filenames: true
         require_serial: true
+        -   id: forbid-conflict-backups
+    name: Forbid conflict/backup files
+    entry: bash scripts/forbid_conflict_backups.sh
+    language: system
+    pass_filenames: false
+
