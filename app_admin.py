@@ -611,8 +611,8 @@ def _fetch_with_retry(
 
 
 # === Helper: normalize Browse DF (order, phone formatting, hidden cols) ===
-LOCAL_PHONE_LEN = 10
-LOCAL_PHONE_LEN_WITH_CC = 11
+PHONE_LEN = 10
+PHONE_LEN_WITH_CC = 11
 
 
 def _normalize_browse_df(df, *, hidden_cols=None):
@@ -630,11 +630,11 @@ def _normalize_browse_df(df, *, hidden_cols=None):
 
         def _fmt_local(raw):
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
+            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                 s = s[1:]
             return (
                 f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
-                if len(s) == LOCAL_PHONE_LEN
+                if len(s) == PHONE_LEN
                 else (str(raw or "").strip())
             )
 
@@ -643,13 +643,9 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     # Display phone as formatted under 'phone' and keep phone_fmt hidden
     def _fmt_local(raw):
         s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-        if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
+        if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
             s = s[1:]
-        return (
-            f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
-            if len(s) == LOCAL_PHONE_LEN
-            else (str(raw or "").strip())
-        )
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
 
     if "phone_fmt" in df.columns:
         df["phone"] = df["phone_fmt"].apply(_fmt_local)
