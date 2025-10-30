@@ -96,3 +96,11 @@ python scripts/smoke.py
 thanks
 # hook test Sun Oct 26 06:50:03 AM CDT 2025
 # hook test Sun Oct 26 06:51:21 AM CDT 2025
+
+## Dev setup
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+pre-commit install
+```
