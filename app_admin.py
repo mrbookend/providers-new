@@ -664,6 +664,7 @@ def __HCR_browse_render():
         "ckw_version",
         "ckw_manual_extra",
         "computed_keywords",
+        "phone_fmt",  # hide formatted storage column; show formatted value under 'phone'
     }
     hidden_cols = set(hidden_cols_default)
 
@@ -687,23 +688,55 @@ def __HCR_browse_render():
 
     # Secrets-driven order & widths
     browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-    # Ensure phone_fmt is shown (prefer just after 'service'); drop raw 'phone' from order
-    if "phone_fmt" in df.columns:
-        if not browse_order:
-            # no secrets order -> build a sensible default with phone_fmt
-            seed = ["business_name", "address", "category", "service", "phone_fmt"]
-            browse_order = [c for c in seed if c in df.columns] + [
-                c for c in df.columns if c not in set(seed)
-            ]
-        else:
-            if "phone_fmt" not in browse_order:
-                try:
-                    i = browse_order.index("service") + 1
-                except ValueError:
-                    i = 0
-                browse_order.insert(i, "phone_fmt")
-            if "phone" in browse_order:
-                browse_order.remove("phone")
+    # Display phone as formatted under 'phone' and hide phone_fmt
+# 1) Ensure 'phone' contains display format
+if "phone_fmt" in df.columns:
+    # standardize (defensive) then copy into 'phone'
+    try:
+        df["phone"] = df["phone_fmt"].apply(_format_phone)
+    except Exception:
+        # local fallback to avoid runtime coupling
+        def _fmt_local(raw: str) -> str:
+            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+            if len(s) == 11 and s.startswith("1"):
+                s = s[1:]
+            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
+        df["phone"] = df["phone_fmt"].apply(_fmt_local)
+elif "phone" in df.columns:
+    try:
+        df["phone"] = df["phone"].apply(_format_phone)
+    except Exception:
+        def _fmt_local2(raw: str) -> str:
+            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+            if len(s) == 11 and s.startswith("1"):
+                s = s[1:]
+            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
+        df["phone"] = df["phone"].apply(_fmt_local2)
+
+# 2) Make sure phone_fmt cannot appear as a visible column
+hidden_cols.add("phone_fmt")
+
+# 3) Secrets-driven order: prefer 'phone' after 'service'; never insert 'phone_fmt'
+browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+if browse_order:
+    # drop any accidental phone_fmt
+    with contextlib.suppress(ValueError):
+        browse_order.remove("phone_fmt")
+    # ensure 'phone' is in the order, just after 'service' if present
+    if "phone" not in browse_order:
+        try:
+            i = browse_order.index("service") + 1
+        except ValueError:
+            i = 0
+        browse_order.insert(i, "phone")
+else:
+    # sensible default including 'phone' (not phone_fmt)
+    seed = ["business_name", "address", "category", "service", "phone"]
+    browse_order = [c for c in seed if c in df.columns] + [
+        c for c in df.columns if c not in set(seed)
+    ]
+
+# Visible/view columns (ordered)
 
     # Visible/view columns (ordered)
     visible_cols = [c for c in df.columns if c not in hidden_cols]
