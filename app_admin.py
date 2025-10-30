@@ -684,6 +684,14 @@ def __HCR_browse_render():
             return str(raw)
 
         df["phone_fmt"] = df["phone"].map(_fmt_phone)
+# Hide raw phone whenever the formatted column exists
+try:
+    _hc = set(hidden_cols)  # works if hidden_cols is a list or set
+except NameError:
+    _hc = set()
+if "phone_fmt" in df.columns and "phone" in df.columns:
+    _hc.add("phone")
+hidden_cols = list(_hc)
 
     # Secrets-driven order & widths
     browse_order = list(st.secrets.get("BROWSE_ORDER", []))
