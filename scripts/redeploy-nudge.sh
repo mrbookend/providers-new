@@ -20,7 +20,7 @@ fi
 # Add a harmless comment near the top to change file hash
 sed -i '1a # noop: nudge redeploy' app_admin.py
 
-python -m py_compile app_admin.py
+python3 -m py_compile app_admin.py
 
 # Optional: auto-format if Ruff exists (non-fatal)
 if command -v ruff >/dev/null 2>&1; then
