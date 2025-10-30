@@ -34,3 +34,12 @@ jobs:
         run: ruff format --check .
       - name: ASCII comments/strings check
         run: python3 scripts/check_ascii_pytext.py
+        - name: Forbid conflict/backup files (repo scan)
+        run: |
+          bad=$(git ls-files -z | tr '\0' '\n' | grep -E '(\.LOCAL\.|\.REMOTE\.|\.BACKUP\.|\.BAK\.|\.orig$|\.rej$)' || true)
+          if [ -n "$bad" ]; then
+            echo "ERROR: conflict/backup files present:"
+            echo "$bad" | sed 's/^/  - /'
+            exit 1
+          fi
+
