@@ -632,6 +632,7 @@ def _normalize_browse_df(df, *, hidden_cols=None):
 
     # Phone: ALWAYS format into the visible 'phone' column (idempotent)
     if "phone" in df.columns:
+
         def _fmt_phone_local(raw: object) -> str:
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
             if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
@@ -641,6 +642,7 @@ def _normalize_browse_df(df, *, hidden_cols=None):
                 if len(s) == PHONE_LEN
                 else (str(raw or "").strip())
             )
+
         df["phone"] = df["phone"].map(_fmt_phone_local).fillna("")
 
     # Secrets-driven order
@@ -658,6 +660,8 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     view_cols = seed + [c for c in visible_cols if c not in set(seed)]
 
     return df, view_cols, hidden_cols
+
+
 # --- ANCHOR: normalize (end) ---
 
 
