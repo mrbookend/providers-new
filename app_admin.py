@@ -673,6 +673,16 @@ def _normalize_browse_df(df, *, hidden_cols=None):
             c for c in df.columns if c not in set(seed)
         ]
 
+    # Visible/view columns (ordered)
+    visible_cols = [c for c in df.columns if c not in hidden_cols]
+    if browse_order:
+        view_cols = [c for c in browse_order if c in visible_cols]
+        view_cols += [c for c in visible_cols if c not in view_cols]
+    else:
+        view_cols = visible_cols
+
+    return df, view_cols, hidden_cols
+
 
 # moved into __HCR_browse_render() / _normalize_browse_df() after df exists
 
