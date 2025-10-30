@@ -1658,10 +1658,10 @@ with _tabs[0]:
 
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
-# ---------- Add/Edit/Delete Vendor
+# ---------- Add/Edit/Delete Provider
 with _tabs[1]:
-    # ===== Add Vendor =====
-    st.subheader("Add Vendor")
+    # ===== Add Provider =====
+    st.subheader("Add Provider")
     _init_add_form_defaults()
     _apply_add_reset_if_needed()  # apply queued reset BEFORE creating widgets
 
@@ -1699,7 +1699,7 @@ with _tabs[1]:
             st.text_area("Notes", height=100, key="add_notes")
             st.text_input("Keywords (comma separated)", key="add_keywords")
 
-        submitted = st.form_submit_button("Add Vendor")
+        submitted = st.form_submit_button("Add Provider")
 
     if submitted:
         add_nonce = _nonce("add")
@@ -1756,12 +1756,12 @@ with _tabs[1]:
                 st.error(f"Add failed: {e}")
 
     st.divider()
-    st.subheader("Edit / Delete Vendor")
+    st.subheader("Edit / Delete Provider")
 
     df_all = load_df(engine)
 
     if df_all.empty:
-        st.info("No vendors yet. Use 'Add Vendor' above to create your first record.")
+        st.info("No providers yet. Use 'Add Provider' above to create your first record.")
     else:
         # Init + apply resets BEFORE rendering widgets
         _init_edit_form_defaults()
@@ -1855,7 +1855,7 @@ with _tabs[1]:
 
             vid = st.session_state.get("edit_vendor_id")
             if vid is None:
-                st.error("Select a vendor first.")
+                st.error("Select a provider first.")
             else:
                 bn = (st.session_state["edit_business_name"] or "").strip()
                 cat = (st.session_state["edit_category"] or "").strip()
@@ -1911,7 +1911,7 @@ with _tabs[1]:
                             )
                         else:
                             st.session_state["edit_last_done"] = edit_nonce
-                            st.success(f"Vendor updated: {bn}")
+                            st.success(f"Provider updated: {bn}")
                             _queue_edit_form_reset()
                             _nonce_rotate("edit")
                             st.rerun()
@@ -1934,7 +1934,7 @@ with _tabs[1]:
 
         del_form_key = f"delete_vendor_form_{st.session_state['delete_form_version']}"
         with st.form(del_form_key, clear_on_submit=False):
-            deleted = st.form_submit_button("Delete Vendor")
+            deleted = st.form_submit_button("Delete Provider")
 
         if deleted:
             del_nonce = _nonce("delete")
@@ -1944,7 +1944,7 @@ with _tabs[1]:
 
             vid = st.session_state.get("delete_vendor_id")
             if vid is None:
-                st.error("Select a vendor first.")
+                st.error("Select a provider first.")
             else:
                 try:
                     row = df_all.loc[df_all["id"] == int(vid)]
@@ -1963,12 +1963,13 @@ with _tabs[1]:
                         st.warning("No delete performed (stale selection). Refresh and try again.")
                     else:
                         st.session_state["delete_last_done"] = del_nonce
-                        st.success("Vendor deleted.")
+                        st.success("Provider deleted.")
                         _queue_delete_form_reset()
                         _nonce_rotate("delete")
                         st.rerun()
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
+
 
 # ---------- Category Admin
 with _tabs[2]:
