@@ -687,6 +687,23 @@ def __HCR_browse_render():
 
     # Secrets-driven order & widths
     browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+    # Ensure phone_fmt is shown (prefer just after 'service'); drop raw 'phone' from order
+    if "phone_fmt" in df.columns:
+        if not browse_order:
+            # no secrets order → build a sensible default with phone_fmt
+            seed = ["business_name", "address", "category", "service", "phone_fmt"]
+            browse_order = [c for c in seed if c in df.columns] + [
+                c for c in df.columns if c not in set(seed)
+            ]
+        else:
+            if "phone_fmt" not in browse_order:
+                try:
+                    i = browse_order.index("service") + 1
+                except ValueError:
+                    i = 0
+                browse_order.insert(i, "phone_fmt")
+            if "phone" in browse_order:
+                browse_order.remove("phone")
 
     # Visible/view columns (ordered)
     visible_cols = [c for c in df.columns if c not in hidden_cols]
