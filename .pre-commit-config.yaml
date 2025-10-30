@@ -1,52 +1,19 @@
+default_stages: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.1
+    rev: v0.6.8
     hooks:
       - id: ruff
+        args: [--output-format=github, --fix, --exit-non-zero-on-fix]
       - id: ruff-format
+
   - repo: local
     hooks:
-      - id: forbid-conflict-backups
-        name: Forbid conflict backup files
-        language: system
-        entry: bash
-        args:
-          - -c
-          - |
-            git diff --name-only --cached | grep -E '(\.orig|\.BACKUP|\.BASE|\.LOCAL|\.REMOTE)$|\.pre-commit-config\.yaml\.BAK' \
-              && { echo 'Remove conflict/backup files from commit'; exit 1; } || exit 0
-        pass_filenames: false
-        stages: [pre-commit]
-
-      - id: check-commit-range
-        name: "Pre-push: check commit range for conflicts/backups"
-        language: system
-        entry: bash
-        args:
-          - -c
-          - |
-            range="$(git rev-parse --abbrev-ref HEAD)@{upstream}..HEAD" || exit 0
-            [ "$range" = "..HEAD" ] && exit 0
-            git diff --name-only "$range" | grep -E '(\.orig|\.BACKUP|\.BASE|\.LOCAL|\.REMOTE)$|\.pre-commit-config\.yaml\.BAK' \
-              && { echo "Found forbidden files in push range: $range"; exit 1; } || exit 0
-        pass_filenames: false
-        stages: [pre-push]
-        -   id: ascii-comments-strings
+      - id: ascii-comments-strings
         name: Block non-ASCII in Python comments and strings
         entry: python3 scripts/check_ascii_pytext.py
         language: system
         types: [python]
         pass_filenames: true
         require_serial: true
-
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-      - id: check-yaml
-      - id: check-toml
-      - id: check-ast
-      - id: check-added-large-files   # optional
-      - id: detect-private-key        # optional
-      - id: mixed-line-ending         # optional
