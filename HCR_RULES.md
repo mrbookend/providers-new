@@ -1,8 +1,8 @@
 # HCR Providers Admin — Governance Rules
-Rules-Version: v1  
-Rules-SHA256: 9fbad15a7cb77dc6ebc09ce7f2e7ac619150d476865dad7bd0f94788eb3b2898  
+Rules-Version: v1
+Rules-SHA256: 9fbad15a7cb77dc6ebc09ce7f2e7ac619150d476865dad7bd0f94788eb3b2898
 
-These rules define the required workflow for modifying `app_admin.py` in the  
+These rules define the required workflow for modifying `app_admin.py` in the
 `mrbookend/providers-new` repository.
 
 ---
@@ -30,8 +30,8 @@ These rules define the required workflow for modifying `app_admin.py` in the
 ---
 
 ## ✅ Mandatory Startup Sequence
-• User provides terminal SHA256 + MD5 + line count  
-• Assistant confirms match with GitHub main HEAD  
+• User provides terminal SHA256 + MD5 + line count
+• Assistant confirms match with GitHub main HEAD
 • Assistant states: “Ready for Patch 1”
 
 ---

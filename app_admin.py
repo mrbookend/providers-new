@@ -30,8 +30,6 @@ CSV_MAX_ROWS = 1000
 # === ANCHOR: IMPORTS (end) ===
 
 
-
-
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
@@ -611,13 +609,14 @@ def _fetch_with_retry(
                 continue
             raise
 
+
 # === Helper: normalize Browse DF (order, phone formatting, hidden cols) ===
 LOCAL_PHONE_LEN = 10
 LOCAL_PHONE_LEN_WITH_CC = 11
 
+
 def _normalize_browse_df(df, *, hidden_cols=None):
     """Return (df, view_cols, hidden_cols) for Browse rendering."""
-    
 
     hidden_cols = set(hidden_cols or [])
 
@@ -628,11 +627,17 @@ def _normalize_browse_df(df, *, hidden_cols=None):
 
     # Ensure phone_fmt exists (if raw 'phone' present)
     if "phone_fmt" not in df.columns and "phone" in df.columns:
+
         def _fmt_local(raw):
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
             if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
                 s = s[1:]
-            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == LOCAL_PHONE_LEN else (str(raw or "").strip())
+            return (
+                f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
+                if len(s) == LOCAL_PHONE_LEN
+                else (str(raw or "").strip())
+            )
+
         df["phone_fmt"] = df["phone"].map(_fmt_local)
 
     # Display phone as formatted under 'phone' and keep phone_fmt hidden
@@ -640,7 +645,11 @@ def _normalize_browse_df(df, *, hidden_cols=None):
         s = "".join(ch for ch in str(raw or "") if ch.isdigit())
         if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
             s = s[1:]
-        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == LOCAL_PHONE_LEN else (str(raw or "").strip())
+        return (
+            f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
+            if len(s) == LOCAL_PHONE_LEN
+            else (str(raw or "").strip())
+        )
 
     if "phone_fmt" in df.columns:
         df["phone"] = df["phone_fmt"].apply(_fmt_local)
@@ -663,7 +672,9 @@ def _normalize_browse_df(df, *, hidden_cols=None):
             browse_order.insert(i, "phone")
     else:
         seed = ["business_name", "address", "category", "service", "phone"]
-        browse_order = [c for c in seed if c in df.columns] + [c for c in df.columns if c not in set(seed)]
+        browse_order = [c for c in seed if c in df.columns] + [
+            c for c in df.columns if c not in set(seed)
+        ]
 
     # Visible/view columns (ordered)
     visible_cols = [c for c in df.columns if c not in hidden_cols]
@@ -747,10 +758,11 @@ def __HCR_browse_render():
     # CSV download of visible view
     try:
         csv = df[view_cols].to_csv(index=False)
-        st.download_button("Download CSV (visible columns)", csv, file_name="providers.csv", mime="text/csv")
+        st.download_button(
+            "Download CSV (visible columns)", csv, file_name="providers.csv", mime="text/csv"
+        )
     except Exception as e:
         st.info(f"CSV export unavailable: {e}")
-
 
     # Render (keep horizontal scroll via wrapper)
     _hscroll_container_open()
