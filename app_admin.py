@@ -2174,20 +2174,6 @@ with _tabs[3]:
 # ---------- Maintenance
 with _tabs[4]:
     st.caption("One-click cleanups for legacy data")
-# place this at column 0 under the Maintenance tab, but above CSV Restore
-box = st.container()
-with box:
-    try:
-        st.caption("DB engine diagnostics (temporary)")
-        st.write({
-            "dialect": getattr(engine.dialect, "name", None),
-            "driver": getattr(engine.dialect, "driver", None),
-        })
-        with engine.begin() as cx:
-            ver = cx.execute(sql_text("SELECT sqlite_version()")).fetchone()
-        st.info("driver == 'libsql' ⇒ Turso; 'pysqlite' ⇒ local file; sqlite_version=" + (ver[0] if ver else ""))
-    except Exception as e:
-        st.error(f"diag failed: {e}")
 
     # Quick re-sync of reference tables
     if st.button("Backfill Categories/Services from Providers"):
