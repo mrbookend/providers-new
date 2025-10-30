@@ -685,16 +685,17 @@ def __HCR_browse_render():
 
         df["phone_fmt"] = df["phone"].map(_fmt_phone)
 
-    # Secrets-driven order & widths
-    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+        # Hide raw phone whenever the formatted column exists
+        try:
+            hidden_cols  # ensure the name exists (list defined earlier)
+        except NameError:
+            hidden_cols = []
+        if "phone_fmt" in df.columns and "phone" in df.columns and "phone" not in hidden_cols:
+            hidden_cols.append("phone")
+        
+        # Secrets-driven order & widths
+        browse_order = list(st.secrets.get("BROWSE_ORDER", []))
 
-    # Visible/view columns (ordered)
-    visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
-        view_cols = [c for c in browse_order if c in visible_cols]
-        view_cols += [c for c in visible_cols if c not in view_cols]
-    else:
-        view_cols = visible_cols
 
     # Render (keep horizontal scroll via wrapper)
     _hscroll_container_open()
