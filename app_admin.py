@@ -2174,18 +2174,18 @@ with _tabs[3]:
 # ---------- Maintenance
 with _tabs[4]:
     st.caption("One-click cleanups for legacy data")
-with st.expander("DB engine diagnostics (temporary)", expanded=False):
+# place this at column 0 under the Maintenance tab, but above CSV Restore
+box = st.container()
+with box:
     try:
+        st.caption("DB engine diagnostics (temporary)")
         st.write({
             "dialect": getattr(engine.dialect, "name", None),
             "driver": getattr(engine.dialect, "driver", None),
         })
         with engine.begin() as cx:
-            dblist = cx.execute(sql_text("PRAGMA database_list")).fetchall()
-            st.write({"database_list": [tuple(r) for r in dblist]})
             ver = cx.execute(sql_text("SELECT sqlite_version()")).fetchone()
-            st.write({"sqlite_version": ver[0] if ver else None})
-        st.info("If driver == 'libsql' ⇒ Turso. If driver == 'pysqlite' ⇒ local SQLite file")
+        st.info("driver == 'libsql' ⇒ Turso; 'pysqlite' ⇒ local file; sqlite_version=" + (ver[0] if ver else ""))
     except Exception as e:
         st.error(f"diag failed: {e}")
 
