@@ -42,4 +42,7 @@ jobs:
             echo "$bad" | sed 's/^/  - /'
             exit 1
           fi
+        - name: ASCII text check (repo-wide)
+        run: bash scripts/check_ascii_text.sh
+
 
