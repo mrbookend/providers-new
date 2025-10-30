@@ -22,4 +22,16 @@ repos:
     entry: bash scripts/forbid_conflict_backups.sh
     language: system
     pass_filenames: false
+    -   id: ascii-text
+    name: Block non-ASCII in repo text files
+    entry: bash scripts/check_ascii_text.sh
+    language: system
+    pass_filenames: true
+    types_or: [text]
+    exclude: |
+      (?x)(
+        ^\.git/|
+        \.(png|jpg|jpeg|gif|ico|pdf|svg|db|sqlite3|zip|gz|bz2|xz|7z)$
+      )
+
 
