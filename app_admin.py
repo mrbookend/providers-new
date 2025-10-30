@@ -617,7 +617,6 @@ LOCAL_PHONE_LEN_WITH_CC = 11
 
 def _normalize_browse_df(df, *, hidden_cols=None):
     """Return (df, view_cols, hidden_cols) for Browse rendering."""
-
     hidden_cols = set(hidden_cols or [])
 
     # Tolerate legacy columns if present
@@ -627,37 +626,33 @@ def _normalize_browse_df(df, *, hidden_cols=None):
 
     # Ensure phone_fmt exists (if raw 'phone' present)
     if "phone_fmt" not in df.columns and "phone" in df.columns:
-
         def _fmt_local(raw):
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
+            if len(s) == 11 and s.startswith("1"):
                 s = s[1:]
-            return (
-                f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
-                if len(s) == LOCAL_PHONE_LEN
-                else (str(raw or "").strip())
-            )
-
+            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
         df["phone_fmt"] = df["phone"].map(_fmt_local)
 
-    # Display phone as formatted under 'phone' and keep phone_fmt hidden
-    def _fmt_local(raw):
-        s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-        if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
-            s = s[1:]
-        return (
-            f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
-            if len(s) == LOCAL_PHONE_LEN
-            else (str(raw or "").strip())
-        )
+    # Display phone as formatted under 'phone' and hide phone_fmt
+    if "phone_fmt" in df.columns and "phone" in df.columns:
+        df["phone"] = df["phone_fmt"]
+        hidden_cols.add("phone_fmt")
 
-    if "phone_fmt" in df.columns:
-        df["phone"] = df["phone_fmt"].apply(_fmt_local)
-    elif "phone" in df.columns:
-        df["phone"] = df["phone"].apply(_fmt_local)
+    # Hide meta/CKW columns if present
+    for col in (
+        "id",
+        "created_at",
+        "updated_at",
+        "updated_by",
+        "computed_keywords",
+        "ckw_locked",
+        "ckw_version",
+        "ckw_manual_extra",
+    ):
+        if col in df.columns:
+            hidden_cols.add(col)
 
-    # Never show phone_fmt directly
-    hidden_cols.add("phone_fmt")
+    visible_cols = [c for c in df.columns if c not in hidden_cols]
 
     # Secrets-driven order: prefer 'phone' just after 'service'; never include 'phone_fmt'
     browse_order = list(st.secrets.get("BROWSE_ORDER", []))
@@ -665,24 +660,18 @@ def _normalize_browse_df(df, *, hidden_cols=None):
         with contextlib.suppress(ValueError):
             browse_order.remove("phone_fmt")
         if "phone" not in browse_order:
-            try:
-                i = browse_order.index("service") + 1
-            except ValueError:
-                i = 0
-            browse_order.insert(i, "phone")
-    else:
-        seed = ["business_name", "address", "category", "service", "phone"]
-        browse_order = [c for c in seed if c in df.columns] + [
-            c for c in df.columns if c not in set(seed)
-        ]
-
-    # Visible/view columns (ordered)
-    visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
+            if "service" in browse_order:
+                browse_order.insert(browse_order.index("service") + 1, "phone")
+            else:
+                browse_order.append("phone")
+        # Ordered view: secrets first, then remaining visible columns
         view_cols = [c for c in browse_order if c in visible_cols]
         view_cols += [c for c in visible_cols if c not in view_cols]
     else:
-        view_cols = visible_cols
+        # Conservative default; then append remaining visible columns
+        seed = ["business_name", "category", "service", "phone", "address", "website", "notes", "keywords"]
+        view_cols = [c for c in seed if c in visible_cols]
+        view_cols += [c for c in visible_cols if c not in seed]
 
     return df, view_cols, hidden_cols
 
