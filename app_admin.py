@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # Standard library
-import contextlib
 from datetime import datetime
 import hashlib
 import hmac
@@ -23,12 +22,12 @@ from sqlalchemy.engine import Engine
 import streamlit as st
 
 # App constants
-# App constants
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 BROWSE_PREVIEW_ROWS = 20
 CSV_MAX_ROWS = 1000
 # === ANCHOR: IMPORTS (end) ===
+
 
 
 # === ANCHOR: PAGE_CONFIG (start) ===
@@ -610,19 +609,13 @@ def _fetch_with_retry(
                 continue
             raise
 
-# === Helper: normalize Browse DF (ordering, phone formatting, hidden cols) ===
-def _normalize_browse_df(df, *, hidden_cols=None):
-    import contextlib
-
-    hidden_cols = set(hidden_cols or [])
-
 # === Helper: normalize Browse DF (order, phone formatting, hidden cols) ===
 LOCAL_PHONE_LEN = 10
 LOCAL_PHONE_LEN_WITH_CC = 11
 
 def _normalize_browse_df(df, *, hidden_cols=None):
     """Return (df, view_cols, hidden_cols) for Browse rendering."""
-    import contextlib
+    
 
     hidden_cols = set(hidden_cols or [])
 
@@ -712,7 +705,6 @@ def _hscroll_container_close():
 
 def __HCR_browse_render():
     """Canonical Browse renderer: secrets-driven order/widths, hide meta cols, CSV export of visible columns."""
-    import pandas as pd
 
     # Engine + load
     try:
