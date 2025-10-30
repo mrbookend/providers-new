@@ -664,43 +664,27 @@ def __HCR_browse_render():
         "ckw_version",
         "ckw_manual_extra",
         "computed_keywords",
-        "phone_fmt",  # hide formatted storage column; show formatted value under 'phone'
+        "phone_fmt",  # hide: we will display the formatted value under 'phone'
     }
     hidden_cols = set(hidden_cols_default)
 
-    # Tolerate legacy columns if present
-    for legacy in ("city", "state", "zip"):
-        if legacy in df.columns:
-            hidden_cols.add(legacy)
+# Tolerate legacy columns if present
+for legacy in ("city", "state", "zip"):
+    if legacy in df.columns:
+        hidden_cols.add(legacy)
 
-    # Ensure phone_fmt exists for display
-    if "phone_fmt" not in df.columns and "phone" in df.columns:
-
-        def _fmt_phone(raw: str) -> str:
-            digits = "".join(ch for ch in str(raw) if ch.isdigit())
-            if len(digits) == PHONE_LEN_WITH_CC and digits.startswith("1"):
-                digits = digits[1:]
-            if len(digits) == PHONE_LEN:
-                return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
-            return str(raw)
-
-        df["phone_fmt"] = df["phone"].map(_fmt_phone)
-
-    # Secrets-driven order & widths
-    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-    # Display phone as formatted under 'phone' and hide phone_fmt
-# 1) Ensure 'phone' contains display format
+# Display phone as formatted under 'phone' and keep phone_fmt hidden
+# 1) Ensure 'phone' contains the display format
 if "phone_fmt" in df.columns:
-    # standardize (defensive) then copy into 'phone'
     try:
         df["phone"] = df["phone_fmt"].apply(_format_phone)
     except Exception:
         # local fallback to avoid runtime coupling
         def _fmt_local(raw: str) -> str:
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == 11 and s.startswith("1"):
+            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                 s = s[1:]
-            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
+            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
         df["phone"] = df["phone_fmt"].apply(_fmt_local)
 elif "phone" in df.columns:
     try:
@@ -708,21 +692,19 @@ elif "phone" in df.columns:
     except Exception:
         def _fmt_local2(raw: str) -> str:
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == 11 and s.startswith("1"):
+            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                 s = s[1:]
-            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
+            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
         df["phone"] = df["phone"].apply(_fmt_local2)
 
-# 2) Make sure phone_fmt cannot appear as a visible column
+# 2) Ensure phone_fmt never appears as a visible column
 hidden_cols.add("phone_fmt")
 
-# 3) Secrets-driven order: prefer 'phone' after 'service'; never insert 'phone_fmt'
+# 3) Secrets-driven order: prefer 'phone' (after 'service'); never insert 'phone_fmt'
 browse_order = list(st.secrets.get("BROWSE_ORDER", []))
 if browse_order:
-    # drop any accidental phone_fmt
     with contextlib.suppress(ValueError):
         browse_order.remove("phone_fmt")
-    # ensure 'phone' is in the order, just after 'service' if present
     if "phone" not in browse_order:
         try:
             i = browse_order.index("service") + 1
@@ -732,19 +714,16 @@ if browse_order:
 else:
     # sensible default including 'phone' (not phone_fmt)
     seed = ["business_name", "address", "category", "service", "phone"]
-    browse_order = [c for c in seed if c in df.columns] + [
-        c for c in df.columns if c not in set(seed)
-    ]
+    browse_order = [c for c in seed if c in df.columns] + [c for c in df.columns if c not in set(seed)]
 
 # Visible/view columns (ordered)
+visible_cols = [c for c in df.columns if c not in hidden_cols]
+if browse_order:
+    view_cols = [c for c in browse_order if c in visible_cols]
+    view_cols += [c for c in visible_cols if c not in view_cols]
+else:
+    view_cols = visible_cols
 
-    # Visible/view columns (ordered)
-    visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
-        view_cols = [c for c in browse_order if c in visible_cols]
-        view_cols += [c for c in visible_cols if c not in view_cols]
-    else:
-        view_cols = visible_cols
 
     # Render (keep horizontal scroll via wrapper)
     _hscroll_container_open()
