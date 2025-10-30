@@ -616,39 +616,27 @@ PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 
 
+# --- ANCHOR: normalize (begin) ---
+from contextlib import suppress  # keep near top of file if not already imported
+
 def _normalize_browse_df(df, *, hidden_cols=None):
     """Return (df, view_cols, hidden_cols) for Browse rendering."""
-    # ---- phone display normalization (idempotent) ----
-    if "phone" in df.columns:
-
-        def _fmt_phone_local(raw: object) -> str:
-            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
-                s = s[1:]
-            return (
-                f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
-                if len(s) == PHONE_LEN
-                else (str(raw or "").strip())
-            )
-
-        df["phone"] = df["phone"].map(_fmt_phone_local).fillna("")
-
-    # Hide auxiliary phone column if present
-    if "phone_fmt" in df.columns and isinstance(hidden_cols, set):
-        hidden_cols.add("phone_fmt")
-
+    # Defensive set conversion once; ok to call repeatedly
     hidden_cols = set(hidden_cols or [])
 
-    # Tolerate legacy columns if present
+    # 1) Hide legacy/aux columns if present (safe on every call)
     for legacy in ("city", "state", "zip"):
         if legacy in df.columns:
             hidden_cols.add(legacy)
+    with suppress(Exception):
+        if "phone_fmt" in df.columns:
+            hidden_cols.add("phone_fmt")
 
-    # Ensure phone_fmt exists (if raw 'phone' present)
-    if "phone_fmt" not in df.columns and "phone" in df.columns:
-
-        def _fmt_local(raw):
+    # 2) Phone: ALWAYS format into the visible 'phone' column (idempotent)
+    if "phone" in df.columns:
+        def _fmt_phone_local(raw: object) -> str:
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+            # Use constants already defined in this file
             if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                 s = s[1:]
             return (
@@ -656,50 +644,18 @@ def _normalize_browse_df(df, *, hidden_cols=None):
                 if len(s) == PHONE_LEN
                 else (str(raw or "").strip())
             )
+        df["phone"] = df["phone"].map(_fmt_phone_local).fillna("")
 
-        df["phone_fmt"] = df["phone"].map(_fmt_local)
-
-    # Display phone as formatted under 'phone' and keep phone_fmt hidden
-    def _fmt_local(raw):
-        s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-        if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
-            s = s[1:]
-        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
-
-    if "phone_fmt" in df.columns:
-        df["phone"] = df["phone_fmt"].apply(_fmt_local)
-    elif "phone" in df.columns:
-        df["phone"] = df["phone"].apply(_fmt_local)
-
-    # Never show phone_fmt directly
-    hidden_cols.add("phone_fmt")
-
-    # Secrets-driven order: prefer 'phone' just after 'service'; never include 'phone_fmt'
-    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-    if browse_order:
-        with contextlib.suppress(ValueError):
-            browse_order.remove("phone_fmt")
-        if "phone" not in browse_order:
-            try:
-                i = browse_order.index("service") + 1
-            except ValueError:
-                i = 0
-            browse_order.insert(i, "phone")
-    else:
-        seed = ["business_name", "address", "category", "service", "phone"]
-        browse_order = [c for c in seed if c in df.columns] + [
-            c for c in df.columns if c not in set(seed)
-        ]
-
-    # Visible/view columns (ordered)
-    visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
-        view_cols = [c for c in browse_order if c in visible_cols]
-        view_cols += [c for c in visible_cols if c not in view_cols]
-    else:
-        view_cols = visible_cols
+    # 3) Build view_cols from secrets order, then append any remaining visibles
+    try:
+        seed = [c for c in _secrets_BROWSE_ORDER() if c in df.columns]
+    except Exception:
+        seed = []
+    view_cols = seed + [c for c in df.columns if c not in hidden_cols and c not in set(seed)]
 
     return df, view_cols, hidden_cols
+# --- ANCHOR: normalize (end) ---
+
 
 
 # moved into __HCR_browse_render() / _normalize_browse_df() after df exists
