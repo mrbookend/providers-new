@@ -2173,14 +2173,14 @@ with _tabs[3]:
 
 # ---------- Maintenance
 with _tabs[4]:
-    st.caption("One-click cleanups for legacy data.")
+    st.caption("One-click cleanups for legacy data")
 
     # Quick re-sync of reference tables
-    if st.button("Backfill Categories/Services from Vendors"):
+    if st.button("Backfill Categories/Services from Providers"):
         try:
             out = sync_reference_tables(engine)
             st.success(
-                f"Backfilled reference tables. (categories~{out.get('categories', 0)}, services~{out.get('services', 0)})"
+                f"Backfilled reference tables (categories~{out.get('categories', 0)}, services~{out.get('services', 0)})"
             )
         except Exception as e:
             st.error(f"Backfill failed: {e}")
@@ -2205,14 +2205,14 @@ with _tabs[4]:
     colA, colB = st.columns([1, 1])
     with colA:
         st.download_button(
-            "Export all vendors (formatted phones)",
+            "Export all providers (formatted phones)",
             data=full_formatted.to_csv(index=False).encode("utf-8"),
             file_name=f"providers_{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.csv",
             mime="text/csv",
         )
     with colB:
         st.download_button(
-            "Export all vendors (digits-only phones)",
+            "Export all providers (digits-only phones)",
             data=full.to_csv(index=False).encode("utf-8"),
             file_name=f"providers_raw_{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.csv",
             mime="text/csv",
@@ -2223,18 +2223,18 @@ with _tabs[4]:
     c1, c2 = st.columns(2)
     if c1.button("Recompute Unlocked", help="Updates rows where ckw_locked = 0"):
         n = recompute_ckw_unlocked(get_engine())
-        st.success(f"Recomputed CKW for {n} rows (unlocked).")
+        st.success(f"Recomputed CKW for {n} rows (unlocked)")
     if c2.button("Force Recompute ALL (override locks)", help="Updates every row, ignores locks"):
         n = recompute_ckw_all(get_engine())
-        st.success(f"Force-recomputed CKW for {n} rows (ALL).")
+        st.success(f"Force-recomputed CKW for {n} rows (ALL)")
 
     st.divider()
 
     # CSV Restore (top-level expander; not nested inside another expander)
     with st.expander("CSV Restore (Append-only, ID-checked)", expanded=False):
         st.caption(
-            "WARNING: This tool only **appends** rows. "
-            "Rows whose `id` already exists are **rejected**. No updates, no deletes."
+            "WARNING: This tool only **appends** rows "
+            "Rows whose `id` already exists are **rejected** No updates, no deletes"
         )
         uploaded = st.file_uploader(
             "Upload CSV to append into `vendors`", type=["csv"], accept_multiple_files=False
@@ -2276,16 +2276,16 @@ with _tabs[4]:
                 )
 
                 if dry_run:
-                    st.success("Dry run complete. No changes applied.")
+                    st.success("Dry run complete No changes applied")
                 else:  # noqa: PLR5501
                     if planned_inserts == 0:
-                        st.info("Nothing to insert (all rows rejected or CSV empty after filters).")
+                        st.info("Nothing to insert (all rows rejected or CSV empty after filters)")
                     else:
                         inserted = _execute_append_only(
                             engine, with_id_df, without_id_df, insertable_cols
                         )
                         st.success(
-                            f"Inserted {inserted} row(s). Rejected existing id(s): {rejected_ids or 'None'}"
+                            f"Inserted {inserted} row(s) Rejected existing id(s): {rejected_ids or 'None'}"
                         )
             except Exception as e:
                 st.error(f"CSV restore failed: {e}")
@@ -2293,7 +2293,7 @@ with _tabs[4]:
     st.divider()
     st.subheader("Data cleanup")
 
-    if st.button("Normalize phone numbers & Title Case (vendors + categories/services)"):
+    if st.button("Normalize phone numbers & Title Case (providers + categories/services)"):
 
         def to_title(s: str | None) -> str:
             return ((s or "").strip()).title()
@@ -2378,7 +2378,7 @@ with _tabs[4]:
                             sql_text("DELETE FROM services WHERE name=:old"), {"old": old_name}
                         )
             st.success(
-                f"Vendors normalized: {changed_vendors}. Categories/services retitled and reconciled."
+                f"Providers normalized: {changed_vendors} Categories/services retitled and reconciled"
             )
         except Exception as e:
             st.error(f"Normalization failed: {e}")
@@ -2398,95 +2398,94 @@ with _tabs[4]:
                     ),
                     {"now": now},
                 )
-            st.success("Backfill complete.")
+            st.success("Backfill complete")
         except Exception as e:
             st.error(f"Backfill failed: {e}")
 
     # Trim extra whitespace across common text fields (preserves newlines in notes)
-if st.button("Trim whitespace in text fields (safe)"):
-    try:
-        changed = 0
+    if st.button("Trim whitespace in text fields (safe)"):
+        try:
+            changed = 0
 
-        # use existing engine
-        with engine.begin() as conn:
-            rows = (
-                conn.execute(
-                    sql_text(
-                        """
-                    SELECT id, category, service, business_name, contact_name,
-                           address, website, notes, keywords, phone, updated_at
-                    FROM vendors
-                    """
-                    )
-                )
-                .mappings()
-                .all()
-            )
-
-            def _norm(v: str) -> str:
-                s = str(v or "")
-                s = re.sub(r"\s+", " ", s).strip()  # collapse all whitespace to single space
-                return s
-
-            def _norm_notes(v: str) -> str:
-                s = str(v or "").replace("\r\n", "\n")
-                s = re.sub(r"[ \t]+", " ", s)  # collapse spaces/tabs only (keep newlines)
-                s = re.sub(r"[ \t]*\n[ \t]*", "\n", s)  # trim spaces around newlines
-                return s.strip()
-
-            def _norm_phone(v: str) -> str:
-                s = re.sub(r"\D+", "", str(v or ""))
-                if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
-                    s = s[1:]
-                return s  # store digits-only (10 if valid)
-
-            for r in rows:
-                before = dict(r)
-                after = {
-                    "category": _norm(before["category"]),
-                    "service": _norm(before["service"]),
-                    "business_name": _norm(before["business_name"]),
-                    "contact_name": _norm(before["contact_name"]),
-                    "address": _norm(before["address"]),
-                    "website": _norm(before["website"]),
-                    "notes": _norm_notes(before["notes"]),
-                    "keywords": _norm(before["keywords"]),
-                    "phone": _norm_phone(before["phone"]),
-                }
-
-                if any(v != (before.get(k) or "") for k, v in after.items()):
-                    now = datetime.utcnow().isoformat(timespec="seconds")
+            # use existing engine
+            with engine.begin() as conn:
+                rows = (
                     conn.execute(
                         sql_text(
                             """
-                            UPDATE vendors
-                               SET category = :category,
-                                   service = :service,
-                                   business_name = :business_name,
-                                   contact_name = :contact_name,
-                                   address = :address,
-                                   website = :website,
-                                   notes = :notes,
-                                   keywords = :keywords,
-                                   phone = :phone,
-                                   updated_at = :now
-                             WHERE id = :id
-                               AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'')
-                            """
-                        ),
-                        {
-                            **after,
-                            "now": now,
-                            "id": before["id"],
-                            "prev_updated": before.get("updated_at", ""),
-                        },
+                        SELECT id, category, service, business_name, contact_name,
+                               address, website, notes, keywords, phone, updated_at
+                        FROM vendors
+                        """
+                        )
                     )
-                    changed += 1
+                    .mappings()
+                    .all()
+                )
 
-        st.success(f"Trimmed whitespace for {changed} row(s).")
-    except Exception as e:
-        st.error(f"Trim failed: {e}")
+                def _norm(v: str) -> str:
+                    s = str(v or "")
+                    s = re.sub(r"\s+", " ", s).strip()  # collapse all whitespace to single space
+                    return s
 
+                def _norm_notes(v: str) -> str:
+                    s = str(v or "").replace("\r\n", "\n")
+                    s = re.sub(r"[ \t]+", " ", s)  # collapse spaces/tabs only (keep newlines)
+                    s = re.sub(r"[ \t]*\n[ \t]*", "\n", s)  # trim spaces around newlines
+                    return s.strip()
+
+                def _norm_phone(v: str) -> str:
+                    s = re.sub(r"\D+", "", str(v or ""))
+                    if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
+                        s = s[1:]
+                    return s  # store digits-only (10 if valid)
+
+                for r in rows:
+                    before = dict(r)
+                    after = {
+                        "category": _norm(before["category"]),
+                        "service": _norm(before["service"]),
+                        "business_name": _norm(before["business_name"]),
+                        "contact_name": _norm(before["contact_name"]),
+                        "address": _norm(before["address"]),
+                        "website": _norm(before["website"]),
+                        "notes": _norm_notes(before["notes"]),
+                        "keywords": _norm(before["keywords"]),
+                        "phone": _norm_phone(before["phone"]),
+                    }
+
+                    if any(v != (before.get(k) or "") for k, v in after.items()):
+                        now = datetime.utcnow().isoformat(timespec="seconds")
+                        conn.execute(
+                            sql_text(
+                                """
+                                UPDATE vendors
+                                   SET category = :category,
+                                       service = :service,
+                                       business_name = :business_name,
+                                       contact_name = :contact_name,
+                                       address = :address,
+                                       website = :website,
+                                       notes = :notes,
+                                       keywords = :keywords,
+                                       phone = :phone,
+                                       updated_at = :now
+                                 WHERE id = :id
+                                   AND COALESCE(updated_at,'') = COALESCE(:prev_updated,'')
+                                """
+                            ),
+                            {
+                                **after,
+                                "now": now,
+                                "id": before["id"],
+                                "prev_updated": before.get("updated_at", ""),
+                            },
+                        )
+                        changed += 1
+
+            st.success(f"Trimmed whitespace for {changed} row(s)")
+        except Exception as e:
+            st.error(f"Trim failed: {e}")
 
 # ---------- Debug
 with _tabs[5]:
