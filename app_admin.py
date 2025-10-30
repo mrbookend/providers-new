@@ -29,6 +29,10 @@ PHONE_LEN_WITH_CC = 11
 BROWSE_PREVIEW_ROWS = 20
 CSV_MAX_ROWS = 1000
 # === ANCHOR: IMPORTS (end) ===
+# === ANCHOR: NOUNS (start) ===
+NOUN_SINGULAR = "Provider"
+NOUN_PLURAL = "Providers"
+# === ANCHOR: NOUNS (end) ===
 
 
 # === ANCHOR: PAGE_CONFIG (start) ===
