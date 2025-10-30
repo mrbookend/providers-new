@@ -618,6 +618,22 @@ PHONE_LEN_WITH_CC = 11
 
 def _normalize_browse_df(df, *, hidden_cols=None):
     """Return (df, view_cols, hidden_cols) for Browse rendering."""
+    # ---- phone display normalization (idempotent) ----
+    if "phone" in df.columns:
+        def _fmt_phone_local(raw: object) -> str:
+            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
+                s = s[1:]
+            return (
+                f"({s[0:3]}) {s[3:6]}-{s[6:10]}"
+                if len(s) == PHONE_LEN
+                else (str(raw or "").strip())
+            )
+        df["phone"] = df["phone"].map(_fmt_phone_local).fillna("")
+
+    # Hide auxiliary phone column if present
+    if "phone_fmt" in df.columns and isinstance(hidden_cols, set):
+        hidden_cols.add("phone_fmt")
 
     hidden_cols = set(hidden_cols or [])
 
