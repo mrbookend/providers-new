@@ -31,6 +31,14 @@ repos:
               && { echo "Found forbidden files in push range: $range"; exit 1; } || exit 0
         pass_filenames: false
         stages: [pre-push]
+        -   id: ascii-comments-strings
+        name: Block non-ASCII in Python comments and strings
+        entry: python3 scripts/check_ascii_pytext.py
+        language: system
+        types: [python]
+        pass_filenames: true
+        require_serial: true
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
