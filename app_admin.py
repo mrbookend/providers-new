@@ -345,25 +345,6 @@ def render_table_hscroll(df, *, key="browse_table"):
         df["phone"] = df[c].map(_fmt10)
 
     # hide any phone_fmt (case-insensitive exact match)
-    drop_exact = [c for c in df.columns if c.strip().lower() == "phone_fmt"]
-
-    widths = dict(st.secrets.get("COLUMN_WIDTHS_PX_ADMIN", {}))
-    col_cfg = _apply_column_widths(df, widths)
-
-    st.markdown('<div style="overflow-x:auto; padding-bottom:6px;">', unsafe_allow_html=True)
-    st.dataframe(
-        df.drop(
-            columns=["id", "created_at", "updated_at", "ckw_locked", "ckw_version", *drop_exact],
-            errors="ignore",
-        ),
-        use_container_width=False,
-        hide_index=True,
-        column_config=(col_cfg or None),
-        key=key,
-    )
-
-
-# ----------------------------------------------------------------------------
 
 
 def _as_bool(v, default=False) -> bool:
@@ -725,27 +706,6 @@ def __HCR_browse_render():
     # Normalize DF and derive ordered view columns
     df, view_cols, _hidden_cols = _normalize_browse_df(df, hidden_cols=hidden_cols_default)
 
-    # Render (widths handled elsewhere; keep container width False to honor pixel widths)
-    _hscroll_container_open()
-    try:
-        st.dataframe(
-            df[view_cols],
-            hide_index=True,
-            use_container_width=False,
-        )
-    finally:
-        _hscroll_container_close()
-
-    # CSV download of visible view
-    try:
-        csv = df[view_cols].to_csv(index=False)
-        st.download_button(
-            "Download CSV (visible columns)", csv, file_name="providers.csv", mime="text/csv"
-        )
-    except Exception as e:
-        st.info(f"CSV export unavailable: {e}")
-
-    # Render (keep horizontal scroll via wrapper)
     _hscroll_container_open()
     try:
         st.dataframe(
