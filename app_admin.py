@@ -1509,7 +1509,7 @@ def _execute_append_only(
 # ------------------------------------------------------------------------
 def _coerce_int(_v, _default):
     try:
-        if isinstance(_v, (int, float)):
+        if isinstance(_v, int | float):
             return int(_v)
         if isinstance(_v, str) and _v.strip().lstrip("+-").isdigit():
             return int(_v.strip())
@@ -2269,10 +2269,10 @@ with _tabs[4]:
                 st.write("**Validation summary**")
                 st.write(
                     {
-                        "csv_rows": int(len(df_in)),  # noqa: RUF046
+                        "csv_rows": (len(df_in)),
                         "insertable_columns": insertable_cols,
-                        "rows_with_explicit_id": int(len(with_id_df)),  # noqa: RUF046
-                        "rows_autoincrement_id": int(len(without_id_df)),  # noqa: RUF046
+                        "rows_with_explicit_id": (len(with_id_df)),
+                        "rows_autoincrement_id": (len(without_id_df)),
                         "rows_rejected_due_to_existing_id": rejected_ids,
                         "planned_inserts": int(planned_inserts),
                     }
@@ -2636,7 +2636,7 @@ def _as_bool_patch3(v, default=False):
     try:
         if isinstance(v, bool):
             return v
-        if isinstance(v, (int, float)):
+        if isinstance(v, int | float):
             return v != 0
         if isinstance(v, str):
             s = v.strip().lower()
