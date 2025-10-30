@@ -620,6 +620,7 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     """Return (df, view_cols, hidden_cols) for Browse rendering."""
     # ---- phone display normalization (idempotent) ----
     if "phone" in df.columns:
+
         def _fmt_phone_local(raw: object) -> str:
             s = "".join(ch for ch in str(raw or "") if ch.isdigit())
             if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
@@ -629,6 +630,7 @@ def _normalize_browse_df(df, *, hidden_cols=None):
                 if len(s) == PHONE_LEN
                 else (str(raw or "").strip())
             )
+
         df["phone"] = df["phone"].map(_fmt_phone_local).fillna("")
 
     # Hide auxiliary phone column if present
