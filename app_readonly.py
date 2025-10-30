@@ -11,7 +11,7 @@ import streamlit as st
 from sqlalchemy import text as T
 
 # ---- Streamlit page config MUST be first ----
-st.set_page_config(page_title="Providers — Read-Only", page_icon="📒", layout="wide")
+st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
 
 # ---- Config ----
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -155,7 +155,7 @@ def load_df(q: str) -> pd.DataFrame:
 # ---- Optional one-time bootstrap ----
 msg = _bootstrap_from_csv_if_needed()
 if msg:
-    st.toast(msg, icon="✅")  # harmless locally; on Cloud shows a small toast
+    st.toast(msg, icon="[OK]")  # harmless locally; on Cloud shows a small toast
 
 # ---- UI ----
 st.title("Providers (Read-Only)")
@@ -163,7 +163,7 @@ st.title("Providers (Read-Only)")
 left, right = st.columns([3, 1])
 with left:
     q = st.text_input(
-        "Search", value="", placeholder="name, category, service, city, keyword…"
+        "Search", value="", placeholder="name, category, service, city, keyword..."
     ).strip()
 with right:
     if st.button("Clear"):
