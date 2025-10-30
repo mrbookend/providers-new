@@ -659,32 +659,31 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     # Never show phone_fmt directly
     hidden_cols.add("phone_fmt")
 
-    # Secrets-driven order: prefer 'phone' just after 'service'; never include 'phone_fmt'
-    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-    if browse_order:
-        with contextlib.suppress(ValueError):
-            browse_order.remove("phone_fmt")
-        if "phone" not in browse_order:
-            try:
-                i = browse_order.index("service") + 1
-            except ValueError:
-                i = 0
-            browse_order.insert(i, "phone")
-    else:
-        seed = ["business_name", "address", "category", "service", "phone"]
-        browse_order = [c for c in seed if c in df.columns] + [
-            c for c in df.columns if c not in set(seed)
-        ]
-
-    # Visible/view columns (ordered)
+# Secrets-driven order: prefer 'phone' just after 'service'; never include 'phone_fmt'
+browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+if browse_order:
+    with contextlib.suppress(ValueError):
+        browse_order.remove("phone_fmt")
+    if "phone" not in browse_order:
+        if "service" in browse_order:
+            browse_order.insert(browse_order.index("service") + 1, "phone")
+        else:
+            browse_order.append("phone")
+else:
+    # Conservative default; remaining visible, non-hidden columns follow in natural order
+    seed = ["business_name", "category", "service", "phone", "address", "website", "notes", "keywords"]
     visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
-        view_cols = [c for c in browse_order if c in visible_cols]
-        view_cols += [c for c in visible_cols if c not in view_cols]
-    else:
-        view_cols = visible_cols
+    browse_order = [c for c in seed if c in visible_cols] + [c for c in visible_cols if c not in seed]
 
-    return df, view_cols, hidden_cols
+# Visible/view columns (ordered, uniqueness preserved)
+visible_cols = [c for c in df.columns if c not in hidden_cols]
+if browse_order:
+    view_cols = [c for c in browse_order if c in visible_cols]
+    view_cols += [c for c in visible_cols if c not in view_cols]
+else:
+    view_cols = visible_cols
+
+return df, view_cols, hidden_cols
 
 
 # --- CKW recompute utilities -------------------------------------------------
@@ -718,6 +717,9 @@ def _hscroll_container_close():
 
 def __HCR_browse_render():
     """Canonical Browse renderer: secrets-driven order/widths, hide meta cols, CSV export of visible columns."""
+    if st.session_state.get("_browse_rendered"):
+        return
+    st.session_state["_browse_rendered"] = True
 
     # Engine + load
     try:
