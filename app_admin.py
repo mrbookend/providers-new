@@ -672,15 +672,23 @@ def _normalize_browse_df(df, *, hidden_cols=None):
             c for c in df.columns if c not in set(seed)
         ]
 
-    # Visible/view columns (ordered)
-    visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
-        view_cols = [c for c in browse_order if c in visible_cols]
-        view_cols += [c for c in visible_cols if c not in view_cols]
-    else:
-        view_cols = visible_cols
+# Visible/view columns (ordered)
+visible_cols = [c for c in df.columns if c not in hidden_cols]
 
-    return df, view_cols, hidden_cols
+# Use a precomputed browse_order if available; otherwise, fall back gracefully.
+try:
+    _bo = list(browse_order)  # may be set earlier (e.g., from secrets)
+except NameError:
+    _bo = []
+
+if _bo:
+    view_cols = [c for c in _bo if c in visible_cols]
+    # append any remaining visible columns not already included
+    view_cols += [c for c in visible_cols if c not in view_cols]
+else:
+    view_cols = visible_cols
+
+return df, view_cols, hidden_cols
 
 
 # --- CKW recompute utilities -------------------------------------------------
