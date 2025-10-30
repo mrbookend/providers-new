@@ -653,7 +653,7 @@ def __HCR_browse_render():
         st.error(f"Browse load failed: {e}")
         return
 
-    # Hidden/meta columns — single source of truth
+    # Hidden/meta columns -- single source of truth
     hidden_cols_default = {
         "id",
         "created_at",
@@ -690,7 +690,7 @@ def __HCR_browse_render():
     # Ensure phone_fmt is shown (prefer just after 'service'); drop raw 'phone' from order
     if "phone_fmt" in df.columns:
         if not browse_order:
-            # no secrets order → build a sensible default with phone_fmt
+            # no secrets order -> build a sensible default with phone_fmt
             seed = ["business_name", "address", "category", "service", "phone_fmt"]
             browse_order = [c for c in seed if c in df.columns] + [
                 c for c in df.columns if c not in set(seed)
@@ -1638,16 +1638,16 @@ _tabs = st.tabs(
         "Debug",
     ]
 )
-# (removed duplicate top-level Browse render; only _tabs[0] → __HCR_browse_render() remains)
+# (removed duplicate top-level Browse render; only _tabs[0] -> __HCR_browse_render() remains)
 
 
-# (removed unused _browse_help_block; help is handled by the HCR Help — Browse section)
+# (removed unused _browse_help_block; help is handled by the HCR Help -- Browse section)
 
 # --- HCR: Help -- Browse (secrets-driven) -----------------------------------
 func = st.session_state.get("_browse_help_render")
 if callable(func):
     func()
-# ---- end Help — Browse ----
+# ---- end Help -- Browse ----
 
 # === ANCHOR: TABS_BROWSE_ENTER (start) ===
 with _tabs[0]:
