@@ -610,6 +610,76 @@ def _fetch_with_retry(
                 continue
             raise
 
+# === Helper: normalize Browse DF (ordering, phone formatting, hidden cols) ===
+def _normalize_browse_df(df, *, hidden_cols=None):
+    import contextlib
+
+    hidden_cols = set(hidden_cols or [])
+
+# === Helper: normalize Browse DF (order, phone formatting, hidden cols) ===
+LOCAL_PHONE_LEN = 10
+LOCAL_PHONE_LEN_WITH_CC = 11
+
+def _normalize_browse_df(df, *, hidden_cols=None):
+    """Return (df, view_cols, hidden_cols) for Browse rendering."""
+    import contextlib
+
+    hidden_cols = set(hidden_cols or [])
+
+    # Tolerate legacy columns if present
+    for legacy in ("city", "state", "zip"):
+        if legacy in df.columns:
+            hidden_cols.add(legacy)
+
+    # Ensure phone_fmt exists (if raw 'phone' present)
+    if "phone_fmt" not in df.columns and "phone" in df.columns:
+        def _fmt_local(raw):
+            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+            if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
+                s = s[1:]
+            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == LOCAL_PHONE_LEN else (str(raw or "").strip())
+        df["phone_fmt"] = df["phone"].map(_fmt_local)
+
+    # Display phone as formatted under 'phone' and keep phone_fmt hidden
+    def _fmt_local(raw):
+        s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+        if len(s) == LOCAL_PHONE_LEN_WITH_CC and s.startswith("1"):
+            s = s[1:]
+        return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == LOCAL_PHONE_LEN else (str(raw or "").strip())
+
+    if "phone_fmt" in df.columns:
+        df["phone"] = df["phone_fmt"].apply(_fmt_local)
+    elif "phone" in df.columns:
+        df["phone"] = df["phone"].apply(_fmt_local)
+
+    # Never show phone_fmt directly
+    hidden_cols.add("phone_fmt")
+
+    # Secrets-driven order: prefer 'phone' just after 'service'; never include 'phone_fmt'
+    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+    if browse_order:
+        with contextlib.suppress(ValueError):
+            browse_order.remove("phone_fmt")
+        if "phone" not in browse_order:
+            try:
+                i = browse_order.index("service") + 1
+            except ValueError:
+                i = 0
+            browse_order.insert(i, "phone")
+    else:
+        seed = ["business_name", "address", "category", "service", "phone"]
+        browse_order = [c for c in seed if c in df.columns] + [c for c in df.columns if c not in set(seed)]
+
+    # Visible/view columns (ordered)
+    visible_cols = [c for c in df.columns if c not in hidden_cols]
+    if browse_order:
+        view_cols = [c for c in browse_order if c in visible_cols]
+        view_cols += [c for c in visible_cols if c not in view_cols]
+    else:
+        view_cols = visible_cols
+
+    return df, view_cols, hidden_cols
+
 
 # --- CKW recompute utilities -------------------------------------------------
 def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
@@ -642,12 +712,11 @@ def _hscroll_container_close():
 
 def __HCR_browse_render():
     """Canonical Browse renderer: secrets-driven order/widths, hide meta cols, CSV export of visible columns."""
+    import pandas as pd
 
     # Engine + load
-    eng = get_engine()
     try:
-        _eng_raw = get_engine()
-        eng = _eng_raw[0] if isinstance(_eng_raw, tuple) else _eng_raw
+        eng = _engine()
         df = pd.read_sql("SELECT * FROM vendors", eng)
     except Exception as e:
         st.error(f"Browse load failed: {e}")
@@ -664,65 +733,29 @@ def __HCR_browse_render():
         "ckw_version",
         "ckw_manual_extra",
         "computed_keywords",
-        "phone_fmt",  # hide: we will display the formatted value under 'phone'
+        "phone_fmt",  # hide: we display formatted value under 'phone'
     }
-    hidden_cols = set(hidden_cols_default)
 
-# Tolerate legacy columns if present
-for legacy in ("city", "state", "zip"):
-    if legacy in df.columns:
-        hidden_cols.add(legacy)
+    # Normalize DF and derive ordered view columns
+    df, view_cols, _hidden_cols = _normalize_browse_df(df, hidden_cols=hidden_cols_default)
 
-# Display phone as formatted under 'phone' and keep phone_fmt hidden
-# 1) Ensure 'phone' contains the display format
-if "phone_fmt" in df.columns:
+    # Render (widths handled elsewhere; keep container width False to honor pixel widths)
+    _hscroll_container_open()
     try:
-        df["phone"] = df["phone_fmt"].apply(_format_phone)
-    except Exception:
-        # local fallback to avoid runtime coupling
-        def _fmt_local(raw: str) -> str:
-            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
-                s = s[1:]
-            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
-        df["phone"] = df["phone_fmt"].apply(_fmt_local)
-elif "phone" in df.columns:
+        st.dataframe(
+            df[view_cols],
+            hide_index=True,
+            use_container_width=False,
+        )
+    finally:
+        _hscroll_container_close()
+
+    # CSV download of visible view
     try:
-        df["phone"] = df["phone"].apply(_format_phone)
-    except Exception:
-        def _fmt_local2(raw: str) -> str:
-            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
-                s = s[1:]
-            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
-        df["phone"] = df["phone"].apply(_fmt_local2)
-
-# 2) Ensure phone_fmt never appears as a visible column
-hidden_cols.add("phone_fmt")
-
-# 3) Secrets-driven order: prefer 'phone' (after 'service'); never insert 'phone_fmt'
-browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-if browse_order:
-    with contextlib.suppress(ValueError):
-        browse_order.remove("phone_fmt")
-    if "phone" not in browse_order:
-        try:
-            i = browse_order.index("service") + 1
-        except ValueError:
-            i = 0
-        browse_order.insert(i, "phone")
-else:
-    # sensible default including 'phone' (not phone_fmt)
-    seed = ["business_name", "address", "category", "service", "phone"]
-    browse_order = [c for c in seed if c in df.columns] + [c for c in df.columns if c not in set(seed)]
-
-# Visible/view columns (ordered)
-visible_cols = [c for c in df.columns if c not in hidden_cols]
-if browse_order:
-    view_cols = [c for c in browse_order if c in visible_cols]
-    view_cols += [c for c in visible_cols if c not in view_cols]
-else:
-    view_cols = visible_cols
+        csv = df[view_cols].to_csv(index=False)
+        st.download_button("Download CSV (visible columns)", csv, file_name="providers.csv", mime="text/csv")
+    except Exception as e:
+        st.info(f"CSV export unavailable: {e}")
 
 
     # Render (keep horizontal scroll via wrapper)
