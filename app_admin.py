@@ -685,33 +685,56 @@ def __HCR_browse_render():
 
         df["phone_fmt"] = df["phone"].map(_fmt_phone)
 
-    # Secrets-driven order & widths
-    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-    # Ensure phone_fmt is shown (prefer just after 'service'); drop raw 'phone' from order
-    if "phone_fmt" in df.columns:
-        if not browse_order:
-            # no secrets order → build a sensible default with phone_fmt
-            seed = ["business_name", "address", "category", "service", "phone_fmt"]
-            browse_order = [c for c in seed if c in df.columns] + [
-                c for c in df.columns if c not in set(seed)
-            ]
+    # --- Secrets-driven order (with alias normalization) ---
+    # Build phone_fmt from phone once (kept above)
+    # Ensure hidden_cols exists
+    try:
+        hidden_cols  # noqa: F401
+    except NameError:
+        hidden_cols = []
+    
+    # Hide raw phone if formatted present
+    if "phone_fmt" in df.columns and "phone" in df.columns and "phone" not in hidden_cols:
+        hidden_cols.append("phone")
+    
+    # Read desired order from secrets
+    browse_order_raw = list(st.secrets.get("BROWSE_ORDER", []))
+    
+    # Map aliases in secrets -> actual DF columns (case/space tolerant)
+    _alias = {
+        "contact name": "contact_name",
+        "email address": "email",
+        "ckw": "computed_keywords",
+        "phone format": "phone_fmt",
+        "phone formatted": "phone_fmt",
+    }
+    lower_to_actual = {c.lower(): c for c in df.columns}
+    
+    def _canon(name: str) -> str:
+        n = _alias.get(name.strip().lower(), name)
+        return lower_to_actual.get(n.strip().lower(), n)
+    
+    # Canonicalized order, keeping only columns that exist
+    browse_order = []
+    for name in browse_order_raw:
+        c = _canon(name)
+        if c in df.columns and c not in browse_order:
+            browse_order.append(c)
+    
+    # If secrets didn’t include phone_fmt but we have it, put it after service
+    if "phone_fmt" in df.columns and "phone_fmt" not in browse_order:
+        if "service" in browse_order:
+            browse_order.insert(browse_order.index("service") + 1, "phone_fmt")
         else:
-            if "phone_fmt" not in browse_order:
-                try:
-                    i = browse_order.index("service") + 1
-                except ValueError:
-                    i = 0
-                browse_order.insert(i, "phone_fmt")
-            if "phone" in browse_order:
-                browse_order.remove("phone")
+            browse_order.append("phone_fmt")
+    
+    # Visible columns = DF minus hidden
+    visible_cols = [c for c in df.columns if c not in set(hidden_cols)]
+    
+    # Final ordered view = secrets order first, then any remaining visible cols
+    view_cols = browse_order + [c for c in visible_cols if c not in browse_order]
+    # --- end secrets order normalization ---
 
-    # Visible/view columns (ordered)
-    visible_cols = [c for c in df.columns if c not in hidden_cols]
-    if browse_order:
-        view_cols = [c for c in browse_order if c in visible_cols]
-        view_cols += [c for c in visible_cols if c not in view_cols]
-    else:
-        view_cols = visible_cols
 
     # Render (keep horizontal scroll via wrapper)
     _hscroll_container_open()
