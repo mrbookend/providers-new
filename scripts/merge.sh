@@ -38,4 +38,3 @@ if [ -x scripts/preflight.sh ]; then
 else
   echo "WARN: scripts/preflight.sh not found; skipping."
 fi
-
