@@ -731,6 +731,7 @@ def _normalize_browse_df(
     return df, view_cols, hidden_cols
 # --- ANCHOR: normalize (end) ---
 
+
 def _engine():
     """Return a real SQLAlchemy Engine, unwrapping tuples from get_engine()."""
     eng_raw = get_engine()
