@@ -1,22 +1,22 @@
 # app_readonly.py
 from __future__ import annotations
 
+# === ANCHOR: IMPORTS (readonly) ===
+import contextlib
 import csv
 import os
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
 import sqlalchemy as sa
-import streamlit as st
 from sqlalchemy import text as T
+import streamlit as st
+# === END ANCHOR: IMPORTS (readonly) ===
 
 # ---- Streamlit page config MUST be first ----
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
 # === ANCHOR: READONLY_ENGINE (start) ===
-from functools import lru_cache
-import os
-import sqlalchemy as sa
-
 def _build_engine_readonly() -> sa.Engine:
     """
     Prefer Turso/libsql when TURSO_* secrets are present; otherwise fall back to local SQLite.
@@ -36,17 +36,19 @@ def _build_engine_readonly() -> sa.Engine:
 
 @lru_cache(maxsize=1)
 def get_engine() -> sa.Engine:
-    # Only define if not already provided elsewhere.
-    try:
-        # If another get_engine exists, this shadow never runs (because of import ordering).
-        pass
-    except Exception:
-        pass
     return _build_engine_readonly()
 # === ANCHOR: READONLY_ENGINE (end) ===
+
 # === ANCHOR: READONLY_ENGINE_PROBES (start) ===
 def _engine_probe_info(eng) -> dict:
-    info = {"using_remote": False, "sqlalchemy_url": "", "dialect": "", "driver": "", "tables": [], "vendors_count": None}
+    info = {
+        "using_remote": False,
+        "sqlalchemy_url": "",
+        "dialect": "",
+        "driver": "",
+        "tables": [],
+        "vendors_count": None,
+    }
     try:
         info["sqlalchemy_url"] = str(eng.url)
         info["dialect"] = getattr(eng.dialect, "name", "")
@@ -55,10 +57,17 @@ def _engine_probe_info(eng) -> dict:
         u = (info["sqlalchemy_url"] or "").lower()
         info["using_remote"] = ("libsql" in d) or ("libsql" in u)
         with eng.begin() as cx:
-            info["tables"] = [r[0] for r in cx.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            info["tables"] = [
+                r[0]
+                for r in cx.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            ]
             if "vendors" in info["tables"]:
-                info["vendors_count"] = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-    except Exception as e:  # noqa: BLE001
+                info["vendors_count"] = cx.exec_driver_sql(
+                    "SELECT COUNT(*) FROM vendors"
+                ).scalar()
+    except Exception as e:
         info["error"] = str(e)
     return info
 
@@ -77,6 +86,7 @@ def readonly_render_engine_status(eng) -> None:
         }
     )
 # === ANCHOR: READONLY_ENGINE_PROBES (end) ===
+
 
 # ---- Config ----
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -218,13 +228,13 @@ def load_df(q: str) -> pd.DataFrame:
 
 # === ANCHOR: READONLY_DIAGS_BLOCK (start) ===
 def _readonly_diag_block() -> None:
-    import os
-    import streamlit as st
     if (os.environ.get("READONLY_SHOW_DIAGS") or "").strip() == "1":
+        import streamlit as st
         with st.expander("Database — Engine Status", expanded=False):
             eng = get_engine()
             readonly_render_engine_status(eng)
 # === ANCHOR: READONLY_DIAGS_BLOCK (end) ===
+
 
 # ---- Optional one-time bootstrap ----
 msg = _bootstrap_from_csv_if_needed()
