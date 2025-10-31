@@ -681,13 +681,6 @@ def _fetch_with_retry(
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 
-
-# --- ANCHOR: normalize (begin) ---
-def _normalize_browse_df(df, *, hidden_cols=None):
-    """Return (df, view_cols, hidden_cols) for Browse rendering."""
-    # Defensive set conversion once; safe to call repeatedly
-    hidden_cols = set(hidden_cols or [])
-
 # --- ANCHOR: normalize (start) ---
 def _normalize_browse_df(
     df: pd.DataFrame,
