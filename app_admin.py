@@ -5,7 +5,7 @@ from __future__ import annotations
 
 # Standard library
 from datetime import datetime
-import contextlib
+import contextlib as _ctx
 import hashlib
 import hmac
 import importlib
@@ -13,12 +13,14 @@ import json
 import os
 import pathlib
 import re
+import sqlalchemy
 import subprocess
 import time
 import uuid
 
 # Third-party
 import pandas as pd
+from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
