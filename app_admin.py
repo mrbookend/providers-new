@@ -3,6 +3,8 @@
 # ruff: noqa: I001
 from __future__ import annotations
 
+import contextlib
+
 # Standard library
 from datetime import datetime
 import contextlib as _ctx
@@ -515,7 +517,7 @@ def _drop_legacy_vendor_indexes() -> dict:
             try:
                 cx.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
                 dropped.append(name)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 # Ignore individual drop errors; record for reporting.
                 failed.append((name, str(e)))
 
@@ -537,8 +539,7 @@ with st.expander("Index maintenance - drop legacy vendor indexes"):
         res = _drop_legacy_vendor_indexes()
         if res.get("failed"):
             st.error(
-                "Completed with errors: "
-                + ", ".join(f"{n} ({msg})" for n, msg in res["failed"])
+                "Completed with errors: " + ", ".join(f"{n} ({msg})" for n, msg in res["failed"])
             )
         dropped = ", ".join(res.get("dropped", [])) or "(none)"
         attempted = ", ".join(res.get("attempted", [])) or "(none)"
@@ -586,12 +587,9 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     # Coerce to string-ish and fill empties
     for c in df.columns:
         if df[c].dtype not in (object, "string"):
-            try:
+            with contextlib.suppress(Exception):
                 df[c] = df[c].astype(str)
-            except Exception:  # noqa: BLE001
-                pass
     return df.fillna("")
-
 
 
 def render_table_hscroll(df, *, key="browse_table"):
