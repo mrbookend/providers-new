@@ -1044,36 +1044,6 @@ else:
 REQUIRED_VENDOR_COLUMNS: list[str] = ["business_name", "category"]  # service optional
 
 
-# === ANCHOR: BUILD_ENGINE (start) ===
-def build_engine() -> tuple[Engine, dict]:
-    """Prefer Turso/libsql embedded replica; otherwise local sqlite if FORCE_LOCAL=1."""
-    info: dict = {}
-
-    url = (_resolve_str("TURSO_DATABASE_URL", "") or "").strip()
-    token = (_resolve_str("TURSO_AUTH_TOKEN", "") or "").strip()
-    embedded_path = os.path.abspath(
-        _resolve_str("EMBEDDED_DB_PATH", "vendors-embedded.db") or "vendors-embedded.db"
-    )
-
-    if not url:
-        # No remote configured -> use DB_PATH from secrets/env (defaults to vendors.db)
-        db_path = _resolve_str("DB_PATH", "vendors.db") or "vendors.db"
-        eng = create_engine(
-            f"sqlite:///{db_path}",
-            pool_pre_ping=True,
-            pool_recycle=300,
-            pool_reset_on_return="commit",
-        )
-        info.update(
-            {
-                "using_remote": False,
-                "sqlalchemy_url": f"sqlite:///{db_path}",
-                "dialect": eng.dialect.name,
-                "driver": getattr(eng.dialect, "driver", ""),
-            }
-        )
-        return eng, info
-
     # Embedded replica: local file that syncs to your remote Turso DB
     try:
         # Normalize sync_url: embedded REQUIRES libsql:// (no sqlite+libsql, no ?secure=true)
