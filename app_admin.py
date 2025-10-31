@@ -430,12 +430,12 @@ with _ctx.suppress(Exception):
                 rows = c.exec_driver_sql("PRAGMA index_list('vendors')").mappings().all()
                 present = {row["name"] for row in rows if "name" in row}
 
-            missing = [k for k in expected.keys() if k not in present]
+            missing = [k for k in expected if k not in present]
 
             st.write(
                 {
                     "present_indexes": sorted(present),
-                    "expected_indexes": list(expected.keys()),
+                    "expected_indexes": list(expected),
                     "missing_indexes": missing,
                     "note": "Diagnostic only; no schema changes performed here.",
                 }
@@ -444,6 +444,7 @@ with _ctx.suppress(Exception):
         with _ctx.suppress(Exception):
             _ip_eng.dispose()
 # === ANCHOR: DB_INDEX_PARITY (end) ===
+
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
