@@ -305,7 +305,7 @@ def _fetch_vendor_rows_by_ids(eng: Engine, ids: list[int]) -> list[dict]:
         return []
     placeholders = ",".join("?" for _ in ids)
     sql = f"SELECT * FROM vendors WHERE id IN ({placeholders})"
-    with eng.begin() as cx:
+    with eng.connect() as cx:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
 
@@ -500,7 +500,7 @@ def _drop_legacy_vendor_indexes() -> dict:
         "vendors_ckw",
     ]
     attempted, dropped = [], []
-    with eng.begin() as cx:
+    with eng.connect() as cx:
         for name in legacy:
             attempted.append(name)
             try:
@@ -609,7 +609,7 @@ def _ensure_ckw_schema(eng) -> bool:
       - vendors_ckw (computed_keywords)  -- non-unique
     """
     changed = False
-    with eng.begin() as cx:
+    with eng.connect() as cx:
         # Ensure base table exists (address-only schema; minimal set)
         cx.execute(
             sql_text("""
@@ -953,7 +953,7 @@ def _update_ckw_for_rows(eng, rows: list[dict], override_locks: bool) -> int:
     if not rows:
         return 0
     upd = 0
-    with eng.begin() as cx:
+    with eng.connect() as cx:
         for r in rows:
             if not override_locks and (r.get("ckw_locked") in (1, "1", True)):
                 continue
@@ -977,7 +977,7 @@ def recompute_ckw_for_ids(eng, ids: list[int], override_locks: bool = False) -> 
 
 
 def recompute_ckw_unlocked(eng) -> int:
-    with eng.begin() as cx:
+    with eng.connect() as cx:
         ids = [
             r[0]
             for r in cx.execute(
@@ -991,7 +991,7 @@ def recompute_ckw_unlocked(eng) -> int:
 
 
 def recompute_ckw_all(eng) -> int:
-    with eng.begin() as cx:
+    with eng.connect() as cx:
         ids = [r[0] for r in cx.execute(sql_text("SELECT id FROM vendors")).fetchall()]
     return recompute_ckw_for_ids(eng, ids, override_locks=True)
 
