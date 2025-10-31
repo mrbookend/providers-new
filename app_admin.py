@@ -296,6 +296,17 @@ def _apply_column_widths(df, widths: dict) -> dict:
         except Exception:
             pass
     return cfg
+# --- ANCHOR: helpers (fetch by ids) (start) ---
+def _fetch_vendor_rows_by_ids(eng: Engine, ids: list[int]) -> list[dict]:
+    """Fetch vendors rows by integer IDs; returns list of dicts. Safe for empty list."""
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    sql = f"SELECT * FROM vendors WHERE id IN ({placeholders})"
+    with eng.begin() as cx:
+        rows = cx.exec_driver_sql(sql, ids).mappings().all()
+    return [dict(r) for r in rows]
+# --- ANCHOR: helpers (fetch by ids) (end) ---
 
 # === ANCHOR: ENGINE (start) ===
 def build_engine():
