@@ -22,12 +22,33 @@ import pandas as pd
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
+try:
+    from libsql_experimental import connect as libsql_connect
+except Exception:
+    libsql_connect = None
 
 # App constants
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 BROWSE_PREVIEW_ROWS = 20
 CSV_MAX_ROWS = 1000
+
+# === ANCHOR: ENGINE BUILDER (start) ===
+def get_engine():
+    url = os.getenv("TURSO_DATABASE_URL") or os.getenv("LIBSQL_URL_FULL")
+    tok = os.getenv("TURSO_AUTH_TOKEN")
+    if url and tok and libsql_connect is not None:
+        def _creator():
+            return libsql_connect(url, auth_token=tok)
+        return create_engine("sqlite+libsql://", creator=_creator)
+    db_path = os.getenv("DB_PATH", "providers.db")
+    return create_engine(f"sqlite:///{db_path}")
+
+def build_engine():
+    return get_engine()
+# === ANCHOR: ENGINE BUILDER (end) ===
+
+
 # === ANCHOR: IMPORTS (end) ===
 # === ANCHOR: NOUNS (start) ===
 NOUN_SINGULAR = "Provider"
