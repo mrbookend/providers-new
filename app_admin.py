@@ -481,6 +481,44 @@ with st.expander("Index maintenance", expanded=False):
         except Exception as e:
             st.error(f"Index maintenance failed: {e}")
 # === ANCHOR: DB_INDEX_MAINT (end) ===
+# === ANCHOR: INDEX_MAINTENANCE (drop-legacy) ===
+def _drop_legacy_vendor_indexes() -> dict:
+    """
+    Drop legacy vendor indexes we no longer want. Idempotent & safe on SQLite/libsql.
+    Returns a dict with 'attempted' and 'dropped' lists for status.
+    """
+    eng = get_engine()
+    legacy = [
+        "idx_vendors_bus",
+        "idx_vendors_cat",
+        "idx_vendors_cat_lower",
+        "idx_vendors_kw",
+        "idx_vendors_svc_lower",
+        "vendors_ckw",
+    ]
+    attempted, dropped = [], []
+    with eng.begin() as cx:
+        for name in legacy:
+            attempted.append(name)
+            try:
+                cx.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
+                dropped.append(name)
+            except Exception:
+                # Ignore individual drop errors; report after
+                pass
+    return {"attempted": attempted, "dropped": dropped}
+
+# === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
+with st.expander("Index maintenance — drop legacy vendor indexes"):
+    st.warning(
+        "This will drop legacy vendor indexes and keep only the three agreed ones: "
+        "idx_vendors_phone, idx_vendors_ckw, idx_vendors_bus_lower. "
+        "Operation is idempotent."
+    )
+    if st.button("Drop legacy vendor indexes now", type="primary"):
+        res = _drop_legacy_vendor_indexes()
+        st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
+        st.caption(f"Attempted: {', '.join(res['attempted'])}")
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
