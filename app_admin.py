@@ -3,6 +3,8 @@
 # ruff: noqa: I001
 from __future__ import annotations
 
+import contextlib
+
 # Standard library
 import contextlib
 from datetime import datetime
@@ -488,9 +490,15 @@ with st.expander("Index maintenance", expanded=False):
 def _drop_legacy_vendor_indexes() -> dict:
     """
     Drop legacy vendor indexes we no longer want. Idempotent & safe on SQLite/libsql.
-    Returns a dict with 'attempted' and 'dropped' lists for status.
+    Returns: {"attempted": [...], "dropped": [...], "failed": [(name, "err"), ...]}
     """
     eng = get_engine()
+    # Normalize if some code path returns (engine, meta/info, ...)
+    if isinstance(eng, tuple) and eng:
+        eng = eng[0]
+    if eng is None:
+        return {"attempted": [], "dropped": [], "failed": [("ENGINE", "None")]}
+
     legacy = [
         "idx_vendors_bus",
         "idx_vendors_cat",
@@ -499,42 +507,60 @@ def _drop_legacy_vendor_indexes() -> dict:
         "idx_vendors_svc_lower",
         "vendors_ckw",
     ]
-    attempted, dropped = [], []
-    with eng.begin() as cx:
+    attempted: list[str] = []
+    dropped: list[str] = []
+    failed: list[tuple[str, str]] = []
+
+    # Use connect(); DDL auto-commits on sqlite/libsql.
+    with eng.connect() as cx:
         for name in legacy:
             attempted.append(name)
             try:
                 cx.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
                 dropped.append(name)
-            except Exception:
-                # Ignore individual drop errors; report after
-                pass
-    return {"attempted": attempted, "dropped": dropped}
+            except Exception as e:
+                # Ignore individual drop errors; record for reporting.
+                failed.append((name, str(e)))
+
+    return {
+        "attempted": sorted(set(attempted)),
+        "dropped": sorted(set(dropped)),
+        "failed": failed,
+    }
 
 
 # === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
-with st.expander("Index maintenance — drop legacy vendor indexes"):
+with st.expander("Index maintenance - drop legacy vendor indexes"):
     st.warning(
-        "This will drop legacy vendor indexes and keep only the three agreed ones: "
+        "Drops legacy vendor indexes and keeps only: "
         "idx_vendors_phone, idx_vendors_ckw, idx_vendors_bus_lower. "
         "Operation is idempotent."
     )
     if st.button("Drop legacy vendor indexes now", type="primary"):
         res = _drop_legacy_vendor_indexes()
-        st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
-        st.caption(f"Attempted: {', '.join(res['attempted'])}")
+        if res.get("failed"):
+            st.error(
+                "Completed with errors: " + ", ".join(f"{n} ({msg})" for n, msg in res["failed"])
+            )
+        dropped = ", ".join(res.get("dropped", [])) or "(none)"
+        attempted = ", ".join(res.get("attempted", [])) or "(none)"
+        st.success(f"Dropped: {dropped}")
+        st.caption(f"Attempted: {attempted}")
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
     df = df.copy()
-    # normalize headers
+
+    # Normalize headers
     df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
-    # drop legacy cols we no longer store
+
+    # Drop legacy cols we no longer store
     for _c in ("city", "state", "zip"):
         if _c in df.columns:
             df.drop(columns=[_c], inplace=True)
-    # allow-only known vendor columns
+
+    # Allow-only known vendor columns (address-only schema)
     whitelist = [
         "category",
         "service",
@@ -558,6 +584,12 @@ def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     present = [c for c in whitelist if c in df.columns]
     if present:
         df = df[present]
+
+    # Coerce to string-ish and fill empties
+    for c in df.columns:
+        if df[c].dtype not in (object, "string"):
+            with contextlib.suppress(Exception):
+                df[c] = df[c].astype(str)
     return df.fillna("")
 
 
