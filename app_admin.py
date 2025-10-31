@@ -419,7 +419,6 @@ with _ctx.suppress(Exception):
         with st.expander("Index parity (diagnostic only)", expanded=False):
             expected = {
                 # keep aligned with project baseline (no-op if absent)
-                "idx_vendors_id": "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)",
                 "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
                 "idx_vendors_ckw": "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
                 # optional (present in some baselines)
@@ -466,7 +465,6 @@ with st.expander("Index maintenance", expanded=False):
             _fix_eng, _fix_info = build_engine()
             try:
                 expected_sql = {
-                    "idx_vendors_id": "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)",
                     "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
                     "idx_vendors_ckw": "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
                     "idx_vendors_bus_lower": "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(lower(business_name))",
