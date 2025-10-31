@@ -480,6 +480,8 @@ with st.expander("Index maintenance", expanded=False):
                     _fix_eng.dispose()
         except Exception as e:
             st.error(f"Index maintenance failed: {e}")
+
+
 # === ANCHOR: DB_INDEX_MAINT (end) ===
 # === ANCHOR: INDEX_MAINTENANCE (drop-legacy) ===
 def _drop_legacy_vendor_indexes() -> dict:
@@ -507,6 +509,7 @@ def _drop_legacy_vendor_indexes() -> dict:
                 # Ignore individual drop errors; report after
                 pass
     return {"attempted": attempted, "dropped": dropped}
+
 
 # === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
 with st.expander("Index maintenance — drop legacy vendor indexes"):
