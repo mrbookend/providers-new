@@ -412,6 +412,39 @@ with _ctx.suppress(Exception):
             _qp_eng.dispose()
 # === ANCHOR: DB_QUICK_PROBES (end) ===
 
+# === ANCHOR: DB_INDEX_PARITY (start) ===
+with _ctx.suppress(Exception):
+    _ip_eng, _ = build_engine()
+    try:
+        with st.expander("Index parity (diagnostic only)", expanded=False):
+            expected = {
+                # keep aligned with project baseline (no-op if absent)
+                "idx_vendors_id": "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)",
+                "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
+                "idx_vendors_ckw": "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
+                # optional (present in some baselines)
+                "idx_vendors_bus_lower": "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(lower(business_name))",
+            }
+            present: set[str] = set()
+            with _ctx.suppress(Exception), _ip_eng.connect() as c:
+                rows = c.exec_driver_sql("PRAGMA index_list('vendors')").mappings().all()
+                present = {row["name"] for row in rows if "name" in row}
+
+            missing = [k for k in expected if k not in present]
+
+            st.write(
+                {
+                    "present_indexes": sorted(present),
+                    "expected_indexes": list(expected),
+                    "missing_indexes": missing,
+                    "note": "Diagnostic only; no schema changes performed here.",
+                }
+            )
+    finally:
+        with _ctx.suppress(Exception):
+            _ip_eng.dispose()
+# === ANCHOR: DB_INDEX_PARITY (end) ===
+
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
