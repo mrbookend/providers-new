@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# noop: CI-format parity
 import csv
 import os
 from pathlib import Path
