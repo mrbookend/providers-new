@@ -242,10 +242,14 @@ def _debug_where_am_i():
 
 
 # === ANCHOR: LIBSQL_REGISTER (start) ===
-# ---- register libsql dialect (must be AFTER "import streamlit as st") ----
-with contextlib.suppress(Exception):
+# Register libsql dialect; ignore if already registered or package missing.
+with _ctx.suppress(Exception):
+    # Prefer explicit registry (works even without entry points)
+    _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
+    # Also import the module to ensure it’s loaded (harmless if already present)
     importlib.import_module("sqlalchemy_libsql")
-# ---- end dialect registration ----
+# === ANCHOR: LIBSQL_REGISTER (end) ===
+
 
 
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
@@ -300,11 +304,10 @@ def build_engine():
     Returns: (engine, info_dict)
     """
 
-    # AFTER (insert at the same spot)
     # Register libsql dialect if available; ignore if already registered or package missing.
-    import contextlib as _ctx  # local import avoids top-level F401
     with _ctx.suppress(Exception):
         _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
+
 
     # Read secrets/env (env wins if both present)
     def _get_secret(name: str) -> str:
@@ -321,18 +324,19 @@ def build_engine():
     turso_url = _get_secret("TURSO_DATABASE_URL")
     turso_token = _get_secret("TURSO_AUTH_TOKEN")
 
-    # Try Turso/libsql first (only if both URL and token are present and libsql_experimental imports)
+    # Try Turso/libsql first (only if both URL and token are present and libsql_experimental is installed)
     try:
-        import libsql_experimental as libsql  # type: ignore
+        libsql = importlib.import_module("libsql_experimental")  # type: ignore
     except Exception:
         libsql = None
+
 
     if libsql and turso_url and turso_token:
         def _creator():
             # TLS is automatic when using https:// URL; libsql handles negotiation.
             return libsql.connect(database=turso_url, auth_token=turso_token)
 
-        eng = sqlalchemy.create_engine(
+        eng = create_engine(
             "sqlite+libsql://",
             creator=_creator,
             pool_pre_ping=True,
@@ -346,7 +350,7 @@ def build_engine():
 
     # Fallback to local SQLite
     db_path = _get_secret("DB_PATH") or "providers.db"
-    eng = sqlalchemy.create_engine(
+    eng = create_engine(
         f"sqlite:///{db_path}",
         pool_pre_ping=True,
     )
@@ -674,12 +678,10 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     hidden_cols = set(hidden_cols or [])
 
     # Hide legacy/aux columns if present
-    for legacy in ("city", "state", "zip"):
-        if legacy in df.columns:
-            hidden_cols.add(legacy)
-    with contextlib.suppress(Exception):
-        if "phone_fmt" in df.columns:
-            hidden_cols.add("phone_fmt")
+        for legacy in ("city", "state", "zip", "phone_fmt"):
+            if legacy in df.columns:
+                hidden_cols.add(legacy)
+
 
     # Phone: ALWAYS format into the visible 'phone' column (idempotent)
     if "phone" in df.columns:
