@@ -48,35 +48,7 @@ if not globals().get("_PAGE_CFG_DONE"):
     except Exception:
         pass
     globals()["_PAGE_CFG_DONE"] = True
-# === ANCHOR: ENGINE_DIAGS (inline) ===
-# Diagnostics only: build a temp engine to read `info`, then dispose it.
-# Does not change the engine your app actually uses.
-try:
-    _tmp_eng, _tmp_info = build_engine()
-    try:
-        _tmp_eng.dispose()
-    except Exception:
-        pass
-    try:
-        with st.expander("Engine status", expanded=False):
-            st.write(
-                {
-                    "using_remote": _tmp_info.get("using_remote"),
-                    "sqlalchemy_url": _tmp_info.get("sqlalchemy_url"),
-                    "driver": _tmp_info.get("driver"),
-                    "dialect": _tmp_info.get("dialect"),
-                    "database": _tmp_info.get("database"),
-                    "strategy": _tmp_info.get("strategy", ""),
-                    "sync_url": _tmp_info.get("sync_url", ""),
-                    "remote_error": _tmp_info.get("remote_error", ""),
-                }
-            )
-    except Exception:
-        pass
-except Exception:
-    # Never let diagnostics break the app
-    pass
-# === ANCHOR: ENGINE_DIAGS (inline end) ===
+
     
 # === ANCHOR: PAGE_CONFIG (end) ===
 
@@ -429,6 +401,27 @@ def build_engine():
 
 
 # === ANCHOR: ENGINE (end) ===
+
+# === ANCHOR: ENGINE_DIAGS (inline) ===
+# Diagnostics only: build a temp engine to read `info`, then dispose it.
+with _ctx.suppress(Exception):
+    _tmp_eng, _tmp_info = build_engine()
+    with _ctx.suppress(Exception):
+        _tmp_eng.dispose()
+    with st.expander("Engine status", expanded=False):
+        st.write(
+            {
+                "using_remote": _tmp_info.get("using_remote"),
+                "sqlalchemy_url": _tmp_info.get("sqlalchemy_url"),
+                "driver": _tmp_info.get("driver"),
+                "dialect": _tmp_info.get("dialect"),
+                "database": _tmp_info.get("database"),
+                "strategy": _tmp_info.get("strategy", ""),
+                "sync_url": _tmp_info.get("sync_url", ""),
+                "remote_error": _tmp_info.get("remote_error", ""),
+            }
+        )
+# === ANCHOR: ENGINE_DIAGS (inline end) ===
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
