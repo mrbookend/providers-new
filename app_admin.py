@@ -244,7 +244,7 @@ def _debug_where_am_i():
 
 # === ANCHOR: LIBSQL_REGISTER (start) ===
 # Register libsql dialect; ignore if already registered or package missing.
-with _ctx.suppress(Exception):
+with contextlib.suppress(Exception):
     # Prefer explicit registry (works even without entry points)
     _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
     # Also import the module to ensure it is loaded (harmless if already present)
@@ -321,7 +321,7 @@ def build_engine():
     """
 
     # Register libsql dialect if available; ignore if already registered or package missing.
-    with _ctx.suppress(Exception):
+    with contextlib.suppress(Exception):
         _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
 
     # Read secrets/env (env wins if both present)
@@ -379,13 +379,13 @@ def build_engine():
 
 # === ANCHOR: ENGINE (end) ===
 # === ANCHOR: DB_QUICK_PROBES (start) ===
-with _ctx.suppress(Exception):
+with contextlib.suppress(Exception):
     _qp_eng, _qp_info = build_engine()
     try:
         with st.expander("DB quick probes", expanded=False):
             # 1) Ping
             ok = False
-            with _ctx.suppress(Exception), _qp_eng.connect() as c:
+            with contextlib.suppress(Exception), _qp_eng.connect() as c:
                 c.exec_driver_sql("select 1;")
                 ok = True
 
@@ -393,7 +393,7 @@ with _ctx.suppress(Exception):
 
             # 2) List tables (SQLite / libsql)
             tables: list[str] = []
-            with _ctx.suppress(Exception), _qp_eng.connect() as c:
+            with contextlib.suppress(Exception), _qp_eng.connect() as c:
                 rows = c.exec_driver_sql(
                     "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
                 ).all()
@@ -404,17 +404,17 @@ with _ctx.suppress(Exception):
             # 3) Optional: row count for vendors (if present)
             vendors_count = None
             if "vendors" in tables:
-                with _ctx.suppress(Exception), _qp_eng.connect() as c:
+                with contextlib.suppress(Exception), _qp_eng.connect() as c:
                     vendors_count = c.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
 
             st.write({"vendors_count": vendors_count})
     finally:
-        with _ctx.suppress(Exception):
+        with contextlib.suppress(Exception):
             _qp_eng.dispose()
 # === ANCHOR: DB_QUICK_PROBES (end) ===
 
 # === ANCHOR: DB_INDEX_PARITY (start) ===
-with _ctx.suppress(Exception):
+with contextlib.suppress(Exception):
     _ip_eng, _ = build_engine()
     try:
         with st.expander("Index parity (diagnostic only)", expanded=False):
@@ -427,7 +427,7 @@ with _ctx.suppress(Exception):
                 "idx_vendors_bus_lower": "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(lower(business_name))",
             }
             present: set[str] = set()
-            with _ctx.suppress(Exception), _ip_eng.connect() as c:
+            with contextlib.suppress(Exception), _ip_eng.connect() as c:
                 rows = c.exec_driver_sql("PRAGMA index_list('vendors')").mappings().all()
                 present = {row["name"] for row in rows if "name" in row}
 
@@ -447,7 +447,7 @@ with _ctx.suppress(Exception):
                 with st.container():
                     if st.button("Create missing indexes (idempotent)", type="primary"):
                         created: list[str] = []
-                        with _ctx.suppress(Exception), _ip_eng.begin() as cx:
+                        with contextlib.suppress(Exception), _ip_eng.begin() as cx:
                             for name in missing:
                                 if name == "idx_vendors_id":
                                     cx.exec_driver_sql(
@@ -456,7 +456,7 @@ with _ctx.suppress(Exception):
                                     created.append(name)
                         st.success({"created": created})
     finally:
-        with _ctx.suppress(Exception):
+        with contextlib.suppress(Exception):
             _ip_eng.dispose()
 # === ANCHOR: DB_INDEX_PARITY (end) ===
 # === ANCHOR: DB_INDEX_MAINT (start) ===
@@ -477,7 +477,7 @@ with st.expander("Index maintenance", expanded=False):
                         cx.exec_driver_sql(sql)
                 st.success("Index creation attempted (idempotent). Re-open Index parity to verify.")
             finally:
-                with _ctx.suppress(Exception):
+                with contextlib.suppress(Exception):
                     _fix_eng.dispose()
         except Exception as e:
             st.error(f"Index maintenance failed: {e}")
