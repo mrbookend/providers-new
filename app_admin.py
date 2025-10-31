@@ -546,7 +546,6 @@ with st.expander("Index maintenance - drop legacy vendor indexes"):
         st.caption(f"Attempted: {attempted}")
 
 
-
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
     df = df.copy()
