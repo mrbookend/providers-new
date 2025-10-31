@@ -417,6 +417,7 @@ with _ctx.suppress(Exception):
     _ip_eng, _ = build_engine()
     try:
         with st.expander("Index parity (diagnostic only)", expanded=False):
+            # Note: no idx on id; SQLite INTEGER PRIMARY KEY is implicitly indexed.
             expected = {
                 # keep aligned with project baseline (no-op if absent)
                 "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
