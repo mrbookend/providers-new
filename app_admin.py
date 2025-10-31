@@ -490,6 +490,10 @@ def _drop_legacy_vendor_indexes() -> dict:
     Returns a dict with 'attempted' and 'dropped' lists for status.
     """
     eng = get_engine()
+    # Some code paths return (engine, meta/info). Normalize to a bare Engine.
+    if isinstance(eng, tuple) and eng:
+        eng = eng[0]
+
     legacy = [
         "idx_vendors_bus",
         "idx_vendors_cat",
@@ -499,7 +503,9 @@ def _drop_legacy_vendor_indexes() -> dict:
         "vendors_ckw",
     ]
     attempted, dropped = [], []
-    with eng.begin() as cx:
+
+    # Use connect() instead of begin(); DDL auto-commits on SQLite/libsql.
+    with eng.connect() as cx:
         for name in legacy:
             attempted.append(name)
             try:
@@ -508,6 +514,7 @@ def _drop_legacy_vendor_indexes() -> dict:
             except Exception:
                 # Ignore individual drop errors; report after
                 pass
+
     return {"attempted": attempted, "dropped": dropped}
 
 
@@ -522,6 +529,7 @@ with st.expander("Index maintenance — drop legacy vendor indexes"):
         res = _drop_legacy_vendor_indexes()
         st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
         st.caption(f"Attempted: {', '.join(res['attempted'])}")
+
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
