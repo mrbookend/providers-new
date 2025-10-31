@@ -246,7 +246,7 @@ def _debug_where_am_i():
 with _ctx.suppress(Exception):
     # Prefer explicit registry (works even without entry points)
     _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
-    # Also import the module to ensure it’s loaded (harmless if already present)
+    # Also import the module to ensure it is loaded (harmless if already present)
     importlib.import_module("sqlalchemy_libsql")
 # === ANCHOR: LIBSQL_REGISTER (end) ===
 
