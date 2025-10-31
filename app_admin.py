@@ -460,7 +460,6 @@ with _ctx.suppress(Exception):
 # === ANCHOR: DB_INDEX_PARITY (end) ===
 
 
-
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
     df = df.copy()
