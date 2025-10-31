@@ -292,6 +292,76 @@ def _apply_column_widths(df, widths: dict) -> dict:
             pass
     return cfg
 
+# === ANCHOR: ENGINE (start) ===
+def build_engine():
+    """
+    Prefer Turso/libsql when TURSO_* secrets exist; else fallback to local SQLite.
+    Returns: (engine, info_dict)
+    """
+    # Local imports to avoid top-level Ruff F401 on unused imports until used.
+    import os
+    import sqlalchemy
+    import streamlit as st
+    from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
+
+    # Register libsql dialect if available; ignore if already registered or package missing.
+    try:
+        _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
+    except Exception:
+        pass
+
+    # Read secrets/env (env wins if both present)
+    def _get_secret(name: str) -> str:
+        val = os.environ.get(name)
+        if val:
+            return val
+        try:
+            if name in st.secrets:
+                return str(st.secrets[name])
+        except Exception:
+            pass
+        return ""
+
+    turso_url = _get_secret("TURSO_DATABASE_URL")
+    turso_token = _get_secret("TURSO_AUTH_TOKEN")
+
+    # Try Turso/libsql first (only if both URL and token are present and libsql_experimental imports)
+    try:
+        import libsql_experimental as libsql  # type: ignore
+    except Exception:
+        libsql = None
+
+    if libsql and turso_url and turso_token:
+        def _creator():
+            # TLS is automatic when using https:// URL; libsql handles negotiation.
+            return libsql.connect(database=turso_url, auth_token=turso_token)
+
+        eng = sqlalchemy.create_engine(
+            "sqlite+libsql://",
+            creator=_creator,
+            pool_pre_ping=True,
+        )
+        return eng, {
+            "using_remote": True,
+            "sqlalchemy_url": "sqlite+libsql://",
+            "driver": "libsql",
+            "database": turso_url,
+        }
+
+    # Fallback to local SQLite
+    db_path = _get_secret("DB_PATH") or "providers.db"
+    eng = sqlalchemy.create_engine(
+        f"sqlite:///{db_path}",
+        pool_pre_ping=True,
+    )
+    return eng, {
+        "using_remote": False,
+        "sqlalchemy_url": f"sqlite:///{db_path}",
+        "driver": "pysqlite",
+        "database": db_path,
+    }
+# === ANCHOR: ENGINE (end) ===
+
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
@@ -1042,96 +1112,6 @@ else:
 # DB helpers
 # -----------------------------
 REQUIRED_VENDOR_COLUMNS: list[str] = ["business_name", "category"]  # service optional
-
-
-# === ANCHOR: BUILD_ENGINE (start) ===
-def build_engine() -> tuple[Engine, dict]:
-    """Prefer Turso/libsql embedded replica; otherwise local sqlite if FORCE_LOCAL=1."""
-    info: dict = {}
-
-    url = (_resolve_str("TURSO_DATABASE_URL", "") or "").strip()
-    token = (_resolve_str("TURSO_AUTH_TOKEN", "") or "").strip()
-    embedded_path = os.path.abspath(
-        _resolve_str("EMBEDDED_DB_PATH", "vendors-embedded.db") or "vendors-embedded.db"
-    )
-
-    if not url:
-        # No remote configured -> use DB_PATH from secrets/env (defaults to vendors.db)
-        db_path = _resolve_str("DB_PATH", "vendors.db") or "vendors.db"
-        eng = create_engine(
-            f"sqlite:///{db_path}",
-            pool_pre_ping=True,
-            pool_recycle=300,
-            pool_reset_on_return="commit",
-        )
-        info.update(
-            {
-                "using_remote": False,
-                "sqlalchemy_url": f"sqlite:///{db_path}",
-                "dialect": eng.dialect.name,
-                "driver": getattr(eng.dialect, "driver", ""),
-            }
-        )
-        return eng, info
-
-    # Embedded replica: local file that syncs to your remote Turso DB
-    try:
-        # Normalize sync_url: embedded REQUIRES libsql:// (no sqlite+libsql, no ?secure=true)
-        raw = url
-        if raw.startswith("sqlite+libsql://"):
-            host = raw.split("://", 1)[1].split("?", 1)[0]  # drop any ?secure=true
-            sync_url = f"libsql://{host}"
-        else:
-            sync_url = raw.split("?", 1)[0]  # already libsql://...
-
-        eng = create_engine(
-            f"sqlite+libsql:///{embedded_path}",
-            connect_args={
-                "auth_token": token,
-                "sync_url": sync_url,
-            },
-            pool_pre_ping=True,
-            pool_recycle=300,
-            pool_reset_on_return="commit",
-        )
-        with eng.connect() as c:
-            c.exec_driver_sql("select 1;")
-
-        info.update(
-            {
-                "using_remote": True,
-                "strategy": "embedded_replica",
-                "sqlalchemy_url": f"sqlite+libsql:///{embedded_path}",
-                "dialect": eng.dialect.name,
-                "driver": getattr(eng.dialect, "driver", ""),
-                "sync_url": sync_url,
-            }
-        )
-        return eng, info
-
-    except Exception as e:
-        info["remote_error"] = f"{e}"
-        allow_local = _as_bool(os.getenv("FORCE_LOCAL"), False)
-        if allow_local:
-            eng = create_engine(
-                "sqlite:///vendors.db",
-                pool_pre_ping=True,
-                pool_recycle=300,
-                pool_reset_on_return="commit",
-            )
-            info.update(
-                {
-                    "using_remote": False,
-                    "sqlalchemy_url": "sqlite:///vendors.db",
-                    "dialect": eng.dialect.name,
-                    "driver": getattr(eng.dialect, "driver", ""),
-                }
-            )
-            return eng, info
-
-        st.error("Remote DB unavailable and FORCE_LOCAL is not set. Aborting to protect data.")
-        raise
-
 
 def ensure_schema(engine: Engine) -> None:
     # Vendors table aligned to app code: no city/state/zip; includes email + phone_fmt
