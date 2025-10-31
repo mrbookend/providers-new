@@ -1,4 +1,5 @@
 """Read-only Providers app (CI format parity)."""
+# noop: CI parity — stable comment
 
 from __future__ import annotations
 
