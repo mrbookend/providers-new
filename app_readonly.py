@@ -1,4 +1,5 @@
-# app_readonly.py
+"""Read-only Providers app (CI format parity)."""
+
 from __future__ import annotations
 
 import csv
@@ -8,9 +9,7 @@ from pathlib import Path
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
-from sqlalchemy import text as T
 
-# ---- Streamlit page config MUST be first ----
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
 
 # ---- Config ----
@@ -74,13 +73,13 @@ def ensure_schema() -> None:
     """Create tables/indexes if missing."""
     with ENG.begin() as cx:
         for stmt in [s.strip() for s in DDL.split(";") if s.strip()]:
-            cx.execute(T(stmt))
+            cx.execute(sa.text(stmt))
 
 
 def _db_rowcount() -> int:
     with ENG.connect() as cx:
         try:
-            return int(cx.execute(T("SELECT COUNT(*) FROM vendors")).scalar() or 0)
+            return int(cx.execute(sa.text("SELECT COUNT(*) FROM vendors")).scalar() or 0)
         except Exception:
             return 0
 
@@ -108,7 +107,7 @@ def _bootstrap_from_csv_if_needed() -> str | None:
                 headers.append(h)
         insert_cols = [c for c in REQUIRED_HEADERS if c in headers]
         placeholders = ",".join(f":{c}" for c in insert_cols)
-        sql = T(f"INSERT INTO vendors ({','.join(insert_cols)}) VALUES ({placeholders})")
+        sql = sa.text(f"INSERT INTO vendors ({','.join(insert_cols)}) VALUES ({placeholders})")
         for row in r:
             clean = {}
             for c in insert_cols:
@@ -129,7 +128,7 @@ def load_df(q: str) -> pd.DataFrame:
     with ENG.connect() as cx:
         if q:
             return pd.read_sql_query(
-                T("""
+                sa.text("""
                   SELECT id,business_name,category,service,contact_name,phone,email,website,
                          address,city,state,zip,notes
                   FROM vendors
@@ -142,7 +141,7 @@ def load_df(q: str) -> pd.DataFrame:
                 params={"x": f"%{q}%"},
             )
         return pd.read_sql_query(
-            T("""
+            sa.text("""
               SELECT id,business_name,category,service,contact_name,phone,email,website,
                      address,city,state,zip,notes
               FROM vendors
@@ -196,4 +195,3 @@ with st.expander("About this app", expanded=False):
         "If the database is empty and data/providers_seed.csv is present, "
         "it imports that CSV once at startup."
     )
-
