@@ -521,15 +521,36 @@ def _drop_legacy_vendor_indexes() -> dict:
 
 # === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
 with st.expander("Index maintenance — drop legacy vendor indexes"):
-    st.warning(
-        "This will drop legacy vendor indexes and keep only the three agreed ones: "
-        "idx_vendors_phone, idx_vendors_ckw, idx_vendors_bus_lower. "
-        "Operation is idempotent."
-    )
-    if st.button("Drop legacy vendor indexes now", type="primary"):
-        res = _drop_legacy_vendor_indexes()
-        st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
-        st.caption(f"Attempted: {', '.join(res['attempted'])}")
+    eng = get_engine()
+    legacy = {
+        "idx_vendors_bus",
+        "idx_vendors_cat",
+        "idx_vendors_cat_lower",
+        "idx_vendors_kw",
+        "idx_vendors_svc_lower",
+        "vendors_ckw",
+    }
+    # Inspect current indexes and decide if a drop is needed
+    with eng.connect() as cx:
+        rows = cx.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        present = {r[0] for r in rows}
+    to_drop = sorted(legacy & present)
+
+    if not to_drop:
+        st.success("No legacy vendor indexes found. You're good.")
+    else:
+        st.warning(
+            "This will drop legacy vendor indexes and keep only the three agreed ones: "
+            "idx_vendors_phone, idx_vendors_ckw, idx_vendors_bus_lower. "
+            "Operation is idempotent."
+        )
+        st.code(", ".join(to_drop), language="text")
+        if st.button("Drop legacy vendor indexes now", type="primary"):
+            res = _drop_legacy_vendor_indexes()
+            st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
+            st.caption(f"Attempted: {', '.join(res['attempted'])}")
+# === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
+
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
