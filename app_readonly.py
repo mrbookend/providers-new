@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 # === ANCHOR: IMPORTS (readonly) ===
-import contextlib
-import csv
-import os
 from functools import lru_cache
 from pathlib import Path
+import csv
+import os
 
 import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy import text as T
 import streamlit as st
 # === END ANCHOR: IMPORTS (readonly) ===
+
 
 # ---- Streamlit page config MUST be first ----
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
