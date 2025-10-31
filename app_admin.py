@@ -404,9 +404,7 @@ with _ctx.suppress(Exception):
             vendors_count = None
             if "vendors" in tables:
                 with _ctx.suppress(Exception), _qp_eng.connect() as c:
-                    vendors_count = c.exec_driver_sql(
-                        "SELECT COUNT(*) FROM vendors"
-                    ).scalar_one()
+                    vendors_count = c.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
 
             st.write({"vendors_count": vendors_count})
     finally:
