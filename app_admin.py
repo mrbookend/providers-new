@@ -491,6 +491,9 @@ def _drop_legacy_vendor_indexes() -> dict:
     Returns a dict with 'attempted', 'dropped', and 'failed'.
     """
     eng = get_engine()
+    # Some code paths may return (engine, meta/info). Normalize to a bare Engine.
+    if isinstance(eng, tuple) and eng:
+        eng = eng[0]
 
     legacy = [
         "idx_vendors_bus",
