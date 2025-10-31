@@ -677,11 +677,16 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     # Defensive set conversion once; safe to call repeatedly
     hidden_cols = set(hidden_cols or [])
 
+# --- ANCHOR: normalize (start) ---
+def _normalize_browse_df(
+    df: pd.DataFrame,
+    hidden_cols: set[str],
+) -> tuple[pd.DataFrame, list[str], set[str]]:
+    """Return (df, ordered_view_cols, hidden_cols) after hiding legacy fields, formatting phone, and applying secrets-driven order."""
     # Hide legacy/aux columns if present
-        for legacy in ("city", "state", "zip", "phone_fmt"):
-            if legacy in df.columns:
-                hidden_cols.add(legacy)
-
+    for legacy in ("city", "state", "zip", "phone_fmt"):
+        if legacy in df.columns:
+            hidden_cols.add(legacy)
 
     # Phone: ALWAYS format into the visible 'phone' column (idempotent)
     if "phone" in df.columns:
@@ -713,24 +718,7 @@ def _normalize_browse_df(df, *, hidden_cols=None):
     view_cols = seed + [c for c in visible_cols if c not in set(seed)]
 
     return df, view_cols, hidden_cols
-
-
 # --- ANCHOR: normalize (end) ---
-
-
-# moved into __HCR_browse_render() / _normalize_browse_df() after df exists
-
-
-# --- CKW recompute utilities -------------------------------------------------
-def _fetch_vendor_rows_by_ids(eng, ids: list[int]) -> list[dict]:
-    if not ids:
-        return []
-    ph = ",".join("?" for _ in ids)
-    sql = f"SELECT * FROM vendors WHERE id IN ({ph})"
-    with eng.begin() as cx:
-        rows = cx.exec_driver_sql(sql, ids).mappings().all()
-    return [dict(r) for r in rows]
-
 
 def _engine():
     """Return a real SQLAlchemy Engine, unwrapping tuples from get_engine()."""
