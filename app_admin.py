@@ -304,11 +304,11 @@ def build_engine():
     import streamlit as st
     from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 
+    # AFTER (insert at the same spot)
     # Register libsql dialect if available; ignore if already registered or package missing.
-    try:
+    import contextlib as _ctx  # local import avoids top-level F401
+    with _ctx.suppress(Exception):
         _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
-    except Exception:
-        pass
 
     # Read secrets/env (env wins if both present)
     def _get_secret(name: str) -> str:
