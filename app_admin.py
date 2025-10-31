@@ -458,6 +458,30 @@ with _ctx.suppress(Exception):
         with _ctx.suppress(Exception):
             _ip_eng.dispose()
 # === ANCHOR: DB_INDEX_PARITY (end) ===
+# === ANCHOR: DB_INDEX_MAINT (start) ===
+with st.expander("Index maintenance", expanded=False):
+    st.caption("Create expected indexes if missing (idempotent).")
+    if st.button("Create missing indexes now"):
+        try:
+            _fix_eng, _fix_info = build_engine()
+            try:
+                expected_sql = {
+                    "idx_vendors_id": "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)",
+                    "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
+                    "idx_vendors_ckw": "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
+                    "idx_vendors_bus_lower": "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(lower(business_name))",
+                }
+                with _fix_eng.begin() as cx:
+                    # Create each index; IF NOT EXISTS makes this safe to run repeatedly.
+                    for name, sql in expected_sql.items():
+                        cx.exec_driver_sql(sql)
+                st.success("Index creation attempted (idempotent). Re-open Index parity to verify.")
+            finally:
+                with _ctx.suppress(Exception):
+                    _fix_eng.dispose()
+        except Exception as e:
+            st.error(f"Index maintenance failed: {e}")
+# === ANCHOR: DB_INDEX_MAINT (end) ===
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
