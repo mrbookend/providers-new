@@ -427,9 +427,9 @@ with _ctx.suppress(Exception):
             }
             present: set[str] = set()
             with _ctx.suppress(Exception), _ip_eng.connect() as c:
-                rows = c.exec_driver_sql("PRAGMA index_list('vendors')").all()
-                # rows: seq, name, unique, origin, partial
-                present = {r[1] for r in rows if len(r) >= 2}
+                rows = c.exec_driver_sql("PRAGMA index_list('vendors')").mappings().all()
+                present = {row["name"] for row in rows if "name" in row}
+
             missing = [k for k in expected.keys() if k not in present]
 
             st.write(
