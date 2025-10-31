@@ -251,7 +251,6 @@ with _ctx.suppress(Exception):
 # === ANCHOR: LIBSQL_REGISTER (end) ===
 
 
-
 # --- TEMP ENGINE SHIMS (fix F821 for `engine` / `get_engine`) -----------------
 def _build_engine_fallback():
     """Prefer existing build_engine(); otherwise use local SQLite as last resort."""
@@ -296,6 +295,8 @@ def _apply_column_widths(df, widths: dict) -> dict:
         except Exception:
             pass
     return cfg
+
+
 # --- ANCHOR: helpers (fetch by ids) (start) ---
 def _fetch_vendor_rows_by_ids(eng: Engine, ids: list[int]) -> list[dict]:
     """Fetch vendors rows by integer IDs; returns list of dicts. Safe for empty list."""
@@ -306,7 +307,10 @@ def _fetch_vendor_rows_by_ids(eng: Engine, ids: list[int]) -> list[dict]:
     with eng.begin() as cx:
         rows = cx.exec_driver_sql(sql, ids).mappings().all()
     return [dict(r) for r in rows]
+
+
 # --- ANCHOR: helpers (fetch by ids) (end) ---
+
 
 # === ANCHOR: ENGINE (start) ===
 def build_engine():
@@ -318,7 +322,6 @@ def build_engine():
     # Register libsql dialect if available; ignore if already registered or package missing.
     with _ctx.suppress(Exception):
         _sa_registry.register("libsql", "sqlalchemy_libsql", "dialect")
-
 
     # Read secrets/env (env wins if both present)
     def _get_secret(name: str) -> str:
@@ -341,8 +344,8 @@ def build_engine():
     except Exception:
         libsql = None
 
-
     if libsql and turso_url and turso_token:
+
         def _creator():
             # TLS is automatic when using https:// URL; libsql handles negotiation.
             return libsql.connect(database=turso_url, auth_token=turso_token)
@@ -371,6 +374,8 @@ def build_engine():
         "driver": "pysqlite",
         "database": db_path,
     }
+
+
 # === ANCHOR: ENGINE (end) ===
 
 
@@ -681,6 +686,7 @@ def _fetch_with_retry(
 PHONE_LEN = 10
 PHONE_LEN_WITH_CC = 11
 
+
 # --- ANCHOR: normalize (start) ---
 def _normalize_browse_df(
     df: pd.DataFrame,
@@ -722,6 +728,8 @@ def _normalize_browse_df(
     view_cols = seed + [c for c in visible_cols if c not in set(seed)]
 
     return df, view_cols, hidden_cols
+
+
 # --- ANCHOR: normalize (end) ---
 
 
@@ -1103,6 +1111,7 @@ else:
 # DB helpers
 # -----------------------------
 REQUIRED_VENDOR_COLUMNS: list[str] = ["business_name", "category"]  # service optional
+
 
 def ensure_schema(engine: Engine) -> None:
     # Vendors table aligned to app code: no city/state/zip; includes email + phone_fmt
