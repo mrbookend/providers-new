@@ -473,7 +473,7 @@ with st.expander("Index maintenance", expanded=False):
                 }
                 with _fix_eng.begin() as cx:
                     # Create each index; IF NOT EXISTS makes this safe to run repeatedly.
-                    for name, sql in expected_sql.items():
+                    for _name, sql in expected_sql.items():
                         cx.exec_driver_sql(sql)
                 st.success("Index creation attempted (idempotent). Re-open Index parity to verify.")
             finally:
