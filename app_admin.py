@@ -533,12 +533,8 @@ with st.expander("Index maintenance — drop legacy vendor indexes"):
         res = _drop_legacy_vendor_indexes()
         st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
         if res.get("failed"):
-            st.error(
-                "Failed: "
-                + ", ".join(f"{n} ({msg})" for n, msg in res["failed"])
-            )
+            st.error("Failed: " + ", ".join(f"{n} ({msg})" for n, msg in res["failed"]))
         st.caption(f"Attempted: {', '.join(res['attempted'])}")
-
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
