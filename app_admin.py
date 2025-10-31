@@ -488,9 +488,13 @@ with st.expander("Index maintenance", expanded=False):
 def _drop_legacy_vendor_indexes() -> dict:
     """
     Drop legacy vendor indexes we no longer want. Idempotent & safe on SQLite/libsql.
-    Returns a dict with 'attempted' and 'dropped' lists for status.
+    Returns a dict with 'attempted', 'dropped', and 'failed'.
     """
     eng = get_engine()
+    # Some code paths may return (engine, meta/info). Normalize to a bare Engine.
+    if isinstance(eng, tuple) and eng:
+        eng = eng[0]
+
     legacy = [
         "idx_vendors_bus",
         "idx_vendors_cat",
@@ -499,17 +503,21 @@ def _drop_legacy_vendor_indexes() -> dict:
         "idx_vendors_svc_lower",
         "vendors_ckw",
     ]
-    attempted, dropped = [], []
+    attempted, dropped, failed = [], [], []
+
+    # Use connect() (DDL auto-commits on SQLite/libsql).
     with eng.connect() as cx:
         for name in legacy:
             attempted.append(name)
             try:
-                cx.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
+                cx.exec_driver_sql(f'DROP INDEX IF EXISTS "{name}"')
                 dropped.append(name)
-            except Exception:
-                # Ignore individual drop errors; report after
-                pass
-    return {"attempted": attempted, "dropped": dropped}
+            except Exception as e:
+                # Record but do not crash UI.
+                failed.append((name, str(e)))
+
+    return {"attempted": attempted, "dropped": dropped, "failed": failed}
+
 
 
 # === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
@@ -523,6 +531,7 @@ with st.expander("Index maintenance — drop legacy vendor indexes"):
         res = _drop_legacy_vendor_indexes()
         st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
         st.caption(f"Attempted: {', '.join(res['attempted'])}")
+
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
