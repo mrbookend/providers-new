@@ -299,11 +299,6 @@ def build_engine():
     Prefer Turso/libsql when TURSO_* secrets exist; else fallback to local SQLite.
     Returns: (engine, info_dict)
     """
-    # Local imports to avoid top-level Ruff F401 on unused imports until used.
-    import os
-    import sqlalchemy
-    import streamlit as st
-    from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 
     # AFTER (insert at the same spot)
     # Register libsql dialect if available; ignore if already registered or package missing.
