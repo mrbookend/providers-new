@@ -11,6 +11,71 @@ import sqlalchemy as sa
 import streamlit as st
 
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
+# === ANCHOR: READONLY_ENGINE (start) ===
+from functools import lru_cache
+import os
+import sqlalchemy as sa
+
+def _build_engine_readonly() -> sa.Engine:
+    """
+    Prefer Turso/libsql when TURSO_* secrets are present; otherwise fall back to local SQLite.
+    """
+    url = (os.environ.get("TURSO_DATABASE_URL") or "").strip()
+    tok = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
+    if url and tok:
+        # Accept either libsql://HOST or sqlite+libsql://HOST
+        if url.startswith("sqlite+libsql://"):
+            sa_url = url if "authToken=" in url else f"{url}?authToken={tok}"
+        else:
+            host = url.replace("libsql://", "")
+            sa_url = f"sqlite+libsql://{host}?authToken={tok}"
+        return sa.create_engine(sa_url, pool_pre_ping=True)
+    # Fallback: local file DB
+    return sa.create_engine("sqlite:///providers.db", pool_pre_ping=True)
+
+@lru_cache(maxsize=1)
+def get_engine() -> sa.Engine:
+    # Only define if not already provided elsewhere.
+    try:
+        # If another get_engine exists, this shadow never runs (because of import ordering).
+        pass
+    except Exception:
+        pass
+    return _build_engine_readonly()
+# === ANCHOR: READONLY_ENGINE (end) ===
+# === ANCHOR: READONLY_ENGINE_PROBES (start) ===
+def _engine_probe_info(eng) -> dict:
+    info = {"using_remote": False, "sqlalchemy_url": "", "dialect": "", "driver": "", "tables": [], "vendors_count": None}
+    try:
+        info["sqlalchemy_url"] = str(eng.url)
+        info["dialect"] = getattr(eng.dialect, "name", "")
+        info["driver"] = getattr(eng.dialect, "driver", "")
+        d = (info["driver"] or "").lower()
+        u = (info["sqlalchemy_url"] or "").lower()
+        info["using_remote"] = ("libsql" in d) or ("libsql" in u)
+        with eng.begin() as cx:
+            info["tables"] = [r[0] for r in cx.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            if "vendors" in info["tables"]:
+                info["vendors_count"] = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
+    except Exception as e:  # noqa: BLE001
+        info["error"] = str(e)
+    return info
+
+def readonly_render_engine_status(eng) -> None:
+    import streamlit as st  # local import to avoid early Streamlit calls
+    info = _engine_probe_info(eng)
+    st.write(
+        {
+            "using_remote": info.get("using_remote"),
+            "sqlalchemy_url": info.get("sqlalchemy_url"),
+            "dialect": info.get("dialect"),
+            "driver": info.get("driver"),
+            "tables": info.get("tables"),
+            "vendors_count": info.get("vendors_count"),
+            "error": info.get("error"),
+        }
+    )
+# === ANCHOR: READONLY_ENGINE_PROBES (end) ===
 
 # ---- Config ----
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -150,6 +215,15 @@ def load_df(q: str) -> pd.DataFrame:
             cx,
         )
 
+# === ANCHOR: READONLY_DIAGS_BLOCK (start) ===
+def _readonly_diag_block() -> None:
+    import os
+    import streamlit as st
+    if (os.environ.get("READONLY_SHOW_DIAGS") or "").strip() == "1":
+        with st.expander("Database — Engine Status", expanded=False):
+            eng = get_engine()
+            readonly_render_engine_status(eng)
+# === ANCHOR: READONLY_DIAGS_BLOCK (end) ===
 
 # ---- Optional one-time bootstrap ----
 msg = _bootstrap_from_csv_if_needed()
@@ -187,6 +261,8 @@ else:
         file_name="providers.csv",
         mime="text/csv",
     )
+# === ANCHOR: READONLY_DIAGS_CALL (insert) ===
+_readonly_diag_block()
 
 # ---- Tiny footer (optional) ----
 with st.expander("About this app", expanded=False):
