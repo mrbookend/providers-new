@@ -1,14 +1,15 @@
-# app_readonly.py
 from __future__ import annotations
 
 import csv
+from functools import lru_cache
 import os
 from pathlib import Path
 
 import pandas as pd
 import sqlalchemy as sa
-import streamlit as st
 from sqlalchemy import text as T
+import streamlit as st
+
 
 # ---- Streamlit page config MUST be first ----
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
