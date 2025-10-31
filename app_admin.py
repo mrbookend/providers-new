@@ -48,6 +48,36 @@ if not globals().get("_PAGE_CFG_DONE"):
     except Exception:
         pass
     globals()["_PAGE_CFG_DONE"] = True
+# === ANCHOR: ENGINE_DIAGS (inline) ===
+# Diagnostics only: build a temp engine to read `info`, then dispose it.
+# Does not change the engine your app actually uses.
+try:
+    _tmp_eng, _tmp_info = build_engine()
+    try:
+        _tmp_eng.dispose()
+    except Exception:
+        pass
+    try:
+        with st.expander("Engine status", expanded=False):
+            st.write(
+                {
+                    "using_remote": _tmp_info.get("using_remote"),
+                    "sqlalchemy_url": _tmp_info.get("sqlalchemy_url"),
+                    "driver": _tmp_info.get("driver"),
+                    "dialect": _tmp_info.get("dialect"),
+                    "database": _tmp_info.get("database"),
+                    "strategy": _tmp_info.get("strategy", ""),
+                    "sync_url": _tmp_info.get("sync_url", ""),
+                    "remote_error": _tmp_info.get("remote_error", ""),
+                }
+            )
+    except Exception:
+        pass
+except Exception:
+    # Never let diagnostics break the app
+    pass
+# === ANCHOR: ENGINE_DIAGS (inline end) ===
+    
 # === ANCHOR: PAGE_CONFIG (end) ===
 
 # --- Session defaults (safe no-ops) --- START
@@ -283,6 +313,28 @@ if "engine" not in globals():
 # -----------------------------
 # Helpers
 # -----------------------------
+# === ANCHOR: ENGINE_DIAGS (start) ===
+def render_engine_status(info: dict) -> None:
+    """Small on-screen status to confirm which DB engine is active."""
+    try:
+        with st.expander("Engine status", expanded=False):
+            st.write(
+                {
+                    "using_remote": info.get("using_remote"),
+                    "sqlalchemy_url": info.get("sqlalchemy_url"),
+                    "driver": info.get("driver"),
+                    "dialect": info.get("dialect"),
+                    "database": info.get("database"),
+                    "strategy": info.get("strategy", ""),
+                    "sync_url": info.get("sync_url", ""),
+                    "remote_error": info.get("remote_error", ""),
+                }
+            )
+    except Exception:
+        # Don't let diags break the app
+        pass
+# === ANCHOR: ENGINE_DIAGS (end) ===
+
 # --- HCR: h-scroll wrapper + column widths ---------------------------------
 def _apply_column_widths(df, widths: dict) -> dict:
     cfg = {}
