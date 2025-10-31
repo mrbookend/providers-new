@@ -440,24 +440,25 @@ with _ctx.suppress(Exception):
                     "note": "Diagnostic only; no schema changes performed here.",
                 }
             )
-# === ANCHOR: DB_INDEX_PARITY (create button) ===
-if missing:
-    with st.container():
-        if st.button("Create missing indexes (idempotent)", type="primary"):
-            created: list[str] = []
-            with _ctx.suppress(Exception), _ip_eng.begin() as cx:
-                for name in missing:
-                    if name == "idx_vendors_id":
-                        cx.exec_driver_sql(
-                            "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)"
-                        )
-                        created.append(name)
-            st.success({"created": created})
-# === ANCHOR: DB_INDEX_PARITY (create button end) ===            
+
+            # --- Create-missing button (idempotent; stays inside the expander & try) ---
+            if missing:
+                with st.container():
+                    if st.button("Create missing indexes (idempotent)", type="primary"):
+                        created: list[str] = []
+                        with _ctx.suppress(Exception), _ip_eng.begin() as cx:
+                            for name in missing:
+                                if name == "idx_vendors_id":
+                                    cx.exec_driver_sql(
+                                        "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)"
+                                    )
+                                    created.append(name)
+                        st.success({"created": created})
     finally:
         with _ctx.suppress(Exception):
             _ip_eng.dispose()
 # === ANCHOR: DB_INDEX_PARITY (end) ===
+
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
