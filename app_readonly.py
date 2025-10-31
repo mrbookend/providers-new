@@ -196,3 +196,4 @@ with st.expander("About this app", expanded=False):
         "If the database is empty and data/providers_seed.csv is present, "
         "it imports that CSV once at startup."
     )
+
