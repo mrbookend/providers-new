@@ -377,6 +377,40 @@ def build_engine():
 
 
 # === ANCHOR: ENGINE (end) ===
+# === ANCHOR: DB_QUICK_PROBES (start) ===
+with _ctx.suppress(Exception):
+    _qp_eng, _qp_info = build_engine()
+    try:
+        with st.expander("DB quick probes", expanded=False):
+            # 1) Ping
+            ok = False
+            with _ctx.suppress(Exception), _qp_eng.connect() as c:
+                c.exec_driver_sql("select 1;")
+                ok = True
+
+            st.write({"ping_ok": ok})
+
+            # 2) List tables (SQLite / libsql)
+            tables: list[str] = []
+            with _ctx.suppress(Exception), _qp_eng.connect() as c:
+                rows = c.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                ).all()
+                tables = [r[0] for r in rows]
+
+            st.write({"tables": tables})
+
+            # 3) Optional: row count for vendors (if present)
+            vendors_count = None
+            if "vendors" in tables:
+                with _ctx.suppress(Exception), _qp_eng.connect() as c:
+                    vendors_count = c.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
+
+            st.write({"vendors_count": vendors_count})
+    finally:
+        with _ctx.suppress(Exception):
+            _qp_eng.dispose()
+# === ANCHOR: DB_QUICK_PROBES (end) ===
 
 
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
