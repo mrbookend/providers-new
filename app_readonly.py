@@ -27,6 +27,30 @@ except Exception:
 
 # Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+
+# === ANCHOR: RUNTIME BANNER (start) ===
+# Toggle with env or secrets: READONLY_SHOW_STATUS=1
+if int(os.environ.get("READONLY_SHOW_STATUS", st.secrets.get("READONLY_SHOW_STATUS", 0))):
+    try:
+        # Local imports to avoid top-level Ruff E402 and keep optional deps
+        import hashlib, time  # used below
+        from pathlib import Path
+        import git  # GitPython is installed on Cloud
+
+        repo = git.Repo(Path(__file__).resolve().parent)
+        sha  = repo.head.commit.hexsha
+        br   = getattr(repo.head, "ref", None)
+        brn  = getattr(br, "name", "detached")
+        p    = Path(__file__)
+        h16  = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+        mt   = int(p.stat().st_mtime)
+
+        st.caption(f"Runtime: branch {brn}, commit {sha[:7]}, file sha256 {h16}, mtime {mt}")
+    except Exception as e:
+        st.caption(f"Runtime: commit unknown ({e})")
+# === ANCHOR: RUNTIME BANNER (end) ===
+
+
 # === ANCHOR: STARTUP BANNER (start) ===
 import hashlib
 import subprocess
