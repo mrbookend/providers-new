@@ -238,9 +238,11 @@ def load_df(q: str) -> pd.DataFrame:
 
 # ---- Optional one-time bootstrap ----
 msg = _bootstrap_from_csv_if_needed()
-# === ANCHOR: UI (start) ===
-if msg:
-    st.toast(msg, icon="[OK]")  # harmless locally; on Cloud shows a small toast
+try:
+    if msg:
+        st.toast(msg, icon="✅")
+except Exception:
+    pass
 
 # ---- UI ----
 st.title("Providers (Read-Only)")
