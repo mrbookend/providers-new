@@ -34,25 +34,27 @@ def _show_runtime_banner() -> None:
     if not int(os.environ.get("READONLY_SHOW_STATUS", st.secrets.get("READONLY_SHOW_STATUS", 0))):
         return
     try:
-        # Local imports INSIDE a function (OK with E402)
+        # Local imports (ok inside a function; avoids E402/I001/F811)
         from pathlib import Path
         import hashlib
+        import subprocess
+        import time
         import git  # type: ignore[import-not-found]
 
         p = Path(__file__).resolve()
         repo = git.Repo(p.parent)
-        sha = repo.head.commit.hexsha
+        sha = repo.head.commit.hexsha[:7]
         brn = getattr(getattr(repo.head, "ref", None), "name", "detached")
         h16 = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
         mt = int(p.stat().st_mtime)
 
-        st.caption(f"Runtime: branch {brn}, commit {sha[:7]}, file sha256 {h16}, mtime {mt}")
+        st.caption(f"Runtime: branch {brn}, commit {sha}, file sha256 {h16}, mtime {mt}")
     except Exception as e:
         st.caption(f"Runtime: commit unknown ({e})")
 
-
 _show_runtime_banner()
 # === ANCHOR: RUNTIME BANNER (end) ===
+
 
 
 
