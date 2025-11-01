@@ -239,7 +239,7 @@ def load_df(q: str) -> pd.DataFrame:
             return pd.read_sql_query(
                 sa.text("""
                   SELECT id,business_name,category,service,contact_name,phone,email,website,
-                         address,city,state,zip,notes
+                         address,notes
                   FROM vendors
                   WHERE (business_name LIKE :x OR category LIKE :x OR service LIKE :x
                          OR COALESCE(computed_keywords,'') LIKE :x
@@ -252,7 +252,7 @@ def load_df(q: str) -> pd.DataFrame:
         return pd.read_sql_query(
             sa.text("""
               SELECT id,business_name,category,service,contact_name,phone,email,website,
-                     address,city,state,zip,notes
+                     address,notes
               FROM vendors
               ORDER BY business_name COLLATE NOCASE ASC
             """),
