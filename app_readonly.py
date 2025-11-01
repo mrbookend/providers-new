@@ -10,12 +10,23 @@ import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
 
-# Must be FIRST Streamlit call
+# === ANCHOR: IMPORTS (aggrid) (start) ===
+# Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
+try:
+    _HAS_AGGRID = True
+except Exception:
+    AgGrid = None  # type: ignore[assignment]
+    GridOptionsBuilder = None  # type: ignore[assignment]
+    _HAS_AGGRID = False
+# === ANCHOR: IMPORTS (aggrid) (end) ===
+
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
 
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+PHONE_LEN_WITH_CC = 11  # e.g., leading '1' country code
+PHONE_LEN = 10  # 10-digit NANP number
 # === ANCHOR: CONSTANTS (end) ===
 
 
@@ -182,6 +193,77 @@ df = df.loc[:, view_cols]
 
 if "id" in df.columns:
     df = df.drop(columns=["id"])
+
+
+# === ANCHOR: BROWSE RENDER (aggrid) (start) ===
+def _render_table(df):
+    """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
+    try:
+        # Knobs with sane defaults (read from globals if present)
+        single_page = bool(globals().get("single_page", False))
+        page_size = int(globals().get("page_size", 0) or 0)
+        grid_height = int(globals().get("grid_height", 560))
+        header_px = int(globals().get("header_px", 0))
+        custom_css = globals().get("custom_css", {})
+
+        gob = GridOptionsBuilder.from_dataframe(df)
+        gob.configure_default_column(
+            wrapText=True,
+            autoHeight=True,
+            resizable=True,
+            cellStyle={"white-space": "normal", "line-height": "1.3em"},
+            flex=0,
+            suppressSizeToFit=True,
+        )
+
+        # Grid options by mode
+        grid_opts = {}
+        if single_page:
+            grid_opts["domLayout"] = "autoHeight"
+            page_size = 0  # force pagination off
+        elif page_size > 0:
+            grid_opts["domLayout"] = "autoHeight"
+            grid_opts["pagination"] = True
+            grid_opts["paginationPageSize"] = page_size
+        else:
+            grid_opts["domLayout"] = "normal"  # fixed viewport (internal scroll)
+
+        if header_px > 0:
+            grid_opts["headerHeight"] = header_px
+        grid_opts["ensureDomOrder"] = True
+        grid_opts["suppressColumnVirtualisation"] = False
+
+        gob.configure_grid_options(**grid_opts)
+
+        # Render: single-page/paged => no explicit height; fixed viewport => height=grid_height
+        if single_page or page_size > 0:
+            AgGrid(
+                df,
+                gridOptions=gob.build(),
+                fit_columns_on_grid_load=False,
+                allow_unsafe_jscode=True,
+                custom_css=custom_css,
+            )
+        else:
+            AgGrid(
+                df,
+                gridOptions=gob.build(),
+                height=grid_height,  # fixed viewport, internal scroll
+                fit_columns_on_grid_load=False,
+                allow_unsafe_jscode=True,
+                custom_css=custom_css,
+            )
+        return
+    except Exception:
+        # Fall back to Streamlit native table
+        pass
+
+    st.dataframe(df, use_container_width=False, hide_index=True)
+
+
+# === ANCHOR: BROWSE RENDER (aggrid) (end) ===
+
+
 # === HIDE_COLUMNS DROP (auto) ===
 _hide_default = [
     "city",
@@ -198,7 +280,7 @@ drop_now = [c for c in df.columns if c in hide_cols]
 if drop_now:
     df = df.drop(columns=drop_now)
 # === HIDE_COLUMNS DROP (auto end) ===
-st.dataframe(df, use_container_width=False, hide_index=True)
+_render_table(df)
 # === ANCHOR: BROWSE (end) ===
 
 
