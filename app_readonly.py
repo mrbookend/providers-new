@@ -157,10 +157,12 @@ q = (st.session_state.pop("__search_term__", "") or "").strip()
 # === ANCHOR: BOOTSTRAP TOAST (start) ===
 _msg = _bootstrap_from_csv_if_needed()
 try:
-    if _msg:
-        st.toast(_msg, icon="✅")
+    show_boot = int(st.secrets.get("SHOW_BOOTSTRAP_POPUPS", 0))
 except Exception:
-    pass
+    show_boot = 0
+if show_boot:
+    pass  # silenced
+    #     st.toast(_msg)  # silenced
 # === ANCHOR: BOOTSTRAP TOAST (end) ===
 
 
