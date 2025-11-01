@@ -282,6 +282,9 @@ with right:
 
 df = load_df(q)
 
+_drop_legacy = [c for c in ("city", "state", "zip") if c in df.columns]
+if _drop_legacy:
+    df = df.drop(columns=_drop_legacy)
 # === ANCHOR: UI_RENDER (start) ===
 if df.empty:
     # Offer quick hint if the table is empty
