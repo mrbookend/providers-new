@@ -283,7 +283,7 @@ else:
     df = df.loc[:, view_cols]
 
     st.caption(f"Results: {len(df)}")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.download_button(
         "Download CSV",
