@@ -13,6 +13,8 @@ import streamlit as st
 # === ANCHOR: IMPORTS (aggrid) (start) ===
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
 try:
+    from st_aggrid import AgGrid, GridOptionsBuilder
+
     _HAS_AGGRID = True
 except Exception:
     AgGrid = None  # type: ignore[assignment]
@@ -20,7 +22,9 @@ except Exception:
     _HAS_AGGRID = False
 # === ANCHOR: IMPORTS (aggrid) (end) ===
 
+# Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+
 
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -198,67 +202,76 @@ if "id" in df.columns:
 # === ANCHOR: BROWSE RENDER (aggrid) (start) ===
 def _render_table(df):
     """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
-    try:
-        # Knobs with sane defaults (read from globals if present)
-        single_page = bool(globals().get("single_page", False))
-        page_size = int(globals().get("page_size", 0) or 0)
-        grid_height = int(globals().get("grid_height", 560))
-        header_px = int(globals().get("header_px", 0))
-        custom_css = globals().get("custom_css", {})
-
-        gob = GridOptionsBuilder.from_dataframe(df)
-        gob.configure_default_column(
-            wrapText=True,
-            autoHeight=True,
-            resizable=True,
-            cellStyle={"white-space": "normal", "line-height": "1.3em"},
-            flex=0,
-            suppressSizeToFit=True,
-        )
-
-        # Grid options by mode
-        grid_opts = {}
-        if single_page:
-            grid_opts["domLayout"] = "autoHeight"
-            page_size = 0  # force pagination off
-        elif page_size > 0:
-            grid_opts["domLayout"] = "autoHeight"
-            grid_opts["pagination"] = True
-            grid_opts["paginationPageSize"] = page_size
-        else:
-            grid_opts["domLayout"] = "normal"  # fixed viewport (internal scroll)
-
-        if header_px > 0:
-            grid_opts["headerHeight"] = header_px
-        grid_opts["ensureDomOrder"] = True
-        grid_opts["suppressColumnVirtualisation"] = False
-
-        gob.configure_grid_options(**grid_opts)
-
-        # Render: single-page/paged => no explicit height; fixed viewport => height=grid_height
-        if single_page or page_size > 0:
-            AgGrid(
-                df,
-                gridOptions=gob.build(),
-                fit_columns_on_grid_load=False,
-                allow_unsafe_jscode=True,
-                custom_css=custom_css,
-            )
-        else:
-            AgGrid(
-                df,
-                gridOptions=gob.build(),
-                height=grid_height,  # fixed viewport, internal scroll
-                fit_columns_on_grid_load=False,
-                allow_unsafe_jscode=True,
-                custom_css=custom_css,
-            )
+    # Fast fallback if Ag-Grid isn't available
+    if not _HAS_AGGRID:
+        st.dataframe(df, use_container_width=False, hide_index=True)
         return
-    except Exception:
-        # Fall back to Streamlit native table
-        pass
 
-    st.dataframe(df, use_container_width=False, hide_index=True)
+    # Knobs with sane defaults (read from globals if present)
+    single_page = bool(globals().get("single_page", False))
+    page_size = int(globals().get("page_size", 0) or 0)
+    grid_height = int(globals().get("grid_height", 560))
+    header_px = int(globals().get("header_px", 0))
+    custom_css = globals().get("custom_css", {})
+
+    # Perf defaults: nowrap + no autoHeight globally
+    gob = GridOptionsBuilder.from_dataframe(df)
+    gob.configure_default_column(
+        wrapText=False,
+        autoHeight=False,
+        resizable=True,
+        cellStyle={"white-space": "nowrap", "line-height": "1.3em"},
+        flex=0,
+        suppressSizeToFit=True,
+    )
+
+    # Wrap + autoHeight only for these columns
+    for col in ("business_name", "address"):
+        if col in df.columns:
+            gob.configure_column(
+                col,
+                wrapText=True,
+                autoHeight=True,
+                cellStyle={"white-space": "normal", "line-height": "1.3em"},
+            )
+
+    # Grid options
+    grid_opts = {}
+    if single_page:
+        grid_opts["domLayout"] = "autoHeight"
+        page_size = 0
+    elif page_size > 0:
+        grid_opts["domLayout"] = "autoHeight"
+        grid_opts["pagination"] = True
+        grid_opts["paginationPageSize"] = page_size
+    else:
+        grid_opts["domLayout"] = "normal"  # fixed viewport (internal scroll)
+
+    if header_px > 0:
+        grid_opts["headerHeight"] = header_px
+    grid_opts["ensureDomOrder"] = False
+    grid_opts["suppressColumnVirtualisation"] = False
+
+    gob.configure_grid_options(**grid_opts)
+
+    # Render: single-page/paged => no explicit height; fixed viewport => height=grid_height
+    if single_page or page_size > 0:
+        AgGrid(
+            df,
+            gridOptions=gob.build(),
+            fit_columns_on_grid_load=False,
+            allow_unsafe_jscode=True,
+            custom_css=custom_css,
+        )
+    else:
+        AgGrid(
+            df,
+            gridOptions=gob.build(),
+            height=grid_height,  # fixed viewport, internal scroll
+            fit_columns_on_grid_load=False,
+            allow_unsafe_jscode=True,
+            custom_css=custom_css,
+        )
 
 
 # === ANCHOR: BROWSE RENDER (aggrid) (end) ===
