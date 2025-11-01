@@ -10,15 +10,38 @@ import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
 
-# === ANCHOR: IMPORTS (aggrid) (start) ===
-# Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
-try:
-    _HAS_AGGRID = True
-except Exception:
-    AgGrid = None  # type: ignore[assignment]
-    GridOptionsBuilder = None  # type: ignore[assignment]
-    _HAS_AGGRID = False
-# === ANCHOR: IMPORTS (aggrid) (end) ===
+# Must be FIRST Streamlit call
+st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+
+# === ANCHOR: CONSTANTS (start) ===
+DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
+ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+
+# Read-only UI knobs (secrets/env with sane defaults)
+READONLY_USE_AGGRID       = int(os.environ.get("READONLY_USE_AGGRID",       st.secrets.get("READONLY_USE_AGGRID", 1)))
+READONLY_PAGE_SIZE        = int(os.environ.get("READONLY_PAGE_SIZE",        st.secrets.get("READONLY_PAGE_SIZE", 25)))
+READONLY_GRID_HEIGHT_PX   = int(os.environ.get("READONLY_GRID_HEIGHT_PX",   st.secrets.get("READONLY_GRID_HEIGHT_PX", 560)))
+READONLY_HEADER_HEIGHT_PX = int(os.environ.get("READONLY_HEADER_HEIGHT_PX", st.secrets.get("READONLY_HEADER_HEIGHT_PX", 28)))
+READONLY_FONT_SIZE_PX     = int(os.environ.get("READONLY_FONT_SIZE_PX",     st.secrets.get("READONLY_FONT_SIZE_PX", 16)))
+
+# Derived flags used by _render_table()
+single_page = READONLY_PAGE_SIZE == 0
+page_size   = READONLY_PAGE_SIZE
+grid_height = READONLY_GRID_HEIGHT_PX
+header_px   = READONLY_HEADER_HEIGHT_PX
+
+# Minimal global CSS: reduce top padding; shrink search box width by ~2/3
+st.markdown(
+    """
+    <style>
+      .block-container { padding-top: 0.40rem; }
+      div[data-testid='stTextInput'] > div > input { max-width: 34ch; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+# === ANCHOR: CONSTANTS (end) ===
+
 
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
 
