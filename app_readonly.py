@@ -3,12 +3,35 @@
 from __future__ import annotations
 
 import os
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
 
+
+# === ANCHOR: SEARCH UI (start) ===
+# Enter submits search and immediately clears the box; placeholder shows guidance.
+def __on_search_enter__():
+    term = (st.session_state.get("__search_box__", "") or "").strip()
+    st.session_state["__search_term__"] = term
+    st.session_state["__search_box__"] = ""  # auto-clear input
+
+
+search_placeholder = "Search by name, category, service, etc."
+st.text_input(
+    label="Search",
+    key="__search_box__",
+    placeholder=search_placeholder,
+    label_visibility="collapsed",
+    on_change=__on_search_enter__,
+)
+
+# Active query for this render pass
+search_query = (st.session_state.pop("__search_term__", "") or "").strip()
+q = search_query  # legacy alias if downstream expects `q`
+# === ANCHOR: SEARCH UI (end) ===
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
 # === ANCHOR: CONSTANTS (start) ===
 
@@ -246,7 +269,6 @@ except Exception:
 
 
 # ---- UI ----
-st.title("Providers (Read-Only)")
 
 left, right = st.columns([3, 1])
 with left:
@@ -254,8 +276,7 @@ with left:
         "Search", value="", placeholder="name, category, service, city, keyword..."
     ).strip()
 with right:
-    if st.button("Clear"):
-        q = ""
+    q = ""
 
 df = load_df(q)
 
@@ -282,7 +303,6 @@ else:
     view_cols = pref + rest
     df = df.loc[:, view_cols]
 
-    st.caption(f"Results: {len(df)}")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.download_button(
@@ -301,3 +321,32 @@ with st.expander("About this app", expanded=False):
         "it imports that CSV once at startup."
     )
 # === ANCHOR: FOOTER (end) ===
+# === ANCHOR: DOWNLOADS (start) ===
+# Assumes `df` is the filtered DataFrame you display.
+try:
+    c1, c2 = st.columns(2)
+    with c1:
+        _csv_bytes = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download CSV",
+            data=_csv_bytes,
+            file_name="providers.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with c2:
+        _xbuf = BytesIO()
+        with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
+            df.to_excel(_writer, index=False, sheet_name="Providers")
+        _xbuf.seek(0)
+        st.download_button(
+            label="Download XLSX",
+            data=_xbuf,
+            file_name="providers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+except Exception:
+    # If df is not defined yet, skip buttons (harmless during early app phases)
+    pass
+# === ANCHOR: DOWNLOADS (end) ===
