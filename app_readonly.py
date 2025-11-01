@@ -168,8 +168,6 @@ except Exception:
 df = load_df(q)
 
 # Hide Id column if present
-if "id" in df.columns:
-    df = df.drop(columns=["id"])
 
 # Secrets-driven preferences
 browse_order = list(st.secrets.get("BROWSE_ORDER", []))
@@ -186,6 +184,8 @@ rest = [c for c in df.columns if c not in pref]
 view_cols = pref + rest
 df = df.loc[:, view_cols]
 
+if "id" in df.columns:
+    df = df.drop(columns=["id"])
 st.dataframe(df, use_container_width=False, hide_index=True)
 # === ANCHOR: BROWSE (end) ===
 
@@ -203,7 +203,7 @@ with st.expander("Help Section", expanded=False):
 # === ANCHOR: DOWNLOADS (start) ===
 # Buttons on one row: CSV (left) and XLSX (right)
 try:
-    c1, c2 = st.columns(2)
+    c1, c2, _sp = st.columns([1, 1, 6])
     with c1:
         _csv_bytes = df.to_csv(index=False).encode("utf-8")
         st.download_button(
