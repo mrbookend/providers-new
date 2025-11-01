@@ -14,27 +14,24 @@ st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layo
 
 
 # === ANCHOR: SEARCH UI (start) ===
-# Enter submits search and immediately clears the box; placeholder shows guidance.
 def __on_search_enter__():
     term = (st.session_state.get("__search_box__", "") or "").strip()
     st.session_state["__search_term__"] = term
-    st.session_state["__search_box__"] = ""  # auto-clear input
+    st.session_state["__search_box__"] = ""  # auto-clear
 
 
-search_placeholder = "Search by name, category, service, etc."
 st.text_input(
     label="Search",
     key="__search_box__",
-    placeholder=search_placeholder,
+    placeholder="Search by name, category, service, etc.",
     label_visibility="collapsed",
     on_change=__on_search_enter__,
 )
 
-# Active query for this render pass
+# Active query for filtering below
 search_query = (st.session_state.pop("__search_term__", "") or "").strip()
-q = search_query  # legacy alias if downstream expects `q`
+q = search_query  # legacy alias if downstream uses `q`
 # === ANCHOR: SEARCH UI (end) ===
-
 # === ANCHOR: CONSTANTS (start) ===
 
 PHONE_LEN = 10
@@ -230,6 +227,7 @@ def _bootstrap_from_csv_if_needed() -> str:
 # === ANCHOR: LOAD_DF (start) ===
 
 
+# ---- Optional one-time bootstrap ----
 @st.cache_data(show_spinner=False)
 def load_df(q: str) -> pd.DataFrame:
     """Load rows, optional SQL-side LIKE filter on several columns."""
@@ -237,31 +235,31 @@ def load_df(q: str) -> pd.DataFrame:
     with ENG.connect() as cx:
         if q:
             return pd.read_sql_query(
-                sa.text("""
-                  SELECT id,business_name,category,service,contact_name,phone,email,website,
-                         address,notes
-                  FROM vendors
-                  WHERE (business_name LIKE :x OR category LIKE :x OR service LIKE :x
-                         OR COALESCE(computed_keywords,'') LIKE :x
-                         OR COALESCE(city,'') LIKE :x OR COALESCE(state,'') LIKE :x)
-                  ORDER BY business_name COLLATE NOCASE ASC
-                """),
+                """
+                SELECT *
+                FROM vendors
+                WHERE business_name LIKE :x
+                   OR category      LIKE :x
+                   OR service       LIKE :x
+                   OR contact_name  LIKE :x
+                   OR email         LIKE :x
+                   OR website       LIKE :x
+                   OR address       LIKE :x
+                   OR notes         LIKE :x
+                ORDER BY business_name COLLATE NOCASE ASC
+                """,
                 cx,
                 params={"x": f"%{q}%"},
             )
         return pd.read_sql_query(
-            sa.text("""
-              SELECT id,business_name,category,service,contact_name,phone,email,website,
-                     address,notes
-              FROM vendors
-              ORDER BY business_name COLLATE NOCASE ASC
-            """),
+            """
+            SELECT * FROM vendors
+            ORDER BY business_name COLLATE NOCASE ASC
+            """,
             cx,
-            # === ANCHOR: LOAD_DF (end) ===
         )
 
 
-# ---- Optional one-time bootstrap ----
 msg = _bootstrap_from_csv_if_needed()
 try:
     if msg:
@@ -272,13 +270,6 @@ except Exception:
 
 # ---- UI ----
 
-left, right = st.columns([3, 1])
-with left:
-    q = st.text_input(
-        "Search", value="", placeholder="name, category, service, city, keyword..."
-    ).strip()
-with right:
-    q = ""
 
 df = load_df(q)
 
@@ -319,7 +310,7 @@ else:
 # === ANCHOR: UI_RENDER (end) ===
 
 # ---- Tiny footer (optional) ----
-with st.expander("About this app", expanded=False):
+with st.expander("Help Section", expanded=False):
     st.write(
         "This read-only viewer uses a local SQLite database (providers.db). "
         "If the database is empty and data/providers_seed.csv is present, "
@@ -333,7 +324,7 @@ try:
     with c1:
         _csv_bytes = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download CSV",
+            label="CSV",
             data=_csv_bytes,
             file_name="providers.csv",
             mime="text/csv",
@@ -345,7 +336,7 @@ try:
             df.to_excel(_writer, index=False, sheet_name="Providers")
         _xbuf.seek(0)
         st.download_button(
-            label="Download XLSX",
+            label="XLSX",
             data=_xbuf,
             file_name="providers.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -355,3 +346,6 @@ except Exception:
     # If df is not defined yet, skip buttons (harmless during early app phases)
     pass
 # === ANCHOR: DOWNLOADS (end) ===
+# Hide Id column in the Browse view (display-only)
+if "id" in df.columns:
+    df = df.drop(columns=["id"])
