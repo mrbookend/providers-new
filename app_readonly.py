@@ -29,31 +29,45 @@ except Exception:
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
 
 # === ANCHOR: RUNTIME BANNER (start) ===
-def _show_runtime_banner() -> None:
-    """Optional banner: shows branch, short commit, file hash, mtime."""
-    if not int(os.environ.get("READONLY_SHOW_STATUS", st.secrets.get("READONLY_SHOW_STATUS", 0))):
-        return
+def _runtime_facts() -> tuple[str, str]:
+    """Return (git_short_sha, file_sha16). Either may be empty."""
+    sha = ""
     try:
-        # Local imports (ok inside a function; avoids E402/I001/F811)
+        # Local imports to avoid E402 / I001 issues
+        from pathlib import Path
+        import subprocess
+
+        repo_dir = Path(__file__).resolve().parent
+        sha = subprocess.check_output(
+            ["git", "-C", str(repo_dir), "rev-parse", "--short", "HEAD"],
+            text=True,
+        ).strip()
+    except Exception:
+        pass
+
+    file16 = ""
+    try:
         from pathlib import Path
         import hashlib
-        import subprocess
-        import time
-        import git  # type: ignore[import-not-found]
 
-        p = Path(__file__).resolve()
-        repo = git.Repo(p.parent)
-        sha = repo.head.commit.hexsha[:7]
-        brn = getattr(getattr(repo.head, "ref", None), "name", "detached")
-        h16 = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
-        mt = int(p.stat().st_mtime)
+        b = Path(__file__).read_bytes()
+        file16 = hashlib.sha256(b).hexdigest()[:16]
+    except Exception:
+        pass
+    return sha, file16
 
-        st.caption(f"Runtime: branch {brn}, commit {sha}, file sha256 {h16}, mtime {mt}")
-    except Exception as e:
-        st.caption(f"Runtime: commit unknown ({e})")
 
-_show_runtime_banner()
+_git_sha, _file16 = _runtime_facts()
+if _git_sha or _file16:
+    msg = "Running "
+    if _git_sha:
+        msg += f"commit: {_git_sha}"
+    if _file16:
+        msg += (" " if _git_sha else "") + f"(file: {_file16})"
+    import streamlit as st  # local to keep Ruff happy if banner moves
+    st.caption(msg)
 # === ANCHOR: RUNTIME BANNER (end) ===
+
 
 
 
