@@ -299,7 +299,7 @@ else:
     view_cols = pref + rest
     df = df.loc[:, view_cols]
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, use_container_width=False, hide_index=True)
 
     st.download_button(
         "Download CSV",
@@ -328,7 +328,7 @@ try:
             data=_csv_bytes,
             file_name="providers.csv",
             mime="text/csv",
-            use_container_width=True,
+            use_container_width=False,
         )
     with c2:
         _xbuf = BytesIO()
@@ -340,7 +340,7 @@ try:
             data=_xbuf,
             file_name="providers.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            use_container_width=False,
         )
 except Exception:
     # If df is not defined yet, skip buttons (harmless during early app phases)
