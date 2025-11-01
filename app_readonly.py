@@ -224,6 +224,16 @@ def _render_table(df):
         suppressSizeToFit=True,
     )
 
+    # Wrap + autoHeight ONLY for these columns
+    for _col in ("business_name", "address"):
+        if _col in df.columns:
+            gob.configure_column(
+                _col,
+                wrapText=True,
+                autoHeight=True,
+                cellStyle={"white-space": "normal", "line-height": "1.3em"},
+            )
+
     # Wrap + autoHeight only for these columns
     for col in ("business_name", "address"):
         if col in df.columns:
