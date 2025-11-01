@@ -256,19 +256,40 @@ with right:
 
 df = load_df(q)
 
+# === ANCHOR: UI_RENDER (start) ===
 if df.empty:
-    # Offer quick hint if the table is empty and no seed CSV existed
+    # Offer quick hint if the table is empty
     if not Path(DB_PATH).exists():
-        st.warning(
-            "No database or seed CSV found. Add data/providers_seed.csv or set PROVIDERS_DB."
-        )
+        st.warning("No database found. Add data/providers_seed.csv or set PROVIDERS_DB.")
     else:
         st.info("No matching providers.")
 else:
+    # Read preferences from secrets (safe defaults)
+    browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+    hide_cols = set(st.secrets.get("HIDE_COLUMNS", []))
+
+    # Drop hidden columns that actually exist
+    drop_now = [c for c in df.columns if c in hide_cols]
+    if drop_now:
+        df = df.drop(columns=drop_now)
+
+    # Build final order: preferred order first (only those present), then the rest
+    pref = [c for c in browse_order if c in df.columns]
+    rest = [c for c in df.columns if c not in pref]
+    view_cols = pref + rest
+    df = df.loc[:, view_cols]
+
     st.caption(f"Results: {len(df)}")
     st.dataframe(df, use_container_width=True)
+
     st.download_button(
         "Download CSV",
+        df.to_csv(index=False).encode("utf-8"),
+        file_name="providers.csv",
+        mime="text/csv",
+    )
+# === ANCHOR: UI_RENDER (end) ===
+
         # === ANCHOR: UI (end) ===
         # === ANCHOR: FOOTER (start) ===
         df.to_csv(index=False).encode("utf-8"),
