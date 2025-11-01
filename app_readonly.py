@@ -10,6 +10,8 @@ import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
 
+st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
+
 
 # === ANCHOR: SEARCH UI (start) ===
 # Enter submits search and immediately clears the box; placeholder shows guidance.
@@ -32,7 +34,7 @@ st.text_input(
 search_query = (st.session_state.pop("__search_term__", "") or "").strip()
 q = search_query  # legacy alias if downstream expects `q`
 # === ANCHOR: SEARCH UI (end) ===
-st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
+
 # === ANCHOR: CONSTANTS (start) ===
 
 PHONE_LEN = 10
