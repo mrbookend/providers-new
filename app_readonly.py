@@ -29,26 +29,31 @@ except Exception:
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
 
 # === ANCHOR: RUNTIME BANNER (start) ===
-# Toggle with env or secrets: READONLY_SHOW_STATUS=1
-if int(os.environ.get("READONLY_SHOW_STATUS", st.secrets.get("READONLY_SHOW_STATUS", 0))):
+def _show_runtime_banner() -> None:
+    """Optional banner: shows branch, short commit, file hash, mtime."""
+    if not int(os.environ.get("READONLY_SHOW_STATUS", st.secrets.get("READONLY_SHOW_STATUS", 0))):
+        return
     try:
-        # Local imports to avoid top-level Ruff E402 and keep optional deps
-        import hashlib, time  # used below
+        # Local imports INSIDE a function (OK with E402)
         from pathlib import Path
-        import git  # GitPython is installed on Cloud
+        import hashlib
+        import git  # type: ignore[import-not-found]
 
-        repo = git.Repo(Path(__file__).resolve().parent)
-        sha  = repo.head.commit.hexsha
-        br   = getattr(repo.head, "ref", None)
-        brn  = getattr(br, "name", "detached")
-        p    = Path(__file__)
-        h16  = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
-        mt   = int(p.stat().st_mtime)
+        p = Path(__file__).resolve()
+        repo = git.Repo(p.parent)
+        sha = repo.head.commit.hexsha
+        brn = getattr(getattr(repo.head, "ref", None), "name", "detached")
+        h16 = hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+        mt = int(p.stat().st_mtime)
 
         st.caption(f"Runtime: branch {brn}, commit {sha[:7]}, file sha256 {h16}, mtime {mt}")
     except Exception as e:
         st.caption(f"Runtime: commit unknown ({e})")
+
+
+_show_runtime_banner()
 # === ANCHOR: RUNTIME BANNER (end) ===
+
 
 
 # === ANCHOR: STARTUP BANNER (start) ===
