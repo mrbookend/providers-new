@@ -7,3 +7,5 @@ streamlit-aggrid==0.3.4.post3
 sqlalchemy-libsql==0.2.0
 libsql-experimental>=0.0.55
 
+
+XlsxWriter>=3.0
