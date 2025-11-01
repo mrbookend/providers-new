@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-
 import os
 from pathlib import Path
 
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
+
+# === ANCHOR: CONSTANTS (start) ===
+PHONE_LEN = 10
+PHONE_LEN_WITH_CC = 11
+# === ANCHOR: CONSTANTS (end) ===
+
 
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
 
@@ -69,80 +74,91 @@ def _bootstrap_from_csv_if_needed() -> str:
     """
     Seed the vendors table from CSV in a safe, schema-driven way.
     """
-    # 0) Ensure schema exists; otherwise count() will fail and skip seeding
+    # 0) Ensure schema exists; otherwise count() can fail and skip seeding
     ensure_schema()
 
     eng = get_engine()
+    msg = ""
 
-    # 1) Skip if already populated
+    # 1) Count existing rows
     try:
         with eng.connect() as cx:
             cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
         if (cnt or 0) > 0:
-            return f"OK: vendors already populated ({cnt} rows)"
+            msg = f"OK: vendors already populated ({cnt} rows)"
+            return msg  # first (allowed) early return
     except Exception as e:
-        # If we cannot count even after ensure_schema, bail with error
-        return f"SKIP: vendors count check failed: {type(e).__name__}: {e}"
+        msg = f"SKIP: vendors count check failed: {type(e).__name__}: {e}"
 
-    # 2) Locate seed CSV (env overrides → defaults)
-    candidates = [os.environ.get(k) for k in ("SEED_CSV", "PROVIDERS_SEED_CSV", "VENDORS_SEED_CSV")]
-    candidates += ["data/providers_seed.csv", "data/vendors_seed.csv"]
-    candidates = [p for p in candidates if p]
-    seed_path = next((p for p in candidates if Path(p).exists()), None)
-    if not seed_path:
-        return "SKIP: no seed CSV found"
+    # 2) Locate seed CSV (env overrides → defaults) only if still unseeded
+    if not msg:
+        candidates = [os.environ.get(k) for k in ("SEED_CSV", "PROVIDERS_SEED_CSV", "VENDORS_SEED_CSV")]
+        candidates += ["data/providers_seed.csv", "data/vendors_seed.csv"]
+        candidates = [p for p in candidates if p]
+        seed_path = next((p for p in candidates if Path(p).exists()), None)
+        if not seed_path:
+            msg = "SKIP: no seed CSV found"
 
     # 3) Load CSV
-    try:
-        df = pd.read_csv(seed_path)
-    except Exception as e:
-        return f"ERROR: failed to read CSV {seed_path}: {type(e).__name__}: {e}"
+    df = None
+    if not msg:
+        try:
+            df = pd.read_csv(seed_path)
+        except Exception as e:
+            msg = f"ERROR: failed to read CSV {seed_path}: {type(e).__name__}: {e}"
 
-    # 4) Normalize headers; drop legacy cols (kept for backward compatibility)
-    df.columns = [str(c).strip() for c in df.columns]
-    for legacy in ("city", "state", "zip"):
-        if legacy in df.columns:
-            df = df.drop(columns=[legacy])
+    # 4) Normalize headers; drop legacy cols
+    if not msg and df is not None:
+        df.columns = [str(c).strip() for c in df.columns]
+        for legacy in ("city", "state", "zip"):
+            if legacy in df.columns:
+                df = df.drop(columns=[legacy])
 
     # 5) Probe live schema → choose insertable (non-PK) columns
-    try:
-        with eng.connect() as cx:
-            info = cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
-        live_cols = [r[1] for r in info]               # column name
-        pk_cols = {r[1] for r in info if (r[5] or 0)}  # pk flag
-        insertable = [c for c in live_cols if c not in pk_cols]
-        if not insertable:
-            return "ERROR: vendors has no insertable columns"
-    except Exception as e:
-        return f"ERROR: schema probe failed: {type(e).__name__}: {e}"
+    insertable = []
+    if not msg:
+        try:
+            with eng.connect() as cx:
+                info = cx.exec_driver_sql("PRAGMA table_info(vendors)").fetchall()
+            live_cols = [r[1] for r in info]               # column name
+            pk_cols = {r[1] for r in info if (r[5] or 0)}  # pk flag
+            insertable = [c for c in live_cols if c not in pk_cols]
+            if not insertable:
+                msg = "ERROR: vendors has no insertable columns"
+        except Exception as e:
+            msg = f"ERROR: schema probe failed: {type(e).__name__}: {e}"
 
     # 6) Ensure required live columns exist in df; fill missing with ""
-    for c in insertable:
-        if c not in df.columns:
-            df[c] = ""
+    if not msg and df is not None:
+        for c in insertable:
+            if c not in df.columns:
+                df[c] = ""
 
-    # 7) Optional phone formatting if schema expects phone_fmt
-    if "phone_fmt" in insertable and "phone_fmt" not in df.columns and "phone" in df.columns:
-        def _fmt_local(raw):
-            s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-            if len(s) == 11 and s.startswith("1"):
-                s = s[1:]
-            return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
-        df["phone_fmt"] = df["phone"].map(_fmt_local)
+        # Optional phone formatting if schema expects phone_fmt
+        if "phone_fmt" in insertable and "phone_fmt" not in df.columns and "phone" in df.columns:
+            def _fmt_local(raw):
+                s = "".join(ch for ch in str(raw or "") if ch.isdigit())
+                if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
+                    s = s[1:]
+                return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
+            df["phone_fmt"] = df["phone"].map(_fmt_local)
 
-    # 8) Strict projection → only live insertable columns
-    df = df[[c for c in insertable if c in df.columns]]
+        # Strict projection
+        df = df[[c for c in insertable if c in df.columns]]
 
-    if df.empty:
-        return "SKIP: seed CSV produced zero insertable rows"
+        if df.empty:
+            msg = "SKIP: seed CSV produced zero insertable rows"
 
-    # 9) Insert
-    try:
-        with eng.begin():
-            df.to_sql("vendors", eng, if_exists="append", index=False, method="multi")
-        return f"BOOTSTRAP: inserted {len(df)} rows from {Path(seed_path).name}"
-    except Exception as e:
-        return f"BOOTSTRAP ERROR: {type(e).__name__}: {e}"
+    # 7) Insert
+    if not msg and df is not None and not df.empty:
+        try:
+            with eng.begin():
+                df.to_sql("vendors", eng, if_exists="append", index=False, method="multi")
+            msg = f"BOOTSTRAP: inserted {len(df)} rows from {Path(seed_path).name}"
+        except Exception as e:
+            msg = f"BOOTSTRAP ERROR: {type(e).__name__}: {e}"
+
+    return msg
 # === ANCHOR: READONLY_BOOTSTRAP (end) ===
 
 
