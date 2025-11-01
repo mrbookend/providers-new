@@ -174,12 +174,6 @@ df = load_df(q)
 # Secrets-driven preferences
 browse_order = list(st.secrets.get("BROWSE_ORDER", []))
 
-hide_cols = set(st.secrets.get("HIDE_COLUMNS", []))
-# Drop hidden columns that exist
-drop_now = [c for c in df.columns if c in hide_cols]
-if drop_now:
-    df = df.drop(columns=drop_now)
-
 # Build final order: preferred first (that exist), then remaining
 pref = [c for c in browse_order if c in df.columns]
 rest = [c for c in df.columns if c not in pref]
