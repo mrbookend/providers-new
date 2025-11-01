@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import csv
+
 import os
 from pathlib import Path
 
@@ -11,6 +11,10 @@ import sqlalchemy as sa
 import streamlit as st
 
 st.set_page_config(page_title="Providers -- Read-Only", page_icon="[book]", layout="wide")
+# === ANCHOR: CONSTANTS (start) ===
+PHONE_LEN = 10
+PHONE_LEN_WITH_CC = 11
+# === ANCHOR: CONSTANTS (end) ===
 
 # ---- Config ----
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -18,6 +22,11 @@ CSV_SEED = Path("data/providers_seed.csv")  # optional seed file path
 
 # ---- SQLAlchemy engine (SQLite) ----
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+# === ANCHOR: ENGINE_HELPER (start) ===
+def get_engine():
+    """Single point of truth for this app's SQLAlchemy engine."""
+    return ENG
+# === ANCHOR: ENGINE_HELPER (end) ===
 
 # ---- Schema DDL (idempotent) ----
 DDL = """
@@ -82,20 +91,6 @@ def _db_rowcount() -> int:
             return int(cx.execute(sa.text("SELECT COUNT(*) FROM vendors")).scalar() or 0)
         except Exception:
             return 0
-# === ANCHOR: READONLY_BOOTSTRAP_CALL (start) ===
-try:
-    msg = _bootstrap_from_csv_if_needed()
-except Exception as _e:
-    msg = f"BOOTSTRAP ERROR: {type(_e).__name__}"
-
-try:
-    if msg:
-        st.toast(msg, icon="[OK]")
-except Exception:
-    pass
-# === ANCHOR: READONLY_BOOTSTRAP_CALL (end) ===
-
-
 # === ANCHOR: READONLY_BOOTSTRAP (start) ===
 def _bootstrap_from_csv_if_needed() -> str:
     """
@@ -164,10 +159,9 @@ def _bootstrap_from_csv_if_needed() -> str:
         if "phone_fmt" in insertable and "phone_fmt" not in df.columns and "phone" in df.columns:
             def _fmt_local(raw):
                 s = "".join(ch for ch in str(raw or "") if ch.isdigit())
-                # Use constants if you defined them; otherwise inline numbers:
-                if len(s) == 11 and s.startswith("1"):
+                if len(s) == PHONE_LEN_WITH_CC and s.startswith("1"):
                     s = s[1:]
-                return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == 10 else (str(raw or "").strip())
+                return f"({s[0:3]}) {s[3:6]}-{s[6:10]}" if len(s) == PHONE_LEN else (str(raw or "").strip())
             df["phone_fmt"] = df["phone"].map(_fmt_local)
 
         # Strict projection
@@ -187,6 +181,22 @@ def _bootstrap_from_csv_if_needed() -> str:
 
     return msg
 # === ANCHOR: READONLY_BOOTSTRAP (end) ===
+
+# === ANCHOR: READONLY_BOOTSTRAP_CALL (start) ===
+try:
+    msg = _bootstrap_from_csv_if_needed()
+except Exception as _e:
+    msg = f"BOOTSTRAP ERROR: {type(_e).__name__}"
+
+try:
+    if msg:
+        st.toast(msg, icon="[OK]")
+except Exception:
+    pass
+# === ANCHOR: READONLY_BOOTSTRAP_CALL (end) ===
+
+
+
 
 
 @st.cache_data(show_spinner=False)
