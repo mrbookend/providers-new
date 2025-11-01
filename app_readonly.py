@@ -290,13 +290,6 @@ else:
     )
 # === ANCHOR: UI_RENDER (end) ===
 
-        # === ANCHOR: UI (end) ===
-        # === ANCHOR: FOOTER (start) ===
-        df.to_csv(index=False).encode("utf-8"),
-        file_name="providers.csv",
-        mime="text/csv",
-    )
-
 # ---- Tiny footer (optional) ----
 with st.expander("About this app", expanded=False):
     st.write(
