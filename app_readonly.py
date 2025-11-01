@@ -24,6 +24,28 @@ except Exception:
 
 # Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+# === ANCHOR: STARTUP BANNER (start) ===
+import hashlib
+import subprocess
+
+def _file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _git_head_short() -> str:
+    try:
+        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        return out
+    except Exception:
+        return "unknown"
+
+_commit = _git_head_short()
+_file_hash = _file_sha256(__file__)
+st.caption(f"[readonly] commit={_commit} file_sha256={_file_hash[:16]}")
+# === ANCHOR: STARTUP BANNER (end) ===
 
 
 # === ANCHOR: CONSTANTS (start) ===
