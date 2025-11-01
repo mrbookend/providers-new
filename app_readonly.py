@@ -173,8 +173,8 @@ df = load_df(q)
 
 # Secrets-driven preferences
 browse_order = list(st.secrets.get("BROWSE_ORDER", []))
-hide_cols = set(st.secrets.get("HIDE_COLUMNS", []))
 
+hide_cols = set(st.secrets.get("HIDE_COLUMNS", []))
 # Drop hidden columns that exist
 drop_now = [c for c in df.columns if c in hide_cols]
 if drop_now:
@@ -255,7 +255,6 @@ _hide_default = [
     "ckw_locked",
     "ckw_version",
 ]
-hide_cols = set(st.secrets.get("HIDE_COLUMNS", _hide_default))
 _drop = [c for c in df.columns if c in hide_cols]
 if _drop:
     df = df.drop(columns=_drop)
