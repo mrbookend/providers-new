@@ -50,3 +50,6 @@ df
 *backup*.py
 *.bak
 df
+
+# local editor backups
+app_readonly.py.BAK.*
