@@ -29,7 +29,6 @@ st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", lay
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
-PHONE_LEN_WITH_CC = 11  # e.g., leading '1' country code
 PHONE_LEN = 10  # 10-digit NANP number
 # === ANCHOR: CONSTANTS (end) ===
 
