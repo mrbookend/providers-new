@@ -186,6 +186,22 @@ df = df.loc[:, view_cols]
 
 if "id" in df.columns:
     df = df.drop(columns=["id"])
+# === HIDE_COLUMNS DROP (auto) ===
+_hide_default = [
+    "city",
+    "state",
+    "zip",
+    "phone_fmt",
+    "computed_keywords",
+    "ckw_locked",
+    "ckw_version",
+    "id",
+]
+hide_cols = set(st.secrets.get("HIDE_COLUMNS", _hide_default))
+drop_now = [c for c in df.columns if c in hide_cols]
+if drop_now:
+    df = df.drop(columns=drop_now)
+# === HIDE_COLUMNS DROP (auto end) ===
 st.dataframe(df, use_container_width=False, hide_index=True)
 # === ANCHOR: BROWSE (end) ===
 
@@ -227,4 +243,19 @@ try:
         )
 except Exception:
     pass
+# Hide columns driven by secrets (fallback keeps legacy/meta cols hidden)
+_hide_default = [
+    "city",
+    "state",
+    "zip",
+    "phone_fmt",
+    "computed_keywords",
+    "ckw_locked",
+    "ckw_version",
+]
+hide_cols = set(st.secrets.get("HIDE_COLUMNS", _hide_default))
+_drop = [c for c in df.columns if c in hide_cols]
+if _drop:
+    df = df.drop(columns=_drop)
+
 # === ANCHOR: DOWNLOADS (end) ===
