@@ -14,6 +14,7 @@ import streamlit as st
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder
+
     _HAS_AGGRID = True
 except Exception:
     AgGrid = None  # type: ignore[assignment]
@@ -21,8 +22,9 @@ except Exception:
     _HAS_AGGRID = False
 # === ANCHOR: IMPORTS (aggrid) (end) ===
 
-
+# Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+
 
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -207,10 +209,10 @@ def _render_table(df):
 
     # Knobs with sane defaults (read from globals if present)
     single_page = bool(globals().get("single_page", False))
-    page_size   = int(globals().get("page_size", 0) or 0)
+    page_size = int(globals().get("page_size", 0) or 0)
     grid_height = int(globals().get("grid_height", 560))
-    header_px   = int(globals().get("header_px", 0))
-    custom_css  = globals().get("custom_css", {})
+    header_px = int(globals().get("header_px", 0))
+    custom_css = globals().get("custom_css", {})
 
     # Perf defaults: nowrap + no autoHeight globally
     gob = GridOptionsBuilder.from_dataframe(df)
@@ -236,7 +238,8 @@ def _render_table(df):
     # Grid options
     grid_opts = {}
     if single_page:
-        grid_opts["domLayout"] = "autoHeight"; page_size = 0
+        grid_opts["domLayout"] = "autoHeight"
+        page_size = 0
     elif page_size > 0:
         grid_opts["domLayout"] = "autoHeight"
         grid_opts["pagination"] = True
@@ -269,8 +272,9 @@ def _render_table(df):
             allow_unsafe_jscode=True,
             custom_css=custom_css,
         )
-# === ANCHOR: BROWSE RENDER (aggrid) (end) ===
 
+
+# === ANCHOR: BROWSE RENDER (aggrid) (end) ===
 
 
 # === HIDE_COLUMNS DROP (auto) ===
