@@ -26,7 +26,7 @@ except Exception:
 
 
 # Must be FIRST Streamlit call
-st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+st.set_page_config(page_title="Providers - Read-Only", page_icon="[book]", layout="wide")
 
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
