@@ -226,7 +226,7 @@ def _render_table(df: pd.DataFrame) -> None:
         for k, v in items_iter:
             widths[str(k).strip().lower()] = int(str(v).strip())
 
-    # Don’t let auto-size fight our fixed pixel widths
+    # Don't let auto-size fight our fixed pixel widths
     gob.configure_default_column(suppressSizeToFit=True)
     gob.configure_grid_options(suppressAutoSize=True)
 
