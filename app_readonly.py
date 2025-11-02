@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from contextlib import suppress
-import os
 from io import BytesIO
+import os
 from pathlib import Path
 
 import pandas as pd
