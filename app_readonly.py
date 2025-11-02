@@ -149,35 +149,70 @@ def load_df(q: str) -> pd.DataFrame:
 
 
 # === ANCHOR: SEARCH UI (start) ===
+# Controls row: left = Search (~1/2 width), right = two download buttons on same row
+controls_left, controls_right_csv, controls_right_xlsx = st.columns([2, 1, 1])
+
+
 def __on_search_enter__():
     term = (st.session_state.get("__search_box__", "") or "").strip()
     st.session_state["__search_term__"] = term
     st.session_state["__search_box__"] = ""  # auto-clear
 
 
-st.text_input(
-    label="Search",
-    key="__search_box__",
-    placeholder="Search by name, category, service, etc.",
-    label_visibility="collapsed",
-    on_change=__on_search_enter__,
-)
+with controls_left:
+    st.text_input(
+        label="Search",
+        key="__search_box__",
+        placeholder="Search by name, category, service, etc.",
+        label_visibility="collapsed",
+        on_change=__on_search_enter__,
+    )
+
 q = (st.session_state.pop("__search_term__", "") or "").strip()
+
+# Ensure seed import (if needed) before we load data
+_msg = _bootstrap_from_csv_if_needed()
+
+# Load filtered dataframe now that q (and DB) are ready
+df = load_df(q)
+
+# Two download buttons on the SAME row (right side), built from the filtered df
+with suppress(Exception):
+    # CSV
+    _csv_bytes = df.to_csv(index=False).encode("utf-8")
+    controls_right_csv.download_button(
+        label="Download CSV",
+        data=_csv_bytes,
+        file_name="providers.csv",
+        mime="text/csv",
+        key="browse_dl_csv",
+        use_container_width=False,
+    )
+
+    # XLSX
+    _xbuf = BytesIO()
+    with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
+        df.to_excel(_writer, index=False, sheet_name="Providers")
+    _xbuf.seek(0)
+    controls_right_xlsx.download_button(
+        label="Download Excel",
+        data=_xbuf,
+        file_name="providers.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="browse_dl_xlsx",
+        use_container_width=False,
+    )
+
+# Help directly under the controls row
+with st.expander("Help — Browse", expanded=False):
+    st.write(
+        "Read-only viewer for the Providers list. "
+        "Database path is set by PROVIDERS_DB (default providers.db). "
+        "If empty and a seed CSV is available, the app imports it once at startup."
+    )
 # === ANCHOR: SEARCH UI (end) ===
 
 
-# === ANCHOR: BOOTSTRAP TOAST (start) ===
-_msg = _bootstrap_from_csv_if_needed()
-try:
-    show_boot = int(st.secrets.get("SHOW_BOOTSTRAP_POPUPS", 0))
-except Exception:
-    show_boot = 0
-if show_boot:
-    pass  # silenced
-    #     st.toast(_msg)  # silenced
-
-
-# === ANCHOR: BOOTSTRAP TOAST (end) ===
 # === ANCHOR: BROWSE RENDER (aggrid) (start) ===
 def _render_table(df: pd.DataFrame) -> None:
     """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
@@ -409,8 +444,6 @@ def _render_table(df: pd.DataFrame) -> None:
 
 
 # === ANCHOR: BROWSE (start) ===
-df = load_df(q)
-
 # Hide Id column if present
 
 # Secrets-driven preferences
@@ -443,46 +476,3 @@ if drop_now:
 # === HIDE_COLUMNS DROP (auto end) ===
 _render_table(df)
 # === ANCHOR: BROWSE (end) ===
-
-
-# === ANCHOR: HELP (start) ===
-with st.expander("Help Section", expanded=False):
-    st.write(
-        "Read-only viewer for the Providers list. "
-        "Database path is set by PROVIDERS_DB (default providers.db). "
-        "If empty and a seed CSV is available, the app imports it once at startup."
-    )
-# === ANCHOR: HELP (end) ===
-
-
-def _render_downloads(df: pd.DataFrame) -> None:
-    # Local import avoids global import-order churn; suppress silences UX-only errors
-
-    with suppress(Exception):
-        c1, c2, _sp = st.columns([1, 1, 6])
-
-        with c1:
-            _csv_bytes = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="CSV",
-                data=_csv_bytes,
-                file_name="providers.csv",
-                mime="text/csv",
-                use_container_width=False,
-            )
-
-        with c2:
-            _xbuf = BytesIO()
-            with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
-                df.to_excel(_writer, index=False, sheet_name="Providers")
-            _xbuf.seek(0)
-            st.download_button(
-                label="XLSX",
-                data=_xbuf,
-                file_name="providers.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=False,
-            )
-
-
-_render_downloads(df)
