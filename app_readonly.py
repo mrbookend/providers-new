@@ -235,10 +235,9 @@ def _render_table(df):
     widths = {}
     for k, v in (widths_src.items() if isinstance(widths_src, dict) else []):
         key = str(k).strip().lower()
-        try:
+        from contextlib import suppress
+        with suppress(ValueError, TypeError):
             widths[key] = int(str(v).strip())
-        except Exception:
-            pass  # ignore non-integer widths
 
     # Apply widths; keep flex=0 so px width is honored
     _applied_w = 0
