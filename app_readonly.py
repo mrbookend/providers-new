@@ -28,55 +28,62 @@ except Exception:
 # Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
 
-# === ANCHOR: RUNTIME BANNER (start) ===
+# === ANCHOR: RUNTIME & STARTUP BANNERS (start) ===
 def _runtime_banner() -> None:
-    """Tiny runtime SHA banner; no new imports, Ruff-safe, silent on errors."""
-    try:
-        head = Path(".git/HEAD").read_text(encoding="utf-8").strip()
-        if head.startswith("ref:"):
-            ref = head.split()[-1]
+    """Tiny runtime SHA banner; stdlib only, Ruff-safe, silent on errors."""
+    from contextlib import suppress
+    with suppress(Exception):
+        from pathlib import Path
+        import streamlit as st  # local import avoids global import-order churn
+
+        head_txt = Path(".git/HEAD").read_text(encoding="utf-8").strip()
+        if head_txt.startswith("ref:"):
+            ref = head_txt.split()[-1]
             ref_path = Path(".git") / ref
-            txt = (ref_path.read_text(encoding="utf-8").strip()
-                   if ref_path.exists() else head)
+            target = (ref_path.read_text(encoding="utf-8").strip()
+                      if ref_path.exists() else head_txt)
         else:
-            txt = head
-        sha = txt[:7]
-        # NOTE: On Streamlit Cloud `.git` usually isn't present; this will no-op.
-        st.caption(f"build: {sha}")
-    except Exception:
-        pass
-# === ANCHOR: RUNTIME BANNER (end) ===
+            target = head_txt
+        sha7 = (target or "")[:7] or "unknown"
+        # On Streamlit Cloud, `.git` typically doesn't exist; this quietly becomes "unknown".
+        st.caption(f"build: {sha7}")
 
-_runtime_banner()
 
-# === ANCHOR: STARTUP BANNER (start) ===
-import hashlib
-import subprocess
+def _startup_banner() -> None:
+    """Shows commit short SHA (if available) and the current file's sha256/16."""
+    from contextlib import suppress
+    with suppress(Exception):
+        import hashlib
+        import streamlit as st  # local import
+        from pathlib import Path
+        # Try to get `git rev-parse --short HEAD`; fall back to "unknown".
+        short = "unknown"
+        with suppress(Exception):
+            import subprocess
+            short = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], text=True
+            ).strip() or "unknown"
 
-def _file_sha256(path: str) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+        # File hash (first 16 hex chars)
+        h = hashlib.sha256()
+        p = Path(__file__)
+        with p.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(65536), b""):
+                h.update(chunk)
+        st.caption(f"[readonly] commit={short} file_sha256={h.hexdigest()[:16]}")
 
-def _git_head_short() -> str:
-    try:
-        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-        return out
-    except Exception:
-        return "unknown"
 
-_commit = _git_head_short()
-_file_hash = _file_sha256(__file__)
-st.caption(f"[readonly] commit={_commit} file_sha256={_file_hash[:16]}")
-# === ANCHOR: STARTUP BANNER (end) ===
-
+# Safe calls (wrapped so import/IO issues never break the app)
+try:
+    _runtime_banner()
+    _startup_banner()
+except Exception:
+    pass
+# === ANCHOR: RUNTIME & STARTUP BANNERS (end) ===
 
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
-PHONE_LEN_WITH_CC = 11  # e.g., leading '1' country code
 PHONE_LEN = 10  # 10-digit NANP number
 # === ANCHOR: CONSTANTS (end) ===
 
@@ -271,6 +278,16 @@ def _render_table(df):
         flex=0,
         suppressSizeToFit=True,
     )
+
+    # Wrap + autoHeight ONLY for these columns
+    for _col in ("business_name", "address"):
+        if _col in df.columns:
+            gob.configure_column(
+                _col,
+                wrapText=True,
+                autoHeight=True,
+                cellStyle={"white-space": "normal", "line-height": "1.3em"},
+            )
 
     # Wrap + autoHeight only for these columns
     for col in ("business_name", "address"):
