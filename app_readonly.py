@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from io import BytesIO
 from pathlib import Path
 
@@ -71,15 +72,13 @@ def ensure_schema() -> None:
 def _bootstrap_from_csv_if_needed() -> str:
     """If DB empty and seed CSV exists, import once."""
     ensure_schema()
+
     # Already has rows?
-    try:
+    with suppress(Exception):
         with ENG.connect() as cx:
             cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
         if (cnt or 0) > 0:
             return ""
-    except Exception:
-        # If table missing or other issue, schema creation above will handle next call
-        pass
 
     # Find a CSV
     candidates = [
@@ -223,15 +222,29 @@ def _render_table(df):
         suppressSizeToFit=True,
     )
 
-    # Wrap + autoHeight ONLY for these columns
-    for _col in ("business_name", "address"):
-        if _col in df.columns:
-            gob.configure_column(
-                _col,
-                wrapText=True,
-                autoHeight=True,
-                cellStyle={"white-space": "normal", "line-height": "1.3em"},
-            )
+    # === ANCHOR: READONLY WIDTHS (start) ===
+    # Read widths from secrets and apply as hard pixel widths
+    try:
+        widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
+    except Exception:
+        widths_src = {}
+
+    # Normalize: case/space tolerant, numeric only
+    widths = {}
+    for k, v in widths_src.items() if isinstance(widths_src, dict) else []:
+        key = str(k).strip().lower()
+        with suppress(ValueError, TypeError):
+            widths[key] = int(str(v).strip())
+
+    # Apply widths; keep flex=0 so px width is honored
+    _applied_w = 0
+    for col in list(df.columns):
+        lk = str(col).strip().lower()
+        w = widths.get(lk)
+        if w:
+            gob.configure_column(col, width=w, flex=0)
+            _applied_w += 1
+    # === ANCHOR: READONLY WIDTHS (end) ===
 
     # Wrap + autoHeight only for these columns
     for col in ("business_name", "address"):
@@ -315,45 +328,34 @@ with st.expander("Help Section", expanded=False):
 # === ANCHOR: HELP (end) ===
 
 
-# === ANCHOR: DOWNLOADS (start) ===
-# Buttons on one row: CSV (left) and XLSX (right)
-try:
-    c1, c2, _sp = st.columns([1, 1, 6])
-    with c1:
-        _csv_bytes = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="CSV",
-            data=_csv_bytes,
-            file_name="providers.csv",
-            mime="text/csv",
-            use_container_width=False,
-        )
-    with c2:
-        _xbuf = BytesIO()
-        with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
-            df.to_excel(_writer, index=False, sheet_name="Providers")
-        _xbuf.seek(0)
-        st.download_button(
-            label="XLSX",
-            data=_xbuf,
-            file_name="providers.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=False,
-        )
-except Exception:
-    pass
-# Hide columns driven by secrets (fallback keeps legacy/meta cols hidden)
-_hide_default = [
-    "city",
-    "state",
-    "zip",
-    "phone_fmt",
-    "computed_keywords",
-    "ckw_locked",
-    "ckw_version",
-]
-_drop = [c for c in df.columns if c in hide_cols]
-if _drop:
-    df = df.drop(columns=_drop)
+def _render_downloads(df: pd.DataFrame) -> None:
+    # Local import avoids global import-order churn; suppress silences UX-only errors
 
-# === ANCHOR: DOWNLOADS (end) ===
+    with suppress(Exception):
+        c1, c2, _sp = st.columns([1, 1, 6])
+
+        with c1:
+            _csv_bytes = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="CSV",
+                data=_csv_bytes,
+                file_name="providers.csv",
+                mime="text/csv",
+                use_container_width=False,
+            )
+
+        with c2:
+            _xbuf = BytesIO()
+            with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
+                df.to_excel(_writer, index=False, sheet_name="Providers")
+            _xbuf.seek(0)
+            st.download_button(
+                label="XLSX",
+                data=_xbuf,
+                file_name="providers.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=False,
+            )
+
+
+_render_downloads(df)
