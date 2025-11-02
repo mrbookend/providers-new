@@ -71,15 +71,16 @@ def ensure_schema() -> None:
 def _bootstrap_from_csv_if_needed() -> str:
     """If DB empty and seed CSV exists, import once."""
     ensure_schema()
+
     # Already has rows?
-    try:
+    from contextlib import suppress
+    with suppress(Exception):
         with ENG.connect() as cx:
             cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
         if (cnt or 0) > 0:
             return ""
-    except Exception:
-        # If table missing or other issue, schema creation above will handle next call
-        pass
+
+
 
     # Find a CSV
     candidates = [
@@ -331,45 +332,35 @@ with st.expander("Help Section", expanded=False):
 # === ANCHOR: HELP (end) ===
 
 
-# === ANCHOR: DOWNLOADS (start) ===
-# Buttons on one row: CSV (left) and XLSX (right)
-try:
-    c1, c2, _sp = st.columns([1, 1, 6])
-    with c1:
-        _csv_bytes = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="CSV",
-            data=_csv_bytes,
-            file_name="providers.csv",
-            mime="text/csv",
-            use_container_width=False,
-        )
-    with c2:
-        _xbuf = BytesIO()
-        with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
-            df.to_excel(_writer, index=False, sheet_name="Providers")
-        _xbuf.seek(0)
-        st.download_button(
-            label="XLSX",
-            data=_xbuf,
-            file_name="providers.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=False,
-        )
-except Exception:
-    pass
-# Hide columns driven by secrets (fallback keeps legacy/meta cols hidden)
-_hide_default = [
-    "city",
-    "state",
-    "zip",
-    "phone_fmt",
-    "computed_keywords",
-    "ckw_locked",
-    "ckw_version",
-]
-_drop = [c for c in df.columns if c in hide_cols]
-if _drop:
-    df = df.drop(columns=_drop)
+def _render_downloads(df: pd.DataFrame) -> None:
+    # Local import avoids global import-order churn; suppress silences UX-only errors
+    from contextlib import suppress
 
-# === ANCHOR: DOWNLOADS (end) ===
+    with suppress(Exception):
+        c1, c2, _sp = st.columns([1, 1, 6])
+
+        with c1:
+            _csv_bytes = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="CSV",
+                data=_csv_bytes,
+                file_name="providers.csv",
+                mime="text/csv",
+                use_container_width=False,
+            )
+
+        with c2:
+            _xbuf = BytesIO()
+            with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
+                df.to_excel(_writer, index=False, sheet_name="Providers")
+            _xbuf.seek(0)
+            st.download_button(
+                label="XLSX",
+                data=_xbuf,
+                file_name="providers.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=False,
+            )
+
+_render_downloads(df)
+
