@@ -14,16 +14,13 @@ import streamlit as st
 # === ANCHOR: IMPORTS (aggrid) (start) ===
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
 try:
-    # Import only what you actually use in this file
     from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
-
     _HAS_AGGRID = True
 except Exception:
-    AgGrid = None  # type: ignore[assignment]
-    GridOptionsBuilder = None  # type: ignore[assignment]
-    JsCode = None  # type: ignore[assignment]
+    AgGrid = GridOptionsBuilder = JsCode = None  # type: ignore[assignment]
     _HAS_AGGRID = False
 # === ANCHOR: IMPORTS (aggrid) (end) ===
+
 
 
 # Must be FIRST Streamlit call
@@ -188,12 +185,30 @@ def _render_table(df: pd.DataFrame) -> None:
         st.dataframe(df, use_container_width=False, hide_index=True)
         return
 
-    # Knobs (optional globals; safe defaults)
-    single_page = bool(globals().get("single_page", False))
-    page_size = int(globals().get("page_size", 0) or 0)
-    grid_height = int(globals().get("grid_height", 560))
-    header_px = int(globals().get("header_px", 0))
+    # === ANCHOR: GRID KNOBS (start) ===
+    # Knobs (prefer secrets; fall back to globals/defaults)
+    try:
+        page_size   = int(st.secrets.get("READONLY_PAGE_SIZE",       globals().get("page_size", 0))   or 0)
+        grid_height = int(st.secrets.get("READONLY_GRID_HEIGHT_PX",  globals().get("grid_height", 560)) or 560)
+        header_px   = int(st.secrets.get("READONLY_HEADER_HEIGHT_PX",globals().get("header_px", 0))   or 0)
+        font_px     = int(st.secrets.get("READONLY_FONT_SIZE_PX", 0) or 0)
+    except Exception:
+        page_size   = int(globals().get("page_size", 0) or 0)
+        grid_height = int(globals().get("grid_height", 560) or 560)
+        header_px   = int(globals().get("header_px", 0) or 0)
+        font_px     = 0
+
+    single_page = bool(st.secrets.get("READONLY_SINGLE_PAGE", globals().get("single_page", False)))
+
+    # Optional per-grid CSS (font size)
     custom_css = globals().get("custom_css", {})
+    if font_px > 0:
+        custom_css = {
+            ".ag-root-wrapper": {"font-size": f"{font_px}px"},
+            ".ag-header-cell-label": {"font-size": f"{max(font_px - 1, 10)}px"},
+            ".ag-cell": {"font-size": f"{font_px}px", "line-height": "1.3em"},
+        }
+    # === ANCHOR: GRID KNOBS (end) ===
 
     # Base options builder
     gob = GridOptionsBuilder.from_dataframe(df)
@@ -214,6 +229,7 @@ def _render_table(df: pd.DataFrame) -> None:
         ensureDomOrder=True,
     )
 
+    # === ANCHOR: READONLY WIDTHS (start) ===
     # Secrets-driven exact pixel widths (case-insensitive)
     try:
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
@@ -242,6 +258,52 @@ def _render_table(df: pd.DataFrame) -> None:
             _applied.append((col, w))
     if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
         st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
+    # === ANCHOR: READONLY WIDTHS (end) ===
+    # === ANCHOR: PHONE FORMATTER (start) ===
+    # Display-only formatter; handles strings/ints and CSV artifacts like 8007001860.0
+    _phone_fmt_js = JsCode("""
+    function(params){
+      if (params.value == null) return "";
+      let raw = String(params.value).trim();
+
+      // Drop trailing .0 / .00… common from CSV/Excel numeric exports
+      if (/^\\d+(?:\\.0+)?$/.test(raw)) raw = raw.split(".")[0];
+
+      // Keep digits only
+      let s = raw.replace(/\\D/g,"");
+
+      // If 11 digits with leading '1', drop the country code
+      if (s.length === 11 && s.startsWith("1")) s = s.slice(1);
+
+      // Safety: if original had a decimal, trim back to 10 after digit-strip
+      if (s.length === 11 && raw.includes(".")) s = s.slice(0,10);
+
+      if (s.length !== 10) return raw;
+
+      return "(" + s.slice(0,3) + ") " + s.slice(3,6) + "-" + s.slice(6);
+    }
+    """)
+    if "phone" in df.columns:
+        gob.configure_column("phone", valueFormatter=_phone_fmt_js)
+    # === ANCHOR: PHONE FORMATTER (end) ===
+
+    # === ANCHOR: WRAP & AUTOHEIGHT (start) ===
+    # Wrap only at word boundaries; auto row height
+    for col in ("business_name", "address", "category", "service"):
+        if col in df.columns:
+            gob.configure_column(
+                col,
+                wrapText=True,
+                autoHeight=True,
+                cellStyle={
+                    "white-space": "normal",     # allow wrapping
+                    "line-height": "1.3em",
+                    "word-break": "keep-all",    # no mid-word breaks
+                    "overflow-wrap": "normal",   # wrap at spaces/punct only
+                    "hyphens": "manual",
+                },
+            )
+    # === ANCHOR: WRAP & AUTOHEIGHT (end) ===
 
     for col in ("business_name", "address", "category", "service"):
         if col in df.columns:
