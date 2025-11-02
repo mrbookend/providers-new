@@ -228,23 +228,40 @@ def _render_table(df):
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
-
+    
+    # Handle Streamlit/TOML AttrDict-like types (Cloud and local both)
+    try:
+        items_iter = dict(widths_src).items()
+    except Exception:
+        items_iter = widths_src.items() if hasattr(widths_src, "items") else []
+    
     # Normalize: case/space tolerant, numeric only
-    widths = {}
-    for k, v in widths_src.items() if isinstance(widths_src, dict) else []:
+    widths: dict[str, int] = {}
+    for k, v in items_iter:
         key = str(k).strip().lower()
-        with suppress(ValueError, TypeError):
+        try:
             widths[key] = int(str(v).strip())
-
+        except (ValueError, TypeError):
+            pass  # ignore junk values
+    
+    # Prevent any auto-size from fighting our px widths
+    gob.configure_default_column(suppressSizeToFit=True)
+    gob.configure_grid_options(suppressAutoSize=True)
+    
     # Apply widths; keep flex=0 so px width is honored
-    _applied_w = 0
+    _applied = []
     for col in list(df.columns):
         lk = str(col).strip().lower()
         w = widths.get(lk)
         if w:
             gob.configure_column(col, width=w, flex=0)
-            _applied_w += 1
+            _applied.append((col, w))
+    
+    # Optional one-line debug (turn on via secrets)
+    if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
+        st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
     # === ANCHOR: READONLY WIDTHS (end) ===
+
 
     # Wrap + autoHeight only for these columns
     for col in ("business_name", "address"):
