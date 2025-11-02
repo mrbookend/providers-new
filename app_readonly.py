@@ -244,20 +244,24 @@ def _render_table(df: pd.DataFrame) -> None:
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
+    # Handle Streamlit/TOML AttrDict-like types (Cloud and local both)
     try:
         items_iter = dict(widths_src).items()
     except Exception:
         items_iter = widths_src.items() if isinstance(widths_src, dict) else []
 
+    # Normalize: case/space tolerant, numeric only
     widths: dict[str, int] = {}
-    with suppress(ValueError, TypeError):
-        for k, v in items_iter:
-            widths[str(k).strip().lower()] = int(str(v).strip())
+    for k, v in items_iter:
+        key = str(k).strip().lower()
+        with suppress(ValueError, TypeError):
+            widths[key] = int(str(v).strip())
 
-    # Don’t let auto-size fight our fixed pixel widths
+    # Prevent any auto-size from fighting our px widths
     gob.configure_default_column(suppressSizeToFit=True)
     gob.configure_grid_options(suppressAutoSize=True)
 
+    # Apply widths; keep flex=0 so px width is honored
     _applied: list[tuple[str, int]] = []
     for col in list(df.columns):
         lk = str(col).strip().lower()
@@ -265,11 +269,22 @@ def _render_table(df: pd.DataFrame) -> None:
         if w:
             gob.configure_column(col, width=w, flex=0)
             _applied.append((col, w))
+
+    # Optional one-line debug (turn on via secrets)
     if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
         st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
+    # === ANCHOR: READONLY WIDTHS (end) ===
 
-    # Wrap + auto-height for these columns
+    # Wrap + autoHeight only for these columns
     for col in ("business_name", "address", "category", "service"):
+        if col in df.columns:
+            gob.configure_column(
+                col,
+                wrapText=True,
+                autoHeight=True,
+                cellStyle={"white-space": "normal", "line-height": "1.3em"},
+            )
+
         if col in df.columns:
             gob.configure_column(
                 col,
