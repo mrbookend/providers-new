@@ -24,7 +24,7 @@ except Exception:
 # === ANCHOR: IMPORTS (aggrid) (end) ===
 
 # Must be FIRST Streamlit call
-st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
+st.set_page_config(page_title="Providers - Read-Only", page_icon="[book]", layout="wide")
 
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
@@ -258,7 +258,7 @@ def _render_table(df):
     # Optional one-line debug (turn on via secrets)
     if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
         st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
-    # ^ TEMP probe — remove after verifying widths on Cloud
+    # ^ TEMP probe - remove after verifying widths on Cloud
     # === ANCHOR: READONLY WIDTHS (end) ===
 
     # Wrap + autoHeight only for these columns
