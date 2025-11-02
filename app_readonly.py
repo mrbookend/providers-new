@@ -15,12 +15,12 @@ import streamlit as st
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+
     _HAS_AGGRID = True
 except Exception:
     AgGrid = GridOptionsBuilder = JsCode = None  # type: ignore[assignment]
     _HAS_AGGRID = False
 # === ANCHOR: IMPORTS (aggrid) (end) ===
-
 
 
 # Must be FIRST Streamlit call
@@ -188,15 +188,19 @@ def _render_table(df: pd.DataFrame) -> None:
     # === ANCHOR: GRID KNOBS (start) ===
     # Knobs (prefer secrets; fall back to globals/defaults)
     try:
-        page_size   = int(st.secrets.get("READONLY_PAGE_SIZE",       globals().get("page_size", 0))   or 0)
-        grid_height = int(st.secrets.get("READONLY_GRID_HEIGHT_PX",  globals().get("grid_height", 560)) or 560)
-        header_px   = int(st.secrets.get("READONLY_HEADER_HEIGHT_PX",globals().get("header_px", 0))   or 0)
-        font_px     = int(st.secrets.get("READONLY_FONT_SIZE_PX", 0) or 0)
+        page_size = int(st.secrets.get("READONLY_PAGE_SIZE", globals().get("page_size", 0)) or 0)
+        grid_height = int(
+            st.secrets.get("READONLY_GRID_HEIGHT_PX", globals().get("grid_height", 560)) or 560
+        )
+        header_px = int(
+            st.secrets.get("READONLY_HEADER_HEIGHT_PX", globals().get("header_px", 0)) or 0
+        )
+        font_px = int(st.secrets.get("READONLY_FONT_SIZE_PX", 0) or 0)
     except Exception:
-        page_size   = int(globals().get("page_size", 0) or 0)
+        page_size = int(globals().get("page_size", 0) or 0)
         grid_height = int(globals().get("grid_height", 560) or 560)
-        header_px   = int(globals().get("header_px", 0) or 0)
-        font_px     = 0
+        header_px = int(globals().get("header_px", 0) or 0)
+        font_px = 0
 
     single_page = bool(st.secrets.get("READONLY_SINGLE_PAGE", globals().get("single_page", False)))
 
@@ -296,10 +300,10 @@ def _render_table(df: pd.DataFrame) -> None:
                 wrapText=True,
                 autoHeight=True,
                 cellStyle={
-                    "white-space": "normal",     # allow wrapping
+                    "white-space": "normal",  # allow wrapping
                     "line-height": "1.3em",
-                    "word-break": "keep-all",    # no mid-word breaks
-                    "overflow-wrap": "normal",   # wrap at spaces/punct only
+                    "word-break": "keep-all",  # no mid-word breaks
+                    "overflow-wrap": "normal",  # wrap at spaces/punct only
                     "hyphens": "manual",
                 },
             )
@@ -312,14 +316,13 @@ def _render_table(df: pd.DataFrame) -> None:
                 wrapText=True,
                 autoHeight=True,
                 cellStyle={
-                    "white-space": "normal",   # allow wrapping
+                    "white-space": "normal",  # allow wrapping
                     "line-height": "1.3em",
                     "word-break": "keep-all",  # do NOT break inside words
-                    "overflow-wrap": "normal", # wrap only at spaces/punctuation
-                    "hyphens": "manual"
+                    "overflow-wrap": "normal",  # wrap only at spaces/punctuation
+                    "hyphens": "manual",
                 },
             )
-
 
     # Phone valueFormatter (handles strings, ints, and floaty CSV values like 8007001860.0)
     _phone_fmt_js = JsCode("""
@@ -353,7 +356,6 @@ def _render_table(df: pd.DataFrame) -> None:
     """)
     if "phone" in df.columns:
         gob.configure_column("phone", valueFormatter=_phone_fmt_js)
-
 
     # Grid layout & pagination
     grid_opts: dict = {}
