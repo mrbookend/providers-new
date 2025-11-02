@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 import os
 from io import BytesIO
 from pathlib import Path
-from contextlib import suppress
 
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
+
 
 # === ANCHOR: IMPORTS (aggrid) (start) ===
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
