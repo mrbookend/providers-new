@@ -223,15 +223,31 @@ def _render_table(df):
         suppressSizeToFit=True,
     )
 
-    # Wrap + autoHeight ONLY for these columns
-    for _col in ("business_name", "address"):
-        if _col in df.columns:
-            gob.configure_column(
-                _col,
-                wrapText=True,
-                autoHeight=True,
-                cellStyle={"white-space": "normal", "line-height": "1.3em"},
-            )
+    # === ANCHOR: READONLY WIDTHS (start) ===
+    # Read widths from secrets and apply as hard pixel widths
+    try:
+        widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
+    except Exception:
+        widths_src = {}
+
+    # Normalize: case/space tolerant, numeric only
+    widths = {}
+    for k, v in (widths_src.items() if isinstance(widths_src, dict) else []):
+        key = str(k).strip().lower()
+        try:
+            widths[key] = int(str(v).strip())
+        except Exception:
+            pass  # ignore non-integer widths
+
+    # Apply widths; keep flex=0 so px width is honored
+    _applied_w = 0
+    for col in list(df.columns):
+        lk = str(col).strip().lower()
+        w = widths.get(lk)
+        if w:
+            gob.configure_column(col, width=w, flex=0)
+            _applied_w += 1
+    # === ANCHOR: READONLY WIDTHS (end) ===
 
     # Wrap + autoHeight only for these columns
     for col in ("business_name", "address"):
