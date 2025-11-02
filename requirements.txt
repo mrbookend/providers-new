@@ -11,4 +11,3 @@ libsql-experimental>=0.0.55
 XlsxWriter>=3.0
 
 # Ag-Grid for Streamlit
-st-aggrid>=0.3.4,<1.0
