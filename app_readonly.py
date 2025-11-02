@@ -223,44 +223,39 @@ def _render_table(df):
     )
 
     # === ANCHOR: READONLY WIDTHS (start) ===
-    # Read widths from secrets and apply as hard pixel widths
+    # Read widths from secrets and apply as hard pixel widths; also derive a key
+    # so the grid is recreated when widths change (prevents Ag-Grid state from overriding).
     try:
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
     
-    # Handle Streamlit/TOML AttrDict-like types (Cloud and local both)
-    try:
-        items_iter = dict(widths_src).items()
-    except Exception:
-        items_iter = widths_src.items() if hasattr(widths_src, "items") else []
-    
-    # Normalize: case/space tolerant, numeric only
+    # Normalize: case/space tolerant, numeric only (no try/except-pass)
+    from contextlib import suppress  # top-level also present; re-import here is harmless
     widths: dict[str, int] = {}
-    for k, v in items_iter:
-        key = str(k).strip().lower()
-        try:
-            widths[key] = int(str(v).strip())
-        except (ValueError, TypeError):
-            pass  # ignore junk values
-    
-    # Prevent any auto-size from fighting our px widths
-    gob.configure_default_column(suppressSizeToFit=True)
-    gob.configure_grid_options(suppressAutoSize=True)
+    if isinstance(widths_src, dict):
+        for k, v in widths_src.items():
+            key = str(k).strip().lower()
+            with suppress(ValueError, TypeError):
+                widths[key] = int(str(v).strip())
     
     # Apply widths; keep flex=0 so px width is honored
-    _applied = []
+    _applied_w = 0
     for col in list(df.columns):
         lk = str(col).strip().lower()
         w = widths.get(lk)
         if w:
             gob.configure_column(col, width=w, flex=0)
-            _applied.append((col, w))
+            _applied_w += 1
     
-    # Optional one-line debug (turn on via secrets)
-    if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
-        st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
+    # Build a deterministic signature for the widths to use in the grid key
+    # (avoid extra imports by using sorted tuples + repr)
+    _wsig = repr(tuple(sorted(widths.items())))
+    
+    # Optional: discourage column-state remembering (some st_aggrid versions honor this)
+    gob.configure_grid_options(rememberColumnStates=False)
     # === ANCHOR: READONLY WIDTHS (end) ===
+
 
 
     # Wrap + autoHeight only for these columns
@@ -292,6 +287,14 @@ def _render_table(df):
 
     gob.configure_grid_options(**grid_opts)
 
+# Build a component key that varies with widths (and optionally a per-run nonce)
+_always_reset = bool(st.secrets.get("READONLY_ALWAYS_RESET", 1))  # default: reset each rerun
+_nonce = st.session_state.get("__readonly_grid_nonce__", 0)
+if _always_reset:
+    _nonce += 1
+    st.session_state["__readonly_grid_nonce__"] = _nonce
+_grid_key = f"readonly-grid|w={_wsig}|n={_nonce}"
+# === ANCHOR: GRID KEY (end) ===
     # Render: single-page/paged => no explicit height; fixed viewport => height=grid_height
     if single_page or page_size > 0:
         AgGrid(
@@ -300,6 +303,7 @@ def _render_table(df):
             fit_columns_on_grid_load=False,
             allow_unsafe_jscode=True,
             custom_css=custom_css,
+            key=_grid_key,
         )
     else:
         AgGrid(
@@ -309,6 +313,7 @@ def _render_table(df):
             fit_columns_on_grid_load=False,
             allow_unsafe_jscode=True,
             custom_css=custom_css,
+            key=_grid_key,
         )
 
 
