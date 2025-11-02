@@ -14,14 +14,16 @@ import streamlit as st
 # === ANCHOR: IMPORTS (aggrid) (start) ===
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
 try:
-    from st_aggrid import AgGrid, GridOptionsBuilder
-
+    # Import only what you actually use in this file
+    from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
     _HAS_AGGRID = True
 except Exception:
     AgGrid = None  # type: ignore[assignment]
     GridOptionsBuilder = None  # type: ignore[assignment]
+    JsCode = None  # type: ignore[assignment]
     _HAS_AGGRID = False
 # === ANCHOR: IMPORTS (aggrid) (end) ===
+
 
 # Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
@@ -205,28 +207,36 @@ src = p.read_text(encoding="utf-8")
 
 new = r'''
 # === ANCHOR: BROWSE RENDER (aggrid) (start) ===
-def _render_table(df):
+def _render_table(df: pd.DataFrame) -> None:
     """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
     if not _HAS_AGGRID:
         st.dataframe(df, use_container_width=False, hide_index=True)
         return
 
-    # Read knobs (globals are optional; defaults are safe)
+    # Knobs (optional globals; safe defaults)
     single_page = bool(globals().get("single_page", False))
     page_size = int(globals().get("page_size", 0) or 0)
     grid_height = int(globals().get("grid_height", 560))
     header_px = int(globals().get("header_px", 0))
     custom_css = globals().get("custom_css", {})
 
-    # Base grid: nowrap globally for perf; we'll enable wrap per-column
+    # Base options builder
     gob = GridOptionsBuilder.from_dataframe(df)
     gob.configure_default_column(
-        wrapText=False,
+        wrapText=False,          # global off; we enable per-column to control growth
         autoHeight=False,
         resizable=True,
+        sortable=True,
+        filter=True,
         cellStyle={"white-space": "nowrap", "line-height": "1.3em"},
         flex=0,
         suppressSizeToFit=True,
+    )
+
+    # Enable text selection/copy from cells
+    gob.configure_grid_options(
+        enableCellTextSelection=True,
+        ensureDomOrder=True,
     )
 
     # Secrets-driven exact pixel widths (case-insensitive)
@@ -234,40 +244,32 @@ def _render_table(df):
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
-# === ANCHOR: READONLY WIDTHS (start) ===
-# Source: secrets["COLUMN_WIDTHS_PX_READONLY"]; case-insensitive keys; ints only.
-try:
-    # Handles Streamlit's AttrDict-like objects and plain dicts
-    items_iter = dict(widths_src).items()
-except Exception:
-    items_iter = widths_src.items() if isinstance(widths_src, dict) else []
+    try:
+        items_iter = dict(widths_src).items()
+    except Exception:
+        items_iter = widths_src.items() if isinstance(widths_src, dict) else []
 
-widths: dict[str, int] = {}
-for k, v in items_iter:
-    key = str(k).strip().lower()
-    # SIM105-friendly: no try/except-pass
+    widths: dict[str, int] = {}
     with suppress(ValueError, TypeError):
-        widths[key] = int(str(v).strip())
+        for k, v in items_iter:
+            widths[str(k).strip().lower()] = int(str(v).strip())
 
-# Don’t let auto-size fight our fixed pixel widths
-gob.configure_default_column(suppressSizeToFit=True)
-gob.configure_grid_options(suppressAutoSize=True)
+    # Don’t let auto-size fight our fixed pixel widths
+    gob.configure_default_column(suppressSizeToFit=True)
+    gob.configure_grid_options(suppressAutoSize=True)
 
-# Apply px widths; flex=0 makes widths sticky
-_applied: list[tuple[str, int]] = []
-for col in list(df.columns):
-    lk = str(col).strip().lower()
-    w = widths.get(lk)
-    if w:
-        gob.configure_column(col, width=w, flex=0)
-        _applied.append((col, w))
+    _applied: list[tuple[str, int]] = []
+    for col in list(df.columns):
+        lk = str(col).strip().lower()
+        w = widths.get(lk)
+        if w:
+            gob.configure_column(col, width=w, flex=0)
+            _applied.append((col, w))
+    if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
+        st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
 
-# Optional quick debug (enable via secrets)
-if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
-    st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
-# === ANCHOR: READONLY WIDTHS (end) ===
-
-    for col in ("business_name", "address"):
+    # Wrap + auto-height for these columns
+    for col in ("business_name", "address", "category", "service"):
         if col in df.columns:
             gob.configure_column(
                 col,
@@ -276,8 +278,21 @@ if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
                 cellStyle={"white-space": "normal", "line-height": "1.3em"},
             )
 
-    # Grid options (pagination / layout)
-    grid_opts = {}
+    # Phone valueFormatter (display-only; keeps underlying data untouched)
+    _phone_fmt_js = JsCode("""
+    function(params) {
+      let raw = (params.value ?? "").toString();
+      let s = raw.replace(/\\D/g, "");
+      if (s.length === 11 && s.startsWith("1")) { s = s.slice(1); }
+      if (s.length !== 10) { return raw.trim(); }
+      return "(" + s.slice(0,3) + ") " + s.slice(3,6) + "-" + s.slice(6);
+    }
+    """)
+    if "phone" in df.columns:
+        gob.configure_column("phone", valueFormatter=_phone_fmt_js)
+
+    # Grid layout & pagination
+    grid_opts: dict = {}
     if single_page:
         grid_opts["domLayout"] = "autoHeight"
         page_size = 0
@@ -290,8 +305,6 @@ if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
 
     if header_px > 0:
         grid_opts["headerHeight"] = header_px
-    grid_opts["ensureDomOrder"] = False
-    grid_opts["suppressColumnVirtualisation"] = False
 
     gob.configure_grid_options(**grid_opts)
 
@@ -318,13 +331,14 @@ if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
         AgGrid(
             df,
             gridOptions=gob.build(),
-            height=grid_height,  # fixed viewport, internal scroll
+            height=grid_height,
             fit_columns_on_grid_load=False,
             allow_unsafe_jscode=True,
             custom_css=custom_css,
             key=_grid_key,
         )
 # === ANCHOR: BROWSE RENDER (aggrid) (end) ===
+
 '''.lstrip("\n")
 
 src = re.sub(
