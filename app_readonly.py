@@ -239,10 +239,10 @@ def _render_table(df):
     widths: dict[str, int] = {}
     for k, v in items_iter:
         key = str(k).strip().lower()
-        try:
+        from contextlib import suppress  # ensure this is at top-level once in the file
+        with suppress(ValueError, TypeError):
             widths[key] = int(str(v).strip())
-        except (ValueError, TypeError):
-            pass  # ignore junk values
+
     
     # Prevent any auto-size from fighting our px widths
     gob.configure_default_column(suppressSizeToFit=True)
