@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from io import BytesIO
 from pathlib import Path
+from contextlib import suppress
 
 import pandas as pd
 import sqlalchemy as sa
@@ -73,7 +74,6 @@ def _bootstrap_from_csv_if_needed() -> str:
     ensure_schema()
 
     # Already has rows?
-    from contextlib import suppress
     with suppress(Exception):
         with ENG.connect() as cx:
             cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
@@ -232,7 +232,6 @@ def _render_table(df):
         widths_src = {}
 
     # Normalize: case/space tolerant, numeric only
-    from contextlib import suppress
     widths = {}
     for k, v in (widths_src.items() if isinstance(widths_src, dict) else []):
         key = str(k).strip().lower()
@@ -334,7 +333,6 @@ with st.expander("Help Section", expanded=False):
 
 def _render_downloads(df: pd.DataFrame) -> None:
     # Local import avoids global import-order churn; suppress silences UX-only errors
-    from contextlib import suppress
 
     with suppress(Exception):
         c1, c2, _sp = st.columns([1, 1, 6])
