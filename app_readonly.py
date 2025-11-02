@@ -243,28 +243,55 @@ def _render_table(df: pd.DataFrame) -> None:
     if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
         st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
 
-    # Wrap + auto-height for these columns
     for col in ("business_name", "address", "category", "service"):
         if col in df.columns:
             gob.configure_column(
                 col,
                 wrapText=True,
                 autoHeight=True,
-                cellStyle={"white-space": "normal", "line-height": "1.3em"},
+                cellStyle={
+                    "white-space": "normal",   # allow wrapping
+                    "line-height": "1.3em",
+                    "word-break": "keep-all",  # do NOT break inside words
+                    "overflow-wrap": "normal", # wrap only at spaces/punctuation
+                    "hyphens": "manual"
+                },
             )
 
-    # Phone valueFormatter (display-only; keeps underlying data untouched)
+
+    # Phone valueFormatter (handles strings, ints, and floaty CSV values like 8007001860.0)
     _phone_fmt_js = JsCode("""
     function(params) {
-      let raw = (params.value ?? "").toString();
+      if (params.value == null) return "";
+      let raw = String(params.value).trim();
+
+      // If it's "digits" or "digits.0/00..." from CSV, drop the decimal part.
+      if (/^\\d+(?:\\.0+)?$/.test(raw)) {
+        raw = raw.split(".")[0];
+      }
+
+      // Keep only digits.
       let s = raw.replace(/\\D/g, "");
-      if (s.length === 11 && s.startsWith("1")) { s = s.slice(1); }
-      if (s.length !== 10) { return raw.trim(); }
+
+      // Common cases:
+      // - 11 digits starting with 1 => drop the 1
+      if (s.length === 11 && s.startsWith("1")) {
+        s = s.slice(1);
+      }
+
+      // - 10 digits + ".0" artifact becomes 11 digits after dot removal; trim to 10 if original had '.'
+      if (s.length === 11 && raw.includes(".")) {
+        s = s.slice(0, 10);
+      }
+
+      if (s.length !== 10) return raw;
+
       return "(" + s.slice(0,3) + ") " + s.slice(3,6) + "-" + s.slice(6);
     }
     """)
     if "phone" in df.columns:
         gob.configure_column("phone", valueFormatter=_phone_fmt_js)
+
 
     # Grid layout & pagination
     grid_opts: dict = {}
