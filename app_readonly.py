@@ -188,12 +188,30 @@ def _render_table(df: pd.DataFrame) -> None:
         st.dataframe(df, use_container_width=False, hide_index=True)
         return
 
-    # Knobs (optional globals; safe defaults)
-    single_page = bool(globals().get("single_page", False))
-    page_size = int(globals().get("page_size", 0) or 0)
-    grid_height = int(globals().get("grid_height", 560))
-    header_px = int(globals().get("header_px", 0))
-    custom_css = globals().get("custom_css", {})
+        # Knobs (prefer secrets; fall back to globals/defaults)
+        try:
+            page_size = int(st.secrets.get("READONLY_PAGE_SIZE", globals().get("page_size", 0)) or 0)
+            grid_height = int(st.secrets.get("READONLY_GRID_HEIGHT_PX", globals().get("grid_height", 560)) or 560)
+            header_px = int(st.secrets.get("READONLY_HEADER_HEIGHT_PX", globals().get("header_px", 0)) or 0)
+            font_px = int(st.secrets.get("READONLY_FONT_SIZE_PX", 0) or 0)
+        except Exception:
+            page_size = int(globals().get("page_size", 0) or 0)
+            grid_height = int(globals().get("grid_height", 560) or 560)
+            header_px = int(globals().get("header_px", 0) or 0)
+            font_px = 0
+    
+        # Optional single-page override (secrets wins; then globals; default False)
+        single_page = bool(st.secrets.get("READONLY_SINGLE_PAGE", globals().get("single_page", False)))
+    
+        # Optional per-grid CSS (font size)
+        custom_css = globals().get("custom_css", {})
+        if font_px > 0:
+            custom_css = {
+                ".ag-root-wrapper": {"font-size": f"{font_px}px"},
+                ".ag-header-cell-label": {"font-size": f"{max(font_px - 1, 10)}px"},
+                ".ag-cell": {"font-size": f"{font_px}px", "line-height": "1.3em"},
+            }
+
 
     # Base options builder
     gob = GridOptionsBuilder.from_dataframe(df)
