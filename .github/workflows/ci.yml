@@ -17,17 +17,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Ruff lint (github format)
-        uses: astral-sh/ruff-action@v2
-        with:
-          version: "0.6.9"
-          args: check --output-format=github .
-
       - name: Ruff format (check only)
         uses: astral-sh/ruff-action@v2
         with:
-          version: "0.6.9"
+          version: "0.14.2"
           args: format --check .
 
-      - name: Python compile check
-        run: python -m py_compile app_admin.py
+      - name: Ruff lint (github format)
+        uses: astral-sh/ruff-action@v2
+        with:
+          version: "0.14.2"
+          args: check --output-format=github .
+
+      - name: Python compile check (admin + readonly)
+        run: |
+          python -m py_compile app_admin.py
+          python -m py_compile app_readonly.py
