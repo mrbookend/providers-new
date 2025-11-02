@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # === ANCHOR: IMPORTS (start) ===
 # noop: nudge redeploy
 # ruff: noqa: I001
