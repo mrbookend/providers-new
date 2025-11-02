@@ -29,48 +29,25 @@ except Exception:
 st.set_page_config(page_title="Providers — Read-Only", page_icon="[book]", layout="wide")
 
 # === ANCHOR: RUNTIME BANNER (start) ===
-def _runtime_facts() -> tuple[str, str]:
-    """Return (git_short_sha, file_sha16). Either may be empty."""
-    sha = ""
+def _runtime_banner() -> None:
+    """Tiny runtime SHA banner; no new imports, Ruff-safe, silent on errors."""
     try:
-        # Local imports to avoid E402 / I001 issues
-        from pathlib import Path
-        import subprocess
-
-        repo_dir = Path(__file__).resolve().parent
-        sha = subprocess.check_output(
-            ["git", "-C", str(repo_dir), "rev-parse", "--short", "HEAD"],
-            text=True,
-        ).strip()
+        head = Path(".git/HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref:"):
+            ref = head.split()[-1]
+            ref_path = Path(".git") / ref
+            txt = (ref_path.read_text(encoding="utf-8").strip()
+                   if ref_path.exists() else head)
+        else:
+            txt = head
+        sha = txt[:7]
+        # NOTE: On Streamlit Cloud `.git` usually isn't present; this will no-op.
+        st.caption(f"build: {sha}")
     except Exception:
         pass
-
-    file16 = ""
-    try:
-        from pathlib import Path
-        import hashlib
-
-        b = Path(__file__).read_bytes()
-        file16 = hashlib.sha256(b).hexdigest()[:16]
-    except Exception:
-        pass
-    return sha, file16
-
-
-_git_sha, _file16 = _runtime_facts()
-if _git_sha or _file16:
-    msg = "Running "
-    if _git_sha:
-        msg += f"commit: {_git_sha}"
-    if _file16:
-        msg += (" " if _git_sha else "") + f"(file: {_file16})"
-    import streamlit as st  # local to keep Ruff happy if banner moves
-    st.caption(msg)
 # === ANCHOR: RUNTIME BANNER (end) ===
 
-
-
-
+_runtime_banner()
 
 # === ANCHOR: STARTUP BANNER (start) ===
 import hashlib
