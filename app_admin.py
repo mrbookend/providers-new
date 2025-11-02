@@ -31,6 +31,170 @@ PHONE_LEN_WITH_CC = 11
 BROWSE_PREVIEW_ROWS = 20
 CSV_MAX_ROWS = 1000
 # === ANCHOR: IMPORTS (end) ===
+# === ANCHOR: CKW ENGINE (start) ===
+from functools import lru_cache
+import re
+from urllib.parse import urlparse
+
+CURRENT_CKW_VER = "ckw-1"
+
+_STOP = {
+    "the","and","or","of","for","to","a","an","in","on","at","by","with","from",
+    "llc","inc","co","corp","corporation","company","ltd","pllc","pc","dba","llp",
+    "mr","mrs","ms","dr",
+}
+_ALLOW_SHORT = {"sa", "tx", "us", "24x7", "24/7"}
+
+_SYNONYM_PAIRS = {
+    "hvac": {"heating","cooling","air","conditioning","a/c"},
+    "a/c": {"air","conditioning","ac"},
+    "landscape": {"landscaping","lawn","yard"},
+    "security": {"camera","cameras","surveillance","cctv"},
+}
+
+_nonword = re.compile(r"[^a-z0-9]+")
+_ws = re.compile(r"\s+")
+
+def _tok(s: str) -> list[str]:
+    s = (s or "").lower().replace("&", " and ")
+    s = _nonword.sub(" ", s)
+    s = _ws.sub(" ", s).strip()
+    if not s:
+        return []
+    out = []
+    for t in s.split(" "):
+        if not t:
+            continue
+        if len(t) <= 2 and t not in _ALLOW_SHORT:
+            continue
+        if t in _STOP:
+            continue
+        out.append(t)
+    return out
+
+def _email_tokens(email: str) -> list[str]:
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        return []
+    local, dom = email.split("@", 1)
+    return _tok(local) + _tok(dom.replace(".", " "))
+
+def _website_tokens(url: str) -> list[str]:
+    url = (url or "").strip().lower()
+    if not url:
+        return []
+    try:
+        host = urlparse(url if "://" in url else "https://" + url).netloc
+    except Exception:
+        return []
+    host = host.split(":")[0]
+    bits = [b for b in host.split(".") if b not in {"www","com","net","org","io","co","us"}]
+    return _tok(" ".join(bits))
+
+@lru_cache(maxsize=1)
+def _synonyms_from_db(conn) -> dict[str, set[str]]:
+    syn = {k: set(v) for k, v in _SYNONYM_PAIRS.items()}
+    try:
+        rows = conn.execute("SELECT base, alts FROM ckw_synonyms").fetchall()
+        for base, alts in rows:
+            base = (base or "").strip().lower()
+            if not base:
+                continue
+            alt_set = syn.setdefault(base, set())
+            for a in re.split(r"[,\s]+", alts or ""):
+                a = a.strip().lower()
+                if a and a != base:
+                    alt_set.add(a)
+    except Exception:
+        pass
+    symmetric = {}
+    for base, alts in syn.items():
+        for a in alts:
+            symmetric.setdefault(a, set()).add(base)
+    for k, v in symmetric.items():
+        syn.setdefault(k, set()).update(v)
+    return syn
+
+def _seed_terms_for(conn, category: str, service: str) -> set[str]:
+    terms: set[str] = set()
+    try:
+        q = """
+        SELECT terms FROM ckw_seeds
+        WHERE (category = ? AND service = ?)
+           OR (category = ? AND service = '*')
+           OR (category = '*' AND service = '*')
+        """
+        rows = conn.execute(q, (category or "", service or "", category or "")).fetchall()
+        for (t,) in rows:
+            for w in _tok(t or ""):
+                terms.add(w)
+    except Exception:
+        pass
+    return terms
+
+def compute_ckw_row(row: dict, conn=None) -> tuple[str, str]:
+    bag: set[str] = set()
+    bag.update(_tok(row.get("business_name", "")))
+    bag.update(_tok(row.get("category", "")))
+    bag.update(_tok(row.get("service", "")))
+    bag.update(_tok(row.get("contact_name", "")))
+    bag.update(_tok(row.get("notes", "")))
+    bag.update(_tok(row.get("keywords", "")))
+    bag.update(_email_tokens(row.get("email", "")))
+    bag.update(_website_tokens(row.get("website", "")))
+    if conn is not None:
+        bag.update(_seed_terms_for(conn, row.get("category", ""), row.get("service", "")))
+    bag.update(_tok(row.get("ckw_manual_extra", "")))
+    if conn is not None:
+        syn = _synonyms_from_db(conn)
+        expand = set()
+        for t in list(bag):
+            expand.update(syn.get(t, ()))
+        bag.update(expand)
+    bag = {t for t in bag if t not in _STOP}
+    ordered = sorted(bag, key=lambda t: (-len(t), t))
+    ckw_str = " ".join(ordered)
+    return ckw_str, CURRENT_CKW_VER
+
+def recompute_ckw_for_df(df, conn=None):
+    if "ckw_locked" not in df.columns:
+        df["ckw_locked"] = 0
+    if "ckw_version" not in df.columns:
+        df["ckw_version"] = ""
+
+    changed = 0
+    out_ckw, out_ver = [], []
+
+    for _, r in df.iterrows():
+        if int(r.get("ckw_locked", 0) or 0) == 1:
+            cur = str(r.get("ckw") or "")
+            if r.get("ckw_manual_extra"):
+                extras = _tok(r.get("ckw_manual_extra"))
+                bag = set(cur.split()) | set(extras)
+                cur2 = " ".join(sorted(bag, key=lambda t: (-len(t), t)))
+                if cur2 != cur:
+                    changed += 1
+                    out_ckw.append(cur2)
+                    out_ver.append(CURRENT_CKW_VER)
+                else:
+                    out_ckw.append(cur)
+                    out_ver.append(r.get("ckw_version") or CURRENT_CKW_VER)
+            else:
+                out_ckw.append(cur)
+                out_ver.append(r.get("ckw_version") or CURRENT_CKW_VER)
+            continue
+
+        ckw_str, ver = compute_ckw_row(r.to_dict(), conn=conn)
+        if ckw_str != (r.get("ckw") or "") or ver != (r.get("ckw_version") or ""):
+            changed += 1
+        out_ckw.append(ckw_str)
+        out_ver.append(ver)
+
+    df = df.copy()
+    df["ckw"] = out_ckw
+    df["ckw_version"] = out_ver
+    return df, changed
+# === ANCHOR: CKW ENGINE (end) ===
 
 # === ANCHOR: NOUNS (start) ===
 NOUN_SINGULAR = "Provider"
@@ -2351,6 +2515,29 @@ with _tabs[4]:
             file_name=f"providers_raw_{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.csv",
             mime="text/csv",
         )
+# === ANCHOR: CKW RECOMPUTE HOOK (start) ===
+import streamlit as st
+
+with st.expander("CKW — Recompute (unlocked rows)"):
+    if st.button("Recompute CKW now"):
+        import sqlite3
+        try:
+            conn = sqlite3.connect("providers.db")
+        except Exception as e:
+            st.error(f"Could not open DB: {e}")
+            conn = None
+
+        df, changed = recompute_ckw_for_df(df, conn=conn)
+        st.success(f"CKW updated for {changed} row(s).")
+
+        # If your app persists df elsewhere, remove the to_sql below and use your normal save path.
+        try:
+            if conn is not None:
+                df.to_sql("vendors", conn, if_exists="replace", index=False)
+                st.info("Persisted vendors table with updated CKW.")
+        except Exception as e:
+            st.warning(f"Computed CKW but did not persist: {e}")
+# === ANCHOR: CKW RECOMPUTE HOOK (end) ===
 
     # --- CKW tools (NOT in an expander, to avoid nested expanders) --------------------------------
     st.subheader("CKW -- Recompute")
