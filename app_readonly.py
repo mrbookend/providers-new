@@ -258,6 +258,10 @@ def _render_table(df):
     # Optional one-line debug (turn on via secrets)
     if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
         st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
+    st.caption(
+        f"[probe] aggrid={_HAS_AGGRID} | width-keys={','.join(sorted(widths.keys())) or 'none'}"
+    )
+    # ^ TEMP probe — remove after verifying widths on Cloud
     # === ANCHOR: READONLY WIDTHS (end) ===
 
     # Wrap + autoHeight only for these columns
