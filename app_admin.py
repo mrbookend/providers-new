@@ -3,7 +3,6 @@ from __future__ import annotations
 # === ANCHOR: IMPORTS (start) ===
 # noop: nudge redeploy
 # ruff: noqa: I001
-from __future__ import annotations
 
 # Standard library
 import contextlib
