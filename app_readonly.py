@@ -234,25 +234,39 @@ def _render_table(df):
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
+# === ANCHOR: READONLY WIDTHS (start) ===
+# Source: secrets["COLUMN_WIDTHS_PX_READONLY"]; case-insensitive keys; ints only.
+try:
+    # Handles Streamlit's AttrDict-like objects and plain dicts
+    items_iter = dict(widths_src).items()
+except Exception:
+    items_iter = widths_src.items() if isinstance(widths_src, dict) else []
 
-    widths = {}
-    if isinstance(widths_src, dict):
-        for k, v in widths_src.items():
-            key = str(k).strip().lower()
-            # SIM105-friendly: no try/except-pass
-            from contextlib import suppress  # (top-level import is also present; inner is harmless)
-            with suppress(ValueError, TypeError):
-                widths[key] = int(str(v).strip())
+widths: dict[str, int] = {}
+for k, v in items_iter:
+    key = str(k).strip().lower()
+    # SIM105-friendly: no try/except-pass
+    with suppress(ValueError, TypeError):
+        widths[key] = int(str(v).strip())
 
-    _applied_w = 0
-    for col in list(df.columns):
-        lk = str(col).strip().lower()
-        w = widths.get(lk)
-        if w:
-            gob.configure_column(col, width=w, flex=0)
-            _applied_w += 1
+# Don’t let auto-size fight our fixed pixel widths
+gob.configure_default_column(suppressSizeToFit=True)
+gob.configure_grid_options(suppressAutoSize=True)
 
-    # Wrap + autoHeight for selected columns
+# Apply px widths; flex=0 makes widths sticky
+_applied: list[tuple[str, int]] = []
+for col in list(df.columns):
+    lk = str(col).strip().lower()
+    w = widths.get(lk)
+    if w:
+        gob.configure_column(col, width=w, flex=0)
+        _applied.append((col, w))
+
+# Optional quick debug (enable via secrets)
+if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
+    st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
+# === ANCHOR: READONLY WIDTHS (end) ===
+
     for col in ("business_name", "address"):
         if col in df.columns:
             gob.configure_column(
