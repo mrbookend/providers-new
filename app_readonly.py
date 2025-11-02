@@ -300,6 +300,12 @@ def _render_table(df: pd.DataFrame) -> None:
         grid_opts["headerHeight"] = header_px
 
     gob.configure_grid_options(**grid_opts)
+    # Optional one-line probe (toggle with DEBUG_READONLY_WIDTHS in secrets)
+    if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
+        st.caption(
+            f"[readonly] knobs: page_size={page_size}, grid_height={grid_height}, "
+            f"header_px={header_px}, font_px={font_px}"
+        )
 
     # Key varies with widths (and optional per-run nonce) to force re-instantiation
     _wsig = "none" if not widths else "|".join(f"{k}:{widths[k]}" for k in sorted(widths))
