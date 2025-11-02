@@ -196,22 +196,29 @@ if "id" in df.columns:
     df = df.drop(columns=["id"])
 
 
+python3 - <<'PY'
+from pathlib import Path
+import re
+
+p = Path("app_readonly.py")
+src = p.read_text(encoding="utf-8")
+
+new = r'''
 # === ANCHOR: BROWSE RENDER (aggrid) (start) ===
 def _render_table(df):
     """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
-    # Fast fallback if Ag-Grid isn't available
     if not _HAS_AGGRID:
         st.dataframe(df, use_container_width=False, hide_index=True)
         return
 
-    # Knobs with sane defaults (read from globals if present)
+    # Read knobs (globals are optional; defaults are safe)
     single_page = bool(globals().get("single_page", False))
     page_size = int(globals().get("page_size", 0) or 0)
     grid_height = int(globals().get("grid_height", 560))
     header_px = int(globals().get("header_px", 0))
     custom_css = globals().get("custom_css", {})
 
-    # Perf defaults: nowrap + no autoHeight globally
+    # Base grid: nowrap globally for perf; we'll enable wrap per-column
     gob = GridOptionsBuilder.from_dataframe(df)
     gob.configure_default_column(
         wrapText=False,
@@ -222,48 +229,44 @@ def _render_table(df):
         suppressSizeToFit=True,
     )
 
-    # === ANCHOR: READONLY WIDTHS (start) ===
-    # Read widths from secrets and apply as hard pixel widths
+    # Secrets-driven exact pixel widths (case-insensitive)
     try:
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
-    
-    # Handle Streamlit/TOML AttrDict-like types (Cloud and local both)
-    try:
-        items_iter = dict(widths_src).items()
-    except Exception:
-        items_iter = widths_src.items() if hasattr(widths_src, "items") else []
-    
-    # Normalize: case/space tolerant, numeric only
-    widths: dict[str, int] = {}
-    for k, v in items_iter:
-        key = str(k).strip().lower()
-        try:
-            widths[key] = int(str(v).strip())
-        except (ValueError, TypeError):
-            pass  # ignore junk values
-    
-    # Prevent any auto-size from fighting our px widths
-    gob.configure_default_column(suppressSizeToFit=True)
-    gob.configure_grid_options(suppressAutoSize=True)
-    
-    # Apply widths; keep flex=0 so px width is honored
-    _applied = []
-    for col in list(df.columns):
-        lk = str(col).strip().lower()
-        w = widths.get(lk)
-        if w:
-            gob.configure_column(col, width=w, flex=0)
-            _applied.append((col, w))
-    
-    # Optional one-line debug (turn on via secrets)
-    if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
-        st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
-    # === ANCHOR: READONLY WIDTHS (end) ===
+# === ANCHOR: READONLY WIDTHS (start) ===
+# Source: secrets["COLUMN_WIDTHS_PX_READONLY"]; case-insensitive keys; ints only.
+try:
+    # Handles Streamlit's AttrDict-like objects and plain dicts
+    items_iter = dict(widths_src).items()
+except Exception:
+    items_iter = widths_src.items() if isinstance(widths_src, dict) else []
 
+widths: dict[str, int] = {}
+for k, v in items_iter:
+    key = str(k).strip().lower()
+    # SIM105-friendly: no try/except-pass
+    with suppress(ValueError, TypeError):
+        widths[key] = int(str(v).strip())
 
-    # Wrap + autoHeight only for these columns
+# Don’t let auto-size fight our fixed pixel widths
+gob.configure_default_column(suppressSizeToFit=True)
+gob.configure_grid_options(suppressAutoSize=True)
+
+# Apply px widths; flex=0 makes widths sticky
+_applied: list[tuple[str, int]] = []
+for col in list(df.columns):
+    lk = str(col).strip().lower()
+    w = widths.get(lk)
+    if w:
+        gob.configure_column(col, width=w, flex=0)
+        _applied.append((col, w))
+
+# Optional quick debug (enable via secrets)
+if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
+    st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
+# === ANCHOR: READONLY WIDTHS (end) ===
+
     for col in ("business_name", "address"):
         if col in df.columns:
             gob.configure_column(
@@ -273,7 +276,7 @@ def _render_table(df):
                 cellStyle={"white-space": "normal", "line-height": "1.3em"},
             )
 
-    # Grid options
+    # Grid options (pagination / layout)
     grid_opts = {}
     if single_page:
         grid_opts["domLayout"] = "autoHeight"
@@ -292,7 +295,16 @@ def _render_table(df):
 
     gob.configure_grid_options(**grid_opts)
 
-    # Render: single-page/paged => no explicit height; fixed viewport => height=grid_height
+    # Key varies with widths (and optional per-run nonce) to force re-instantiation
+    _wsig = "none" if not widths else "|".join(f"{k}:{widths[k]}" for k in sorted(widths))
+    _always_reset = bool(st.secrets.get("READONLY_ALWAYS_RESET", 1))
+    _nonce = st.session_state.get("__readonly_grid_nonce__", 0)
+    if _always_reset:
+        _nonce += 1
+        st.session_state["__readonly_grid_nonce__"] = _nonce
+    _grid_key = f"readonly-grid|w={_wsig}|n={_nonce}"
+
+    # Render
     if single_page or page_size > 0:
         AgGrid(
             df,
@@ -300,6 +312,7 @@ def _render_table(df):
             fit_columns_on_grid_load=False,
             allow_unsafe_jscode=True,
             custom_css=custom_css,
+            key=_grid_key,
         )
     else:
         AgGrid(
@@ -309,10 +322,22 @@ def _render_table(df):
             fit_columns_on_grid_load=False,
             allow_unsafe_jscode=True,
             custom_css=custom_css,
+            key=_grid_key,
         )
-
-
 # === ANCHOR: BROWSE RENDER (aggrid) (end) ===
+'''.lstrip("\n")
+
+src = re.sub(
+    r"(?s)# === ANCHOR: BROWSE RENDER \(aggrid\) \(start\) ===.*?# === ANCHOR: BROWSE RENDER \(aggrid\) \(end\) ===",
+    new.strip(),
+    src,
+    count=1,
+)
+
+p.write_text(src, encoding="utf-8")
+print("Replaced Ag-Grid render block.")
+PY
+
 
 
 # === HIDE_COLUMNS DROP (auto) ===
