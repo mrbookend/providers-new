@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import suppress
 from io import BytesIO
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -79,8 +79,6 @@ def _bootstrap_from_csv_if_needed() -> str:
             cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
         if (cnt or 0) > 0:
             return ""
-
-
 
     # Find a CSV
     candidates = [
@@ -233,11 +231,10 @@ def _render_table(df):
 
     # Normalize: case/space tolerant, numeric only
     widths = {}
-    for k, v in (widths_src.items() if isinstance(widths_src, dict) else []):
+    for k, v in widths_src.items() if isinstance(widths_src, dict) else []:
         key = str(k).strip().lower()
         with suppress(ValueError, TypeError):
             widths[key] = int(str(v).strip())
-
 
     # Apply widths; keep flex=0 so px width is honored
     _applied_w = 0
@@ -360,5 +357,5 @@ def _render_downloads(df: pd.DataFrame) -> None:
                 use_container_width=False,
             )
 
-_render_downloads(df)
 
+_render_downloads(df)
