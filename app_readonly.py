@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 from contextlib import suppress
-from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
+
+from export_utils import ensure_phone_string, to_xlsx_bytes
 
 # === ANCHOR: IMPORTS (aggrid) (start) ===
 # Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
@@ -179,27 +180,29 @@ df = load_df(q)
 # Two download buttons on the SAME row (right side), built from the filtered df
 with suppress(Exception):
     # CSV
-    _csv_bytes = df.to_csv(index=False).encode("utf-8")
+    # === ANCHOR: CSV NORMALIZE (start) ===
+    _base_df = globals().get("df_export")
+    if not isinstance(_base_df, pd.DataFrame):
+        _base_df = globals().get("df")
+    _df_for_csv = _base_df.copy() if isinstance(_base_df, pd.DataFrame) else None
+    if (
+        _df_for_csv is not None
+        and 'phone' in _df_for_csv.columns
+        and 'phone_fmt' in _df_for_csv.columns
+    ):
+        _df_for_csv['phone'] = _df_for_csv['phone_fmt']
+    # (optional) preserve ZIP leading zeros
+    # if _df_for_csv is not None and 'zip' in _df_for_csv.columns:
+    #     _df_for_csv['zip'] = _df_for_csv['zip'].astype(str)
+    # === ANCHOR: CSV NORMALIZE (end) ===
+
+    _csv_bytes = _df_for_csv.to_csv(index=False).encode("utf-8")
     controls_right_csv.download_button(
         label="Download CSV",
         data=_csv_bytes,
         file_name="providers.csv",
         mime="text/csv",
         key="browse_dl_csv",
-        use_container_width=False,
-    )
-
-    # XLSX
-    _xbuf = BytesIO()
-    with pd.ExcelWriter(_xbuf, engine="xlsxwriter") as _writer:
-        df.to_excel(_writer, index=False, sheet_name="Providers")
-    _xbuf.seek(0)
-    controls_right_xlsx.download_button(
-        label="Download Excel",
-        data=_xbuf,
-        file_name="providers.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="browse_dl_xlsx",
         use_container_width=False,
     )
 
@@ -476,3 +479,25 @@ if drop_now:
 # === HIDE_COLUMNS DROP (auto end) ===
 _render_table(df)
 # === ANCHOR: BROWSE (end) ===
+
+# === ANCHOR: XLSX DOWNLOAD (patched) (start) ===
+_base_df = globals().get("df_export")
+if not isinstance(_base_df, pd.DataFrame):
+    _base_df = globals().get("df")
+_df_for_xlsx = (
+    _df_for_csv.copy()
+    if "_df_for_csv" in globals() and _df_for_csv is not None
+    else (_base_df.copy() if isinstance(_base_df, pd.DataFrame) else None)
+)
+if _df_for_xlsx is not None:
+    _df_for_xlsx = ensure_phone_string(_df_for_xlsx)
+    _xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
+    controls_right_xlsx.download_button(
+        label="Download Excel",
+        data=_xlsx_bytes,
+        file_name="providers.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="browse_dl_xlsx",
+        use_container_width=False,
+    )
+# === ANCHOR: XLSX DOWNLOAD (patched) (end) ===
