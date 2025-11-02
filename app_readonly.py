@@ -16,6 +16,7 @@ import streamlit as st
 try:
     # Import only what you actually use in this file
     from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+
     _HAS_AGGRID = True
 except Exception:
     AgGrid = None  # type: ignore[assignment]
@@ -177,6 +178,8 @@ except Exception:
 if show_boot:
     pass  # silenced
     #     st.toast(_msg)  # silenced
+
+
 # === ANCHOR: BOOTSTRAP TOAST (end) ===
 # === ANCHOR: BROWSE RENDER (aggrid) (start) ===
 def _render_table(df: pd.DataFrame) -> None:
@@ -195,7 +198,7 @@ def _render_table(df: pd.DataFrame) -> None:
     # Base options builder
     gob = GridOptionsBuilder.from_dataframe(df)
     gob.configure_default_column(
-        wrapText=False,          # global off; we enable per-column to control growth
+        wrapText=False,  # global off; we enable per-column to control growth
         autoHeight=False,
         resizable=True,
         sortable=True,
@@ -309,6 +312,8 @@ def _render_table(df: pd.DataFrame) -> None:
             custom_css=custom_css,
             key=_grid_key,
         )
+
+
 # === ANCHOR: BROWSE RENDER (aggrid) (end) ===
 
 
