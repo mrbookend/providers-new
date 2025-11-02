@@ -228,14 +228,19 @@ def _render_table(df):
         widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
     except Exception:
         widths_src = {}
-
-    # Normalize: case/space tolerant, numeric only
+    
+    # Normalize: case/space tolerant, numeric only — handle AttrDict/SectionProxy/etc.
+    try:
+        items_iter = dict(widths_src).items()
+    except Exception:
+        items_iter = widths_src.items() if hasattr(widths_src, "items") else []
+    
     widths = {}
-    for k, v in widths_src.items() if isinstance(widths_src, dict) else []:
+    for k, v in items_iter:
         key = str(k).strip().lower()
         with suppress(ValueError, TypeError):
             widths[key] = int(str(v).strip())
-
+    
     # Apply widths; keep flex=0 so px width is honored
     _applied_w = 0
     for col in list(df.columns):
@@ -245,6 +250,7 @@ def _render_table(df):
             gob.configure_column(col, width=w, flex=0)
             _applied_w += 1
     # === ANCHOR: READONLY WIDTHS (end) ===
+
 
     # Wrap + autoHeight only for these columns
     for col in ("business_name", "address"):
