@@ -128,15 +128,9 @@ def load_df(q: str) -> pd.DataFrame:
     """Return providers (optionally SQL-side LIKE on several columns)."""
     ensure_schema()
     with ENG.connect() as cx:
-        s = (q or "").strip()
-        if s:
-            like_sql = (
-                "SELECT * FROM vendors "
-                "WHERE business_name LIKE :x OR category LIKE :x OR service LIKE :x OR "
-                "contact_name LIKE :x OR email LIKE :x OR website LIKE :x OR address LIKE :x OR notes LIKE :x "
-                "ORDER BY business_name COLLATE NOCASE ASC"
-            )
-            return pd.read_sql_query(sa.text(like_sql), cx, params={"x": f"%{s}%"})
+        base_sql = "SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE ASC"
+        return pd.read_sql_query(sa.text(base_sql), cx)
+
         base_sql = "SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE ASC"
         return pd.read_sql_query(sa.text(base_sql), cx)
 
@@ -427,3 +421,32 @@ if _df_for_xlsx is not None:
         use_container_width=False,
     )
 # === ANCHOR: XLSX DOWNLOAD (patched) (end) ===
+
+
+# === ANCHOR: SEARCH (start) ===
+MIN_SEARCH_LEN = 2
+
+
+def _fts_match(term: str) -> tuple[str, dict]:
+    q = (term or "").strip()
+    q = " ".join(t for t in q.split() if t)
+    return (
+        """
+        SELECT v.*
+        FROM vendors_fts
+        JOIN vendors AS v ON v.id = vendors_fts.rowid
+        WHERE vendors_fts MATCH :q
+        """,
+        {"q": q},
+    )
+
+
+def _run_search(term: str, eng):
+    if term and len(term) >= MIN_SEARCH_LEN:
+        sql, params = _fts_match(term)
+    else:
+        sql, params = ("SELECT * FROM vendors", {})
+    return pd.read_sql(sql, eng, params=params)
+
+
+# === ANCHOR: SEARCH (end) ===
