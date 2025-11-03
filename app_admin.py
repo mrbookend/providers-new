@@ -24,8 +24,8 @@ from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
-
 from contextlib import suppress
+
 
 # --- ANCHOR: ADMIN BROWSE — AgGrid safe shim (start) ---
 # If AgGrid fails for any reason, render a plain dataframe instead so Browse never blanks.
@@ -2986,9 +2986,13 @@ try:
     _st = globals().get("st")
     if _st:
         with _st.sidebar:
+            # Show current git commit (short)
+            with suppress(Exception):
+                _commit = subprocess.check_output(
+                    ["git", "rev-parse", "--short", "HEAD"], text=True
+                ).strip()
+                _st.caption(f"Commit: {_commit}")
             _st.caption("Diagnostics")
-            if _st.button("DB quick probes"):
-                _remote_db_diag(globals().get("ENGINE") or globals().get("engine"))
 except Exception:
     # Never let diagnostics UI break the app
     pass
