@@ -9,21 +9,16 @@ from pathlib import Path
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
+from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 
 from export_utils import ensure_phone_string, to_xlsx_bytes
 
-# === ANCHOR: IMPORTS (aggrid) (start) ===
-# Optional Ag-Grid imports (safe at top-level; Ruff-friendly)
-try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+_HAS_AGGRID = True
 
-    _HAS_AGGRID = True
-except Exception:
-    AgGrid = GridOptionsBuilder = JsCode = None  # type: ignore[assignment]
-    _HAS_AGGRID = False
-# === ANCHOR: IMPORTS (aggrid) (end) ===
-
-
+# === ANCHOR: READONLY SEARCH INPUT (start) ===
+q = st.text_input("Search", value="", placeholder="name, category, service, phone, notes…")
+q = (q or "").strip()
+# === ANCHOR: READONLY SEARCH INPUT (end) ===
 # Must be FIRST Streamlit call
 st.set_page_config(page_title="Providers - Read-Only", page_icon="[book]", layout="wide")
 
@@ -220,227 +215,158 @@ with st.expander("Help — Browse", expanded=False):
 def _render_table(df: pd.DataFrame) -> None:
     """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
     if not _HAS_AGGRID:
-        st.dataframe(df, use_container_width=False, hide_index=True)
+        # === CKW: hide from view in st.dataframe ===
+        df_display = df.drop(columns=["computed_keywords"], errors="ignore")
+        st.dataframe(df_display, use_container_width=False, hide_index=True)
         return
 
-    # === ANCHOR: GRID KNOBS (start) ===
-    # Knobs (prefer secrets; fall back to globals/defaults)
-    try:
-        page_size = int(st.secrets.get("READONLY_PAGE_SIZE", globals().get("page_size", 0)) or 0)
-        grid_height = int(
-            st.secrets.get("READONLY_GRID_HEIGHT_PX", globals().get("grid_height", 560)) or 560
-        )
-        header_px = int(
-            st.secrets.get("READONLY_HEADER_HEIGHT_PX", globals().get("header_px", 0)) or 0
-        )
-        font_px = int(st.secrets.get("READONLY_FONT_SIZE_PX", 0) or 0)
-    except Exception:
-        page_size = int(globals().get("page_size", 0) or 0)
-        grid_height = int(globals().get("grid_height", 560) or 560)
-        header_px = int(globals().get("header_px", 0) or 0)
-        font_px = 0
 
-    single_page = bool(st.secrets.get("READONLY_SINGLE_PAGE", globals().get("single_page", False)))
+# === ANCHOR: READONLY GRID PREP (inserted) (start) ===
+# Defaults from secrets with safe fallbacks
+page_size = int(st.secrets.get("PAGE_SIZE", 0) or 0)
+grid_height = int(st.secrets.get("GRID_HEIGHT", 560) or 560)
+header_px = int(st.secrets.get("HEADER_PX", 0) or 0)
+single_page = bool(st.secrets.get("READONLY_SINGLE_PAGE", False))
+font_px = int(st.secrets.get("READONLY_FONT_SIZE_PX", 0) or 0)
 
-    # Optional per-grid CSS (font size)
-    custom_css = globals().get("custom_css", {})
-    if font_px > 0:
-        custom_css = {
-            ".ag-root-wrapper": {"font-size": f"{font_px}px"},
-            ".ag-header-cell-label": {"font-size": f"{max(font_px - 1, 10)}px"},
-            ".ag-cell": {"font-size": f"{font_px}px", "line-height": "1.3em"},
-        }
-    # === ANCHOR: GRID KNOBS (end) ===
+custom_css = {}
+if font_px > 0:
+    custom_css = {
+        ".ag-root-wrapper": {"font-size": f"{font_px}px"},
+        ".ag-header-cell-label": {"font-size": f"{max(font_px - 1, 10)}px"},
+    }
 
-    # Base options builder
-    gob = GridOptionsBuilder.from_dataframe(df)
-    gob.configure_default_column(
-        wrapText=False,  # global off; we enable per-column to control growth
-        autoHeight=False,
-        resizable=True,
-        sortable=True,
-        filter=True,
-        cellStyle={"white-space": "nowrap", "line-height": "1.3em"},
-        flex=0,
-        suppressSizeToFit=True,
+# Base options builder (create once; configure below and in render)
+
+# === ANCHOR: READONLY GRID PREP (inserted) (end) ===
+
+gob = GridOptionsBuilder.from_dataframe(df)
+
+
+# Keep CKW searchable but hidden in the grid
+
+if "computed_keywords" in df.columns:
+    gob.configure_column(
+        "computed_keywords", hide=True, sortable=False, filter=False, suppressMenu=True
     )
 
-    # Enable text selection/copy from cells
-    gob.configure_grid_options(
-        enableCellTextSelection=True,
-        ensureDomOrder=True,
+# Keep CKW searchable but hidden in the grid
+
+if "computed_keywords" in df.columns:
+    gob.configure_column(
+        "computed_keywords", hide=True, sortable=False, filter=False, suppressMenu=True
     )
 
-    # === ANCHOR: READONLY WIDTHS (start) ===
-    # Secrets-driven exact pixel widths (case-insensitive)
-    try:
-        widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
-    except Exception:
-        widths_src = {}
-    try:
-        items_iter = dict(widths_src).items()
-    except Exception:
-        items_iter = widths_src.items() if isinstance(widths_src, dict) else []
+# === ANCHOR: PHONE FORMATTER (start) ===
+# Render phone as (xxx) xxx-xxxx using JS (Ag-Grid valueFormatter)
+_phone_fmt_js = JsCode("""
+function(params) {
+  const raw = (params.value || "").toString();
+  const s = raw.replace(/\D/g, "");
+  let t = s;
+  if (s.length === 11 && s.startsWith("1")) { t = s.slice(1); }
+  if (t.length === 10) { return "(" + t.slice(0,3) + ") " + t.slice(3,6) + "-" + t.slice(6); }
+  return raw;
+}
+""")
+if "phone" in df.columns:
+    gob.configure_column("phone", valueFormatter=_phone_fmt_js)
+# === ANCHOR: PHONE FORMATTER (end) ===
 
-    widths: dict[str, int] = {}
-    with suppress(ValueError, TypeError):
-        for k, v in items_iter:
-            widths[str(k).strip().lower()] = int(str(v).strip())
+# === ANCHOR: READONLY WIDTHS (start) ===
+# Secrets-driven exact pixel widths (case-insensitive)
+widths_src = st.secrets.get("COLUMN_WIDTHS_PX_READONLY", {}) or {}
+try:
+    widths = {str(k).strip().lower(): int(v) for k, v in dict(widths_src).items()}
+except Exception:
+    widths = {}
 
-    # Don't let auto-size fight our fixed pixel widths
-    gob.configure_default_column(suppressSizeToFit=True)
-    gob.configure_grid_options(suppressAutoSize=True)
+# Don't let auto-size fight our fixed pixel widths
+gob.configure_default_column(suppressSizeToFit=True)
+gob.configure_grid_options(suppressAutoSize=True)
 
-    _applied: list[tuple[str, int]] = []
-    for col in list(df.columns):
-        lk = str(col).strip().lower()
-        w = widths.get(lk)
-        if w:
-            gob.configure_column(col, width=w, flex=0)
-            _applied.append((col, w))
-    if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
-        st.caption("[readonly] widths applied: " + ", ".join(f"{c}={w}" for c, w in _applied[:10]))
-    # === ANCHOR: READONLY WIDTHS (end) ===
-    # === ANCHOR: PHONE FORMATTER (start) ===
-    # Display-only formatter; handles strings/ints and CSV artifacts like 8007001860.0
-    _phone_fmt_js = JsCode("""
-    function(params){
-      if (params.value == null) return "";
-      let raw = String(params.value).trim();
+_applied: list[tuple[str, int]] = []
+for col in list(df.columns):
+    lk = str(col).strip().lower()
+    w = widths.get(lk)
+    if w:
+        gob.configure_column(col, width=w, flex=0)
+        _applied.append((col, w))
+if int(st.secrets.get("DEBUG_READONLY_WIDTHS", 0) or 0):
+    st.caption(
+        "Applied fixed widths: "
+        + (", ".join(f"{c}={w}" for c, w in _applied) if _applied else "(none)")
+    )
+# === ANCHOR: READONLY WIDTHS (end) ===
 
-      // Drop trailing .0 / .00… common from CSV/Excel numeric exports
-      if (/^\\d+(?:\\.0+)?$/.test(raw)) raw = raw.split(".")[0];
+# === ANCHOR: WRAP/STYLE HINTS (start) ===
+# Keep most cells single-line; selectively enable wrap on a few wide text columns (if present)
+for _col in ("business_name", "address", "category", "service"):
+    if _col in df.columns:
+        gob.configure_column(_col, wrapText=True, autoHeight=True)
+# === ANCHOR: WRAP/STYLE HINTS (end) ===
 
-      // Keep digits only
-      let s = raw.replace(/\\D/g,"");
+# === ANCHOR: GRID LAYOUT (start) ===
+# Grid layout & pagination (domLayout + optional pagination)
+grid_opts: dict = {}
+if single_page:
+    grid_opts["domLayout"] = "autoHeight"
+    page_size = 0
+elif page_size > 0:
+    grid_opts["domLayout"] = "normal"  # fixed viewport (internal scroll)
+    grid_opts["pagination"] = True
+    grid_opts["paginationPageSize"] = page_size
+else:
+    grid_opts["domLayout"] = "normal"  # fixed viewport (internal scroll)
 
-      // If 11 digits with leading '1', drop the country code
-      if (s.length === 11 && s.startsWith("1")) s = s.slice(1);
+if header_px > 0:
+    grid_opts["headerHeight"] = header_px
 
-      // Safety: if original had a decimal, trim back to 10 after digit-strip
-      if (s.length === 11 && raw.includes(".")) s = s.slice(0,10);
+gob.configure_grid_options(**grid_opts)
 
-      if (s.length !== 10) return raw;
+# Key varies with widths (and optional per-run nonce) to force re-instantiation
+_wsig = "none" if not widths else "|".join(f"{k}:{widths[k]}" for k in sorted(widths))
+_always_reset = bool(st.secrets.get("READONLY_ALWAYS_RESET", 1))
+_nonce = st.session_state.get("__readonly_grid_nonce__", 0)
+if _always_reset:
+    _nonce += 1
+    st.session_state["__readonly_grid_nonce__"] = _nonce
+_grid_key = f"readonly-grid|w={_wsig}|n={_nonce}"
+# === ANCHOR: GRID LAYOUT (end) ===
 
-      return "(" + s.slice(0,3) + ") " + s.slice(3,6) + "-" + s.slice(6);
-    }
-    """)
-    if "phone" in df.columns:
-        gob.configure_column("phone", valueFormatter=_phone_fmt_js)
-    # === ANCHOR: PHONE FORMATTER (end) ===
-
-    # === ANCHOR: WRAP & AUTOHEIGHT (start) ===
-    # Wrap only at word boundaries; auto row height
-    for col in ("business_name", "address", "category", "service"):
-        if col in df.columns:
-            gob.configure_column(
-                col,
-                wrapText=True,
-                autoHeight=True,
-                cellStyle={
-                    "white-space": "normal",  # allow wrapping
-                    "line-height": "1.3em",
-                    "word-break": "keep-all",  # no mid-word breaks
-                    "overflow-wrap": "normal",  # wrap at spaces/punct only
-                    "hyphens": "manual",
-                },
-            )
-    # === ANCHOR: WRAP & AUTOHEIGHT (end) ===
-
-    for col in ("business_name", "address", "category", "service"):
-        if col in df.columns:
-            gob.configure_column(
-                col,
-                wrapText=True,
-                autoHeight=True,
-                cellStyle={
-                    "white-space": "normal",  # allow wrapping
-                    "line-height": "1.3em",
-                    "word-break": "keep-all",  # do NOT break inside words
-                    "overflow-wrap": "normal",  # wrap only at spaces/punctuation
-                    "hyphens": "manual",
-                },
-            )
-
-    # Phone valueFormatter (handles strings, ints, and floaty CSV values like 8007001860.0)
-    _phone_fmt_js = JsCode("""
-    function(params) {
-      if (params.value == null) return "";
-      let raw = String(params.value).trim();
-
-      // If it's "digits" or "digits.0/00..." from CSV, drop the decimal part.
-      if (/^\\d+(?:\\.0+)?$/.test(raw)) {
-        raw = raw.split(".")[0];
-      }
-
-      // Keep only digits.
-      let s = raw.replace(/\\D/g, "");
-
-      // Common cases:
-      // - 11 digits starting with 1 => drop the 1
-      if (s.length === 11 && s.startsWith("1")) {
-        s = s.slice(1);
-      }
-
-      // - 10 digits + ".0" artifact becomes 11 digits after dot removal; trim to 10 if original had '.'
-      if (s.length === 11 && raw.includes(".")) {
-        s = s.slice(0, 10);
-      }
-
-      if (s.length !== 10) return raw;
-
-      return "(" + s.slice(0,3) + ") " + s.slice(3,6) + "-" + s.slice(6);
-    }
-    """)
-    if "phone" in df.columns:
-        gob.configure_column("phone", valueFormatter=_phone_fmt_js)
-
-    # Grid layout & pagination
-    grid_opts: dict = {}
-    if single_page:
-        grid_opts["domLayout"] = "autoHeight"
-        page_size = 0
-    elif page_size > 0:
-        grid_opts["domLayout"] = "autoHeight"
-        grid_opts["pagination"] = True
-        grid_opts["paginationPageSize"] = page_size
-    else:
-        grid_opts["domLayout"] = "normal"  # fixed viewport (internal scroll)
-
+# === ANCHOR: RENDER (start) ===
+if single_page or page_size > 0:
+    grid_opts = gob.build()
     if header_px > 0:
         grid_opts["headerHeight"] = header_px
+    if q:
+        grid_opts["quickFilterText"] = q
 
-    gob.configure_grid_options(**grid_opts)
+    AgGrid(
+        df,
+        gridOptions=grid_opts,
+        fit_columns_on_grid_load=False,
+        allow_unsafe_jscode=True,
+        custom_css=custom_css,
+        key=_grid_key,
+    )
+else:
+    grid_opts = gob.build()
+    if header_px > 0:
+        grid_opts["headerHeight"] = header_px
+    if q:
+        grid_opts["quickFilterText"] = q
 
-    # Key varies with widths (and optional per-run nonce) to force re-instantiation
-    _wsig = "none" if not widths else "|".join(f"{k}:{widths[k]}" for k in sorted(widths))
-    _always_reset = bool(st.secrets.get("READONLY_ALWAYS_RESET", 1))
-    _nonce = st.session_state.get("__readonly_grid_nonce__", 0)
-    if _always_reset:
-        _nonce += 1
-        st.session_state["__readonly_grid_nonce__"] = _nonce
-    _grid_key = f"readonly-grid|w={_wsig}|n={_nonce}"
-
-    # Render
-    if single_page or page_size > 0:
-        AgGrid(
-            df,
-            gridOptions=gob.build(),
-            fit_columns_on_grid_load=False,
-            allow_unsafe_jscode=True,
-            custom_css=custom_css,
-            key=_grid_key,
-        )
-    else:
-        AgGrid(
-            df,
-            gridOptions=gob.build(),
-            height=grid_height,
-            fit_columns_on_grid_load=False,
-            allow_unsafe_jscode=True,
-            custom_css=custom_css,
-            key=_grid_key,
-        )
+    AgGrid(
+        df,
+        height=grid_height,
+        gridOptions=grid_opts,
+        fit_columns_on_grid_load=False,
+        allow_unsafe_jscode=True,
+        custom_css=custom_css,
+        key=_grid_key,
+    )
+# === ANCHOR: RENDER (end) ===
 
 
 # === ANCHOR: BROWSE RENDER (aggrid) (end) ===
