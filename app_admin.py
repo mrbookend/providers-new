@@ -885,7 +885,6 @@ def _normalize_browse_df(
 
     # Visible/view columns (ordered)
     visible_cols = [c for c in df.columns if c not in hidden_cols]
-    return df, view_cols, hidden_cols
     # Build final view columns: seed first, then remaining visible columns in existing order
     view_cols = seed + [c for c in visible_cols if c not in set(seed)]
     return df, view_cols, hidden_cols
