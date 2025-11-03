@@ -24,7 +24,6 @@ from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
-from contextlib import suppress
 
 
 # --- ANCHOR: ADMIN BROWSE — AgGrid safe shim (start) ---
@@ -2938,62 +2937,3 @@ def _vendors_has_column(eng, col: str) -> bool:
 
 
 # (removed legacy inline browse block; canonical __HCR_browse_render() is used)
-
-
-# --- ANCHOR: REMOTE DIAG (start) ---
-def _remote_db_diag(_engine=None) -> None:
-    """
-    Minimal remote DB probes. No new imports. Results go to Streamlit if available.
-    """
-    st = globals().get("st")
-    engine = _engine or globals().get("ENGINE") or globals().get("engine")
-    if not st or engine is None:
-        return
-
-    # 1) Ping
-    ping_ok = False
-    try:
-        with engine.connect() as cx:
-            cx.exec_driver_sql("SELECT 1").scalar()
-        ping_ok = True
-    except Exception:
-        ping_ok = False
-    with suppress(Exception):
-        st.json({'ping_ok': ping_ok})
-    # 2) Tables
-    try:
-        with engine.connect() as cx:
-            rows = cx.exec_driver_sql(
-                "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name"
-            ).all()
-        st.json({"tables": [r[0] for r in rows]})
-    except Exception:
-        pass
-
-    # 3) Vendors count (optional)
-    try:
-        with engine.connect() as cx:
-            cnt = cx.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar()
-        st.json({"vendors_count": int(cnt)})
-    except Exception:
-        pass
-
-
-# --- ANCHOR: REMOTE DIAG (end) ---
-
-# --- ANCHOR: REMOTE DIAG UI (start) ---
-try:
-    _st = globals().get("st")
-    if _st:
-        with _st.sidebar:
-            # Show current git commit (short)
-            with suppress(Exception):
-                _commit = subprocess.check_output(
-                    ["git", "rev-parse", "--short", "HEAD"], text=True
-                ).strip()
-                _st.caption(f"Commit: {_commit}")
-            _st.caption("Diagnostics")
-except Exception:
-    # Never let diagnostics UI break the app
-    pass
-# --- ANCHOR: REMOTE DIAG UI (end) ---
