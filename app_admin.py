@@ -24,6 +24,7 @@ from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
+from contextlib import suppress
 
 
 # --- ANCHOR: ADMIN BROWSE — AgGrid safe shim (start) ---
@@ -1818,6 +1819,96 @@ try:
 except Exception:
     pass
 
+
+def __HCR_debug_panel():
+    """Debug tab: only four dropdowns (expanders)."""
+    st.subheader("Debug")
+
+    with st.expander("DB quick probes", expanded=False):
+        st.caption("Light checks that do not modify state.")
+        if st.button("Show vendor count"):
+            if engine is None:
+                st.error("engine not available (import failed).")
+            else:
+                with suppress(Exception), engine.connect() as cx:
+                    c = cx.execute(sql_text("SELECT COUNT(*) FROM vendors")).scalar() or 0
+                st.write(f"vendors rows: {c}")
+
+    with st.expander("Index parity", expanded=False):
+        st.caption("Compare expected vs. actual indexes.")
+        if st.button("Run parity check"):
+            if engine is None:
+                st.error("engine not available (import failed).")
+            else:
+                with suppress(Exception), engine.connect() as cx:
+                    rows = cx.execute(sql_text("PRAGMA index_list('vendors')")).fetchall()
+                names = sorted([r[1] for r in rows]) if rows else []
+                st.write({"actual_indexes": names})
+                st.info(
+                    "Expected: idx_vendors_phone, idx_vendors_bus_lower, idx_vendors_cat_lower, idx_vendors_svc_lower"
+                )
+
+    with st.expander("Index maintenance", expanded=False):
+        st.caption("Create/ensure expected indexes (idempotent).")
+        if st.button("Create expected indexes"):
+            if engine is None:
+                st.error("engine not available (import failed).")
+            else:
+                created = []
+                with suppress(Exception), engine.begin() as cx:
+                    cx.execute(
+                        sql_text("CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)")
+                    )
+                    created.append("idx_vendors_phone")
+                    cx.execute(
+                        sql_text(
+                            "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(LOWER(business_name))"
+                        )
+                    )
+                    created.append("idx_vendors_bus_lower")
+                    cx.execute(
+                        sql_text(
+                            "CREATE INDEX IF NOT EXISTS idx_vendors_cat_lower ON vendors(LOWER(category))"
+                        )
+                    )
+                    created.append("idx_vendors_cat_lower")
+                    cx.execute(
+                        sql_text(
+                            "CREATE INDEX IF NOT EXISTS idx_vendors_svc_lower ON vendors(LOWER(service))"
+                        )
+                    )
+                    created.append("idx_vendors_svc_lower")
+                st.success(f"Ensured indexes: {', '.join(created)}")
+
+    with st.expander("Index maintenance — drop legacy", expanded=False):
+        st.caption("Drop obsolete/legacy indexes (safe if not present).")
+        if st.button("Drop legacy indexes"):
+            if engine is None:
+                st.error("engine not available (import failed).")
+            else:
+                dropped = []
+                legacy = [
+                    "idx_vendors_phone_fmt",  # example legacy
+                    "idx_vendors_keywords",  # example legacy
+                ]
+                with suppress(Exception), engine.begin() as cx:
+                    for name in legacy:
+                        try:
+                            cx.execute(sql_text(f'DROP INDEX IF EXISTS "{name}"'))
+                            dropped.append(name)
+                        except Exception:
+                            pass
+                if dropped:
+                    st.warning(f"Dropped: {', '.join(dropped)}")
+                else:
+                    st.info("No legacy indexes found to drop.")
+
+
+# === ANCHOR: DEBUG PANEL (end) ===
+
+
+# (removed legacy inline browse block; canonical __HCR_browse_render() is used)
+
 _tabs = st.tabs(
     [
         "Browse Providers",
@@ -2683,48 +2774,7 @@ with _tabs[4]:
 
 # ---------- Debug
 with _tabs[5]:
-    _debug_where_am_i()
-    st.info(
-        f"Active DB: {engine_info.get('sqlalchemy_url')} - remote={engine_info.get('using_remote')}"
-    )
-
-with _tabs[5]:
-    # Existing engine info
-    st.json(engine_info)
-
-    with engine.begin() as conn:
-        vendors_cols = conn.execute(sql_text("PRAGMA table_info(vendors)")).fetchall()
-        categories_cols = conn.execute(sql_text("PRAGMA table_info(categories)")).fetchall()
-        services_cols = conn.execute(sql_text("PRAGMA table_info(services)")).fetchall()
-
-        # --- Index presence (vendors) ---
-        idx_rows = conn.execute(sql_text("PRAGMA index_list(vendors)")).fetchall()
-        vendors_indexes = [
-            {"seq": r[0], "name": r[1], "unique": bool(r[2]), "origin": r[3], "partial": bool(r[4])}
-            for r in idx_rows
-        ]
-
-        # --- Null timestamp counts (quick sanity) ---
-        created_at_nulls = (
-            conn.execute(
-                sql_text("SELECT COUNT(*) FROM vendors WHERE created_at IS NULL OR created_at=''")
-            ).scalar()
-            or 0
-        )
-        updated_at_nulls = (
-            conn.execute(
-                sql_text("SELECT COUNT(*) FROM vendors WHERE updated_at IS NULL OR updated_at=''")
-            ).scalar()
-            or 0
-        )
-
-        counts = {
-            "vendors": conn.execute(sql_text("SELECT COUNT(*) FROM vendors")).scalar() or 0,
-            "categories": conn.execute(sql_text("SELECT COUNT(*) FROM categories")).scalar() or 0,
-            "services": conn.execute(sql_text("SELECT COUNT(*) FROM services")).scalar() or 0,
-        }
-
-
+    __HCR_debug_panel()
 # ------------------------------------------------------------------------
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
 # ------------------------------------------------------------------------
@@ -2936,4 +2986,4 @@ def _vendors_has_column(eng, col: str) -> bool:
         return False
 
 
-# (removed legacy inline browse block; canonical __HCR_browse_render() is used)
+# === ANCHOR: DEBUG PANEL (start) ===
