@@ -2987,12 +2987,6 @@ try:
     if _st:
         with _st.sidebar:
             _st.caption("Diagnostics")
-            # Debug: force the Browse renderer (unconditional)
-            if _st.button("Render Browse (debug)"):
-                try:
-                    __HCR_browse_render()
-                except Exception as _ex_force:
-                    st.error(f"Browse render (debug) failed: {_ex_force!r}")
             if _st.button("DB quick probes"):
                 _remote_db_diag(globals().get("ENGINE") or globals().get("engine"))
 except Exception:
