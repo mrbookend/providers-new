@@ -26,6 +26,27 @@ from sqlalchemy.engine import Engine
 import streamlit as st
 from contextlib import suppress
 
+# === INDEX CONSTANTS (canonical) ===
+EXPECTED_INDEXES = [
+    ("idx_vendors_phone", "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)"),
+    (
+        "idx_vendors_bus_lower",
+        "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(LOWER(business_name))",
+    ),
+    (
+        "idx_vendors_cat_lower",
+        "CREATE INDEX IF NOT EXISTS idx_vendors_cat_lower ON vendors(LOWER(category))",
+    ),
+    (
+        "idx_vendors_svc_lower",
+        "CREATE INDEX IF NOT EXISTS idx_vendors_svc_lower ON vendors(LOWER(service))",
+    ),
+]
+LEGACY_INDEXES = [
+    "idx_vendors_phone_fmt",
+    "idx_vendors_keywords",
+]
+
 
 # --- ANCHOR: ADMIN BROWSE — AgGrid safe shim (start) ---
 # If AgGrid fails for any reason, render a plain dataframe instead so Browse never blanks.
@@ -1756,11 +1777,16 @@ def __HCR_debug_panel():
             else:
                 with suppress(Exception), engine.connect() as cx:
                     rows = cx.execute(sql_text("PRAGMA index_list('vendors')")).fetchall()
-                names = sorted([r[1] for r in rows]) if rows else []
-                st.write({"actual_indexes": names})
-                st.info(
-                    "Expected: idx_vendors_phone, idx_vendors_bus_lower, idx_vendors_cat_lower, idx_vendors_svc_lower"
-                )
+                actual_names = sorted([r[1] for r in rows]) if rows else []
+                expected_names = [name for name, _ in EXPECTED_INDEXES]
+                st.write({"actual_indexes": actual_names})
+                st.info("Expected: " + ", ".join(expected_names))
+                missing = [n for n in expected_names if n not in actual_names]
+                extra = [n for n in actual_names if n not in expected_names]
+                if missing:
+                    st.warning("Missing: " + ", ".join(missing))
+                if extra:
+                    st.warning("Unexpected: " + ", ".join(extra))
 
     with st.expander("Index maintenance", expanded=False):
         st.caption("Create/ensure expected indexes (idempotent).")
@@ -1770,28 +1796,9 @@ def __HCR_debug_panel():
             else:
                 created = []
                 with suppress(Exception), engine.begin() as cx:
-                    cx.execute(
-                        sql_text("CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)")
-                    )
-                    created.append("idx_vendors_phone")
-                    cx.execute(
-                        sql_text(
-                            "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(LOWER(business_name))"
-                        )
-                    )
-                    created.append("idx_vendors_bus_lower")
-                    cx.execute(
-                        sql_text(
-                            "CREATE INDEX IF NOT EXISTS idx_vendors_cat_lower ON vendors(LOWER(category))"
-                        )
-                    )
-                    created.append("idx_vendors_cat_lower")
-                    cx.execute(
-                        sql_text(
-                            "CREATE INDEX IF NOT EXISTS idx_vendors_svc_lower ON vendors(LOWER(service))"
-                        )
-                    )
-                    created.append("idx_vendors_svc_lower")
+                    for name, ddl in EXPECTED_INDEXES:
+                        cx.execute(sql_text(ddl))
+                        created.append(name)
                 st.success(f"Ensured indexes: {', '.join(created)}")
 
     with st.expander("Index maintenance — drop legacy", expanded=False):
@@ -1801,9 +1808,8 @@ def __HCR_debug_panel():
                 st.error("engine not available (import failed).")
             else:
                 dropped = []
-                legacy = ["idx_vendors_phone_fmt", "idx_vendors_keywords"]
                 with suppress(Exception), engine.begin() as cx:
-                    for name in legacy:
+                    for name in LEGACY_INDEXES:
                         try:
                             cx.execute(sql_text(f'DROP INDEX IF EXISTS "{name}"'))
                             dropped.append(name)
@@ -2682,7 +2688,6 @@ with _tabs[4]:
 # ---------- Debug
 with _tabs[5]:
     globals().get("__HCR_debug_panel", lambda: None)()
-
 # ------------------------------------------------------------------------
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
 # ------------------------------------------------------------------------
