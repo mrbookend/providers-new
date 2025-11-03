@@ -869,6 +869,12 @@ def _normalize_browse_df(
 
     # Secrets-driven order
     browse_order = list(st.secrets.get("BROWSE_ORDER", []))
+    # Enforce admin browse order (CKW fields end of table)
+    pref = [c for c in browse_order if c in df.columns]
+    rest = [c for c in df.columns if c not in pref]
+    view_cols = pref + rest
+    df = df.loc[:, view_cols]
+
     if browse_order:
         # keep only visible columns from the secret
         seed = [c for c in browse_order if c in df.columns and c not in hidden_cols]
@@ -879,8 +885,9 @@ def _normalize_browse_df(
 
     # Visible/view columns (ordered)
     visible_cols = [c for c in df.columns if c not in hidden_cols]
+    return df, view_cols, hidden_cols
+    # Build final view columns: seed first, then remaining visible columns in existing order
     view_cols = seed + [c for c in visible_cols if c not in set(seed)]
-
     return df, view_cols, hidden_cols
 
 
