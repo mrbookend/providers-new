@@ -417,32 +417,7 @@ def build_engine():
 with contextlib.suppress(Exception):
     _qp_eng, _qp_info = build_engine()
     try:
-        with st.expander("DB quick probes", expanded=False):
-            # 1) Ping
-            ok = False
-            with contextlib.suppress(Exception), _qp_eng.connect() as c:
-                c.exec_driver_sql("select 1;")
-                ok = True
-
-            st.write({"ping_ok": ok})
-
-            # 2) List tables (SQLite / libsql)
-            tables: list[str] = []
-            with contextlib.suppress(Exception), _qp_eng.connect() as c:
-                rows = c.exec_driver_sql(
-                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-                ).all()
-                tables = [r[0] for r in rows]
-
-            st.write({"tables": tables})
-
-            # 3) Optional: row count for vendors (if present)
-            vendors_count = None
-            if "vendors" in tables:
-                with contextlib.suppress(Exception), _qp_eng.connect() as c:
-                    vendors_count = c.exec_driver_sql("SELECT COUNT(*) FROM vendors").scalar_one()
-
-            st.write({"vendors_count": vendors_count})
+        pass
     finally:
         with contextlib.suppress(Exception):
             _qp_eng.dispose()
@@ -452,72 +427,14 @@ with contextlib.suppress(Exception):
 with contextlib.suppress(Exception):
     _ip_eng, _ = build_engine()
     try:
-        with st.expander("Index parity (diagnostic only)", expanded=False):
-            # Note: no idx on id; SQLite INTEGER PRIMARY KEY is implicitly indexed.
-            expected = {
-                # keep aligned with project baseline (no-op if absent)
-                "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
-                "idx_vendors_ckw": "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
-                # optional (present in some baselines)
-                "idx_vendors_bus_lower": "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(lower(business_name))",
-            }
-            present: set[str] = set()
-            with contextlib.suppress(Exception), _ip_eng.connect() as c:
-                rows = c.exec_driver_sql("PRAGMA index_list('vendors')").mappings().all()
-                present = {row["name"] for row in rows if "name" in row}
-
-            missing = [k for k in expected if k not in present]
-
-            st.write(
-                {
-                    "present_indexes": sorted(present),
-                    "expected_indexes": list(expected),
-                    "missing_indexes": missing,
-                    "note": "Diagnostic only; no schema changes performed here.",
-                }
-            )
-
-            # --- Create-missing button (idempotent; stays inside the expander & try) ---
-            if missing:
-                with st.container():
-                    if st.button("Create missing indexes (idempotent)", type="primary"):
-                        created: list[str] = []
-                        with contextlib.suppress(Exception), _ip_eng.begin() as cx:
-                            for name in missing:
-                                if name == "idx_vendors_id":
-                                    cx.exec_driver_sql(
-                                        "CREATE INDEX IF NOT EXISTS idx_vendors_id ON vendors(id)"
-                                    )
-                                    created.append(name)
-                        st.success({"created": created})
+        pass
     finally:
         with contextlib.suppress(Exception):
             _ip_eng.dispose()
+
+
 # === ANCHOR: DB_INDEX_PARITY (end) ===
 # === ANCHOR: DB_INDEX_MAINT (start) ===
-with st.expander("Index maintenance", expanded=False):
-    st.caption("Create expected indexes if missing (idempotent).")
-    if st.button("Create missing indexes now"):
-        try:
-            _fix_eng, _fix_info = build_engine()
-            try:
-                expected_sql = {
-                    "idx_vendors_phone": "CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)",
-                    "idx_vendors_ckw": "CREATE INDEX IF NOT EXISTS idx_vendors_ckw ON vendors(computed_keywords)",
-                    "idx_vendors_bus_lower": "CREATE INDEX IF NOT EXISTS idx_vendors_bus_lower ON vendors(lower(business_name))",
-                }
-                with _fix_eng.begin() as cx:
-                    # Create each index; IF NOT EXISTS makes this safe to run repeatedly.
-                    for _name, sql in expected_sql.items():
-                        cx.exec_driver_sql(sql)
-                st.success("Index creation attempted (idempotent). Re-open Index parity to verify.")
-            finally:
-                with contextlib.suppress(Exception):
-                    _fix_eng.dispose()
-        except Exception as e:
-            st.error(f"Index maintenance failed: {e}")
-
-
 # === ANCHOR: DB_INDEX_MAINT (end) ===
 # === ANCHOR: INDEX_MAINTENANCE (drop-legacy) ===
 def _drop_legacy_vendor_indexes() -> dict:
@@ -555,18 +472,6 @@ def _drop_legacy_vendor_indexes() -> dict:
 
 
 # === ANCHOR: INDEX_MAINTENANCE_UI (drop-legacy) ===
-with st.expander("Index maintenance — drop legacy vendor indexes"):
-    st.warning(
-        "This will drop legacy vendor indexes and keep only the three agreed ones: "
-        "idx_vendors_phone, idx_vendors_ckw, idx_vendors_bus_lower. "
-        "Operation is idempotent."
-    )
-    if st.button("Drop legacy vendor indexes now", type="primary"):
-        res = _drop_legacy_vendor_indexes()
-        st.success(f"Dropped: {', '.join(res['dropped']) or '(none)'}")
-        st.caption(f"Attempted: {', '.join(res['attempted'])}")
-
-
 def _sanitize_seed_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize seed CSV to the current address-only schema."""
     df = df.copy()
@@ -1819,7 +1724,16 @@ try:
 except Exception:
     pass
 
+    """Debug tab: only four dropdowns (expanders)."""
+    st.subheader("Debug")
 
+# === ANCHOR: DEBUG PANEL (end) ===
+
+
+# (removed legacy inline browse block; canonical __HCR_browse_render() is used)
+
+
+# === ANCHOR: DEBUG PANEL (start) ===
 def __HCR_debug_panel():
     """Debug tab: only four dropdowns (expanders)."""
     st.subheader("Debug")
@@ -1887,10 +1801,7 @@ def __HCR_debug_panel():
                 st.error("engine not available (import failed).")
             else:
                 dropped = []
-                legacy = [
-                    "idx_vendors_phone_fmt",  # example legacy
-                    "idx_vendors_keywords",  # example legacy
-                ]
+                legacy = ["idx_vendors_phone_fmt", "idx_vendors_keywords"]
                 with suppress(Exception), engine.begin() as cx:
                     for name in legacy:
                         try:
@@ -1905,10 +1816,6 @@ def __HCR_debug_panel():
 
 
 # === ANCHOR: DEBUG PANEL (end) ===
-
-
-# (removed legacy inline browse block; canonical __HCR_browse_render() is used)
-
 _tabs = st.tabs(
     [
         "Browse Providers",
@@ -2774,7 +2681,8 @@ with _tabs[4]:
 
 # ---------- Debug
 with _tabs[5]:
-    __HCR_debug_panel()
+    globals().get("__HCR_debug_panel", lambda: None)()
+
 # ------------------------------------------------------------------------
 # Patch 1 (2025-10-24): Enable horizontal scrolling for all dataframes/tables.
 # ------------------------------------------------------------------------
