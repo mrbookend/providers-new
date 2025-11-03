@@ -2846,3 +2846,171 @@ def _vendors_has_column(eng, col: str) -> bool:
 
 
 # (removed legacy inline browse block; canonical __HCR_browse_render() is used)
+
+
+# --- ANCHOR: REMOTE DIAG (start) ---
+def _remote_db_diag(_engine=None) -> None:
+    """Run remote DB sanity checks using the existing SQLAlchemy engine (no new imports)."""
+
+    # Require existing Streamlit alias; if missing, do nothing.
+    st = globals().get("st")
+    if st is None:
+        return
+
+    # Resolve engine from globals or call-factories if available.
+    if _engine is None:
+        _engine = (
+            globals().get("ENGINE")
+            or globals().get("engine")
+            or (globals().get("_get_engine") and globals()["_get_engine"]())
+            or (globals().get("get_engine") and globals()["get_engine"]())
+        )
+
+    if _engine is None:
+        st.error("Remote DB diagnostics: no engine available.")
+        return
+
+    url = str(getattr(_engine, "url", ""))
+    dname = getattr(getattr(_engine, "dialect", None), "name", "unknown")
+
+    st.subheader("Remote DB diagnostics")
+    st.caption(f"dialect={dname} • url={url}")
+
+    def _q(cx, sql):
+        try:
+            res = cx.exec_driver_sql(sql)
+            rows = res.fetchall()
+            cols = res.keys() if hasattr(res, "keys") else None
+            return cols, rows, None
+        except Exception as e:
+            return None, [], e
+
+    probes = [
+        ("now()", "SELECT datetime('now')"),
+        ("sqlite_version", "SELECT sqlite_version()"),
+        ("pragma_user_ver", "PRAGMA user_version"),
+        ("db_list", "PRAGMA database_list"),
+        ("tables", "SELECT name, type FROM sqlite_master ORDER BY 2,1"),
+        ("vendors_count", "SELECT COUNT(*) AS n FROM vendors"),
+        ("vendors_head", "SELECT id, business_name FROM vendors ORDER BY id LIMIT 3"),
+    ]
+
+    # For non-SQLite engines, the first few probes will simply error; that's expected.
+    with _engine.connect() as cx:
+        for label, sql in probes:
+            cols, rows, err = _q(cx, sql)
+            st.markdown(f"**{label}**")
+            st.code(sql, language="sql")
+            if err is not None:
+                st.warning(f"{type(err).__name__}: {err}")
+                continue
+            if rows:
+                if cols:
+                    st.text(" | ".join(map(str, cols)))
+                for r in rows:
+                    st.text(" | ".join("" if x is None else str(x) for x in r))
+            else:
+                st.caption("• (no rows)")
+
+    st.success("Remote DB diagnostics completed.")
+
+
+# --- ANCHOR: REMOTE DIAG (end) ---
+
+# --- ANCHOR: REMOTE DIAG UI (start) ---
+_st = globals().get("st")
+if _st is not None:
+    _ENG__RD = (
+        globals().get("ENGINE")
+        or globals().get("engine")
+        or (globals().get("_get_engine") and globals()["_get_engine"]())
+        or (globals().get("get_engine") and globals()["get_engine"]())
+    )
+    with _st.sidebar:
+        if _st.button("Remote DB diagnostics"):
+            _remote_db_diag(_ENG__RD)
+# --- ANCHOR: REMOTE DIAG UI (end) ---
+
+
+# --- ANCHOR: REMOTE DIAG (start) ---
+def _remote_db_diag(_engine=None) -> None:
+    """Run remote DB sanity checks using the existing SQLAlchemy engine (no new imports)."""
+
+    # Require existing Streamlit alias; if missing, do nothing.
+    st = globals().get("st")
+    if st is None:
+        return
+
+    # Resolve engine from globals or call-factories if available.
+    if _engine is None:
+        _engine = (
+            globals().get("ENGINE")
+            or globals().get("engine")
+            or (globals().get("_get_engine") and globals()["_get_engine"]())
+            or (globals().get("get_engine") and globals()["get_engine"]())
+        )
+
+    if _engine is None:
+        st.error("Remote DB diagnostics: no engine available.")
+        return
+
+    url = str(getattr(_engine, "url", ""))
+    dname = getattr(getattr(_engine, "dialect", None), "name", "unknown")
+
+    st.subheader("Remote DB diagnostics")
+    st.caption(f"dialect={dname} • url={url}")
+
+    def _q(cx, sql):
+        try:
+            res = cx.exec_driver_sql(sql)
+            rows = res.fetchall()
+            cols = res.keys() if hasattr(res, "keys") else None
+            return cols, rows, None
+        except Exception as e:
+            return None, [], e
+
+    probes = [
+        ("now()", "SELECT datetime('now')"),
+        ("sqlite_version", "SELECT sqlite_version()"),
+        ("pragma_user_ver", "PRAGMA user_version"),
+        ("db_list", "PRAGMA database_list"),
+        ("tables", "SELECT name, type FROM sqlite_master ORDER BY 2,1"),
+        ("vendors_count", "SELECT COUNT(*) AS n FROM vendors"),
+        ("vendors_head", "SELECT id, business_name FROM vendors ORDER BY id LIMIT 3"),
+    ]
+
+    # For non-SQLite engines, the first few probes will simply error; that's expected.
+    with _engine.connect() as cx:
+        for label, sql in probes:
+            cols, rows, err = _q(cx, sql)
+            st.markdown(f"**{label}**")
+            st.code(sql, language="sql")
+            if err is not None:
+                st.warning(f"{type(err).__name__}: {err}")
+                continue
+            if rows:
+                if cols:
+                    st.text(" | ".join(map(str, cols)))
+                for r in rows:
+                    st.text(" | ".join("" if x is None else str(x) for x in r))
+            else:
+                st.caption("• (no rows)")
+
+    st.success("Remote DB diagnostics completed.")
+
+
+# --- ANCHOR: REMOTE DIAG (end) ---
+
+# --- ANCHOR: REMOTE DIAG UI (start) ---
+_st = globals().get("st")
+if _st is not None:
+    _ENG__RD = (
+        globals().get("ENGINE")
+        or globals().get("engine")
+        or (globals().get("_get_engine") and globals()["_get_engine"]())
+        or (globals().get("get_engine") and globals()["get_engine"]())
+    )
+    with _st.sidebar:
+        if _st.button("Remote DB diagnostics"):
+            _remote_db_diag(_ENG__RD)
+# --- ANCHOR: REMOTE DIAG UI (end) ---
