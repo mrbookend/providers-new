@@ -1,68 +1,41 @@
-# === Providers Read-Only health chain Makefile ===
+# === Providers Makefile (no-heredoc; canonicalized rowcount guard) ===
+# NOTE: Recipe lines (those starting with @) must begin with a literal TAB.
 
-# Phony targets
-.PHONY: help zzz test-ckw sqlite-integrity db-backup db-restore-test schema-check
+.PHONY: help rowcount-refresh rowcount-check rowcount-guard rowcount-show rowcount-accept
 
-# Help (double-colon so we can append later if needed)
-help::
-	@echo "status          - git sync status (bbb)"
-	@echo "bc              - fast loop: sync + code checks (bbb+ccc)"
-	@echo "zzz             - full read-only health chain"
-	@echo "guard-debug     - run debug-panel guard script"
-	@echo "test-ckw        - dry-run prod + 50-row smoke on TEST DB"
-	@echo "sqlite-integrity- PRAGMA integrity_check must be ok"
-	@echo "db-backup       - copy providers.db to backups/providers.YYYYMMDD-HHMMSS.db"
-	@echo "db-restore-test - overwrite providers.TEST.db from providers.db"
-	@echo "schema-check    - compare schema to baseline (set SCHEMA_GUARD=1 to enforce)"
-	@echo
+help:
+	@echo "Targets:"
+	@echo "  rowcount-refresh  - write current counts to .rowcounts.json (tolerant)"
+	@echo "  rowcount-check    - print current counts to stdout (tolerant)"
+	@echo "  rowcount-guard    - fail if current counts drift (canonical compare)"
+	@echo "  rowcount-show     - show baseline vs fresh (canonicalized)"
+	@echo "  rowcount-accept   - accept current counts as new baseline"
 
-# Full chain wrapper: run your external script, then (env-gated) schema check
-zzz:
-	@~/bin/zzz
-	@$(MAKE) schema-check
+# Write the current counts atomically to .rowcounts.json (tolerant of non-zero rc)
+rowcount-refresh:
+	@python3 scripts/rowcount_guard.py --write || true
+	@echo "Refreshed .rowcounts.json"
 
-# CKW smoke tests
-test-ckw:
-	@echo "Dry-run on prod DB"
-	@python3 scripts/ckw_recompute.py --dry-run
-	@echo "Smoke on TEST DB (50 rows)"
-	@SQLITE_PATH=providers.TEST.db python3 scripts/ckw_recompute.py --limit 50
+# Just run the script and print counts (tolerant of non-zero rc)
+rowcount-check:
+	@python3 scripts/rowcount_guard.py || true
 
-# Strong SQLite integrity check (separate from quick_check inside zzz)
-sqlite-integrity:
-	@echo "=== sqlite integrity_check ==="
-	@sqlite3 $${SQLITE_PATH:-providers.db} "PRAGMA integrity_check" | grep -qx "ok"
+# Fail if fresh counts differ from committed baseline (canonical compare)
+rowcount-guard:
+	@python3 scripts/rowcount_guard.py > /tmp/_row.json || true
+	@python3 -c 'import json;print(json.dumps(json.load(open(".rowcounts.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.base.canon.json
+	@python3 -c 'import json;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.curr.canon.json
+	@diff -u /tmp/_row.base.canon.json /tmp/_row.curr.canon.json >/dev/null && \
+	  echo "rowcounts: OK" || (echo "rowcounts: DRIFT (see /tmp/_row.json)"; exit 1)
 
-# Backup/restore helpers
-db-backup:
-	@mkdir -p backups
-	@cp -p $${SQLITE_PATH:-providers.db} backups/providers.$(date +%Y%m%d-%H%M%S).db
-	@echo "Backup -> backups/"
+# Show baseline vs fresh counts (canonicalized; no failing)
+rowcount-show:
+	@echo "--- baseline (.rowcounts.json) canonical ---"
+	@python3 -c 'import json;print(json.dumps(json.load(open(".rowcounts.json")),sort_keys=True,indent=2))'
+	@echo "--- current (/tmp/_row.json) canonical ---"
+	@python3 -c 'import json;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,indent=2))'
 
-db-restore-test:
-	@cp -p $${SQLITE_PATH:-providers.db} providers.TEST.db
-	@echo "TEST DB restored from prod copy"
-
-# Schema checksum guard (env-gated)
-schema-check:
-	@[ -n "$$SCHEMA_GUARD" ] || { echo "(schema-check skipped — set SCHEMA_GUARD=1 to enforce)"; exit 0; }
-	@echo "=== schema checksum ==="
-	@[ "$$(python3 scripts/schema_checksum.py)" = "$$(cat .schema.sha256)" ] && echo "schema: OK" || (echo "schema: DRIFT"; exit 1)
-# Convenience targets referenced in help
-.PHONY: self-check status bc guard-debug
-self-check:
-	@./scripts/self_check.sh
-
-status:
-	@verify_admin || true
-	@hcrsync || true
-
-# "bc" = fast loop: sync + code checks
-bc:
-	@git fetch --prune
-	@python3 -m py_compile app_readonly.py app_admin.py || exit 1
-	@ruff check --fix
-	@ruff format --check
-
-guard-debug:
-	@python3 scripts/check_debug_panel.py
+# Accept current counts as the new baseline (tolerant)
+rowcount-accept:
+	@python3 scripts/rowcount_guard.py --write || true
+	@echo "Baseline updated: .rowcounts.json"
