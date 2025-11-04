@@ -230,6 +230,18 @@ def main() -> int:
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
+    # Fail fast if the vendors table is missing
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vendors'")
+    row = cur.fetchone()
+    if row is None:
+        print(
+            "ERROR: SQLite file has no 'vendors' table.\n"
+            f"DB path: {os.environ.get('SQLITE_PATH', 'providers.db')}\n"
+            "Fix: set SQLITE_PATH to a DB with the vendors schema (e.g., data/providers.prod.db)."
+        )
+        conn.close()
+        return 2
+
     seeds_fwd, seeds_rev = load_seeds(cur)
 
     base = "SELECT * FROM vendors WHERE coalesce(ckw_locked,0)=0"
@@ -248,17 +260,16 @@ def main() -> int:
 
     updated = 0
     skipped_same = 0
-
     print(f"Scanning {total} unlocked row(s)...")
+
     for i, row in enumerate(rows, start=1):
         new_tokens = compute_ckw_row(row, seeds_fwd, seeds_rev)
         new_ckw = " ".join(new_tokens)
-
         old_ckw = (row["computed_keywords"] or "").strip()
         if new_ckw == old_ckw and (row["ckw_version"] or "") == CURRENT_CKW_VER:
             skipped_same += 1
             if i % 200 == 0:
-                print(f"[{i}/{total}] unchanged so far; skipped={skipped_same}")
+                print(f"[{i}/{total}] unchanged so far; skipped_same={skipped_same}")
             continue
 
         if args.dry_run:
@@ -289,5 +300,12 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
+        # 130 = SIGINT
         print("Interrupted.", file=sys.stderr)
         sys.exit(130)
+    except SystemExit:
+        # Let explicit exits pass through unchanged.
+        raise
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)
