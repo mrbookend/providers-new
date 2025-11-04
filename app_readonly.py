@@ -1,33 +1,33 @@
 """Read-only Providers app (minimal, failsafe)."""
 
+# === ANCHOR: IMPORTS (start) ===
 from __future__ import annotations
 
-# === IMPORTS (top-only) ===
+# stdlib
 import os
 import time
 from contextlib import suppress
 from pathlib import Path
 
+# third-party
 import pandas as pd
 import sqlalchemy as sa
 import streamlit as st
 from st_aggrid import GridOptionsBuilder, JsCode
 
+# local
 from export_utils import ensure_phone_string, to_xlsx_bytes
 
-# === WHOLE-WORD WRAP + AgGrid defaults (HCR Patch) ===
-try:
-    # Import the real AgGrid under a private name; we'll expose a wrapper below.
-    from st_aggrid import AgGrid as _AgGrid
-except Exception:
-    _AgGrid = None
+# === ANCHOR: IMPORTS (end) ===
 
-# === WHOLE-WORD WRAP + AgGrid defaults (HCR Patch) ===
+# === ANCHOR: WHOLE-WORD WRAP (start) ===
+# Import the real AgGrid under a private name; wrapper defined below.
 try:
     from st_aggrid import AgGrid as _AgGrid
 except Exception:
     _AgGrid = None
 
+# Force whole-word wrapping in Ag-Grid cells; allow break only for truly long tokens (URLs/IDs).
 st.markdown(
     """
 <style>
@@ -43,19 +43,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if _AgGrid is not None:
-
-    def AgGrid(df, **kwargs):
-        go = dict(kwargs.pop("gridOptions", {}) or {})
-        dcol = dict(go.get("defaultColDef", {}) or {})
-        dcol.setdefault("wrapText", True)
-        dcol.setdefault("autoHeight", True)
-        go["defaultColDef"] = dcol
-        go.setdefault("domLayout", "autoHeight")  # let grid size to content vertically
-        kwargs["gridOptions"] = go
-        return _AgGrid(df, **kwargs)
-# === END: WHOLE-WORD WRAP patch ===
-
 # Wrap AgGrid to inject sane defaults for wrapping/row growth without touching call sites.
 if _AgGrid is not None:
 
@@ -68,9 +55,7 @@ if _AgGrid is not None:
         go.setdefault("domLayout", "autoHeight")  # let grid size to content vertically
         kwargs["gridOptions"] = go
         return _AgGrid(df, **kwargs)
-
-
-# === END: WHOLE-WORD WRAP patch ===
+# === ANCHOR: WHOLE-WORD WRAP (end) ===
 
 
 # === PAGE CONFIG ===
