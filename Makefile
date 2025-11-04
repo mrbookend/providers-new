@@ -23,3 +23,9 @@ zzz:
 
 guard-debug:
 	python3 scripts/check_debug_panel.py
+.PHONY: test-ckw
+test-ckw:
+	@echo "Dry-run on prod DB"
+	@python3 scripts/ckw_recompute.py --dry-run
+	@echo "Smoke on TEST DB (50 rows)"
+	@SQLITE_PATH=providers.TEST.db python3 scripts/ckw_recompute.py --limit 50
