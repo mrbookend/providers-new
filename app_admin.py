@@ -2961,3 +2961,9 @@ def _vendors_has_column(eng, col: str) -> bool:
 
 
 # === ANCHOR: DEBUG PANEL (start) ===
+
+with st.expander("Computed Keywords — Maintenance", expanded=False):
+    if not st.secrets.get("ADMIN_ENABLE_CKW", False):
+        st.info("CKW maintenance disabled. Set secrets['ADMIN_ENABLE_CKW']=true to enable.")
+    else:
+        _ckw_buttons_panel()
