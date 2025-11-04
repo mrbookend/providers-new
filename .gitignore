@@ -54,3 +54,4 @@ df
 # local editor backups
 app_readonly.py.BAK.*
 requirements-freeze.txt
+.backup/
