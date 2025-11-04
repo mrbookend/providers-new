@@ -51,3 +51,18 @@ help::
 db-restore-test:
 	@cp -p ${SQLITE_PATH:-providers.db} providers.TEST.db
 	@echo "TEST DB restored from prod copy"
+.PHONY: schema-check
+schema-check:
+	@[ -n "$$SCHEMA_GUARD" ] || { echo "(schema-check skipped — set SCHEMA_GUARD=1 to enforce)"; exit 0; }
+	@echo "=== schema checksum ==="
+	@[ "$$(python3 scripts/schema_checksum.py)" = "$$(cat .schema.sha256)" ] && echo "schema: OK" || (echo "schema: DRIFT"; exit 1)
+.PHONY: schema-check
+schema-check:
+	@[ -n "$$SCHEMA_GUARD" ] || { echo "(schema-check skipped — set SCHEMA_GUARD=1 to enforce)"; exit 0; }
+	@echo "=== schema checksum ==="
+	@[ "$$(python3 scripts/schema_checksum.py)" = "$$(cat .schema.sha256)" ] && echo "schema: OK" || (echo "schema: DRIFT"; exit 1)
+.PHONY: schema-check
+schema-check:
+	@[ -n "$$SCHEMA_GUARD" ] || { echo "(schema-check skipped — set SCHEMA_GUARD=1 to enforce)"; exit 0; }
+	@echo "=== schema checksum ==="
+	@[ "$$(python3 scripts/schema_checksum.py)" = "$$(cat .schema.sha256)" ] && echo "schema: OK" || (echo "schema: DRIFT"; exit 1)
