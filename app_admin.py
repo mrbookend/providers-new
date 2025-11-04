@@ -32,7 +32,6 @@ import sys
 
 
 def _ckw_buttons_panel() -> None:
-    st.subheader("Computed Keywords — Maintenance")
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         dry_run = st.toggle("Dry run", value=True, help="Log changes but do not write to DB.")
