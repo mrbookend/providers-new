@@ -48,3 +48,21 @@ schema-check:
 	@[ -n "$$SCHEMA_GUARD" ] || { echo "(schema-check skipped — set SCHEMA_GUARD=1 to enforce)"; exit 0; }
 	@echo "=== schema checksum ==="
 	@[ "$$(python3 scripts/schema_checksum.py)" = "$$(cat .schema.sha256)" ] && echo "schema: OK" || (echo "schema: DRIFT"; exit 1)
+# Convenience targets referenced in help
+.PHONY: self-check status bc guard-debug
+self-check:
+	@./scripts/self_check.sh
+
+status:
+	@verify_admin || true
+	@hcrsync || true
+
+# "bc" = fast loop: sync + code checks
+bc:
+	@git fetch --prune
+	@python3 -m py_compile app_readonly.py app_admin.py || exit 1
+	@ruff check --fix
+	@ruff format --check
+
+guard-debug:
+	@python3 scripts/check_debug_panel.py
