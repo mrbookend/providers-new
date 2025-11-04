@@ -47,3 +47,7 @@ help::
 	@echo "db-backup        - copy providers.db to backups/providers.YYYYMMDD-HHMMSS.db"
 help::
 	@echo "self-check      - run zzz + integrity + guards + CKW smoke"
+.PHONY: db-restore-test
+db-restore-test:
+	@cp -p ${SQLITE_PATH:-providers.db} providers.TEST.db
+	@echo "TEST DB restored from prod copy"
