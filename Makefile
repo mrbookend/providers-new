@@ -45,3 +45,5 @@ help::
 	@echo "test-ckw         - dry-run prod + 50-row smoke on TEST DB"
 	@echo "sqlite-integrity - PRAGMA integrity_check must be ok"
 	@echo "db-backup        - copy providers.db to backups/providers.YYYYMMDD-HHMMSS.db"
+help::
+	@echo "self-check      - run zzz + integrity + guards + CKW smoke"
