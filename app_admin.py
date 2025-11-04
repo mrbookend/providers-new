@@ -7,6 +7,7 @@ from __future__ import annotations
 # Standard library
 import contextlib
 from datetime import datetime
+from contextlib import suppress
 import hashlib
 import hmac
 import importlib
@@ -24,7 +25,79 @@ from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
-from contextlib import suppress
+
+# === ANCHOR: CKW RECOMPUTE BUTTONS (start) ===
+
+
+def _ckw_buttons_panel() -> None:
+    st.subheader("Computed Keywords — Maintenance")
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        dry_run = st.toggle("Dry run", value=True, help="Log changes but do not write to DB.")
+    with col2:
+        limit = st.number_input("Limit", min_value=0, value=0, step=50, help="0 = no limit")
+    with col3:
+        where = st.text_input("WHERE filter (SQL)", value="", placeholder="service='plumbing'")
+
+    # Guard: enable only when secret is set
+    if not st.secrets.get("ADMIN_ENABLE_CKW", False):
+        st.info("CKW maintenance disabled. Set secrets['ADMIN_ENABLE_CKW']=true to enable.")
+        return
+
+    db_path = os.environ.get("SQLITE_PATH", "providers.db")
+    st.caption(f"DB: {db_path}")
+
+    # Backup first
+    if st.button("Backup DB now (.backup)", use_container_width=True):
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_dir = "backups"
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_file = os.path.join(backup_dir, f"providers-pre-ckw-{ts}.db")
+        res = subprocess.run(
+            ["sqlite3", db_path, f".backup {backup_file}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0:
+            st.success(f"Backup created: {backup_file}")
+        else:
+            st.error(f"Backup failed: {res.stderr.strip()}")
+
+    # Recompute
+    args = ["./scripts/ckw_recompute.py"]
+    if dry_run:
+        args.append("--dry-run")
+    if limit and int(limit) > 0:
+        args += ["--limit", str(int(limit))]
+    if where.strip():
+        args += ["--where", where.strip()]
+
+    if st.button("Run CKW recompute", type="primary", use_container_width=True):
+        env = os.environ.copy()
+        env.setdefault("SQLITE_PATH", db_path)
+        res = subprocess.run(args, check=False, capture_output=True, text=True, env=env)
+        st.code(" ".join(args), language="bash")
+        st.write(res.stdout or "")
+        if res.returncode != 0:
+            st.error(res.stderr or "ckw_recompute failed")
+        else:
+            st.success("Completed.")
+
+    # Quick counts
+    if st.button("Show CKW counts", use_container_width=True):
+        q = """
+        SELECT COUNT(*) AS locked FROM vendors WHERE ckw_locked=1;
+        SELECT COUNT(*) AS unlocked FROM vendors WHERE coalesce(ckw_locked,0)=0;
+        SELECT ckw_locked AS locked, ckw_version, COUNT(*) AS n
+          FROM vendors GROUP BY ckw_locked, ckw_version ORDER BY 1,2;
+        """
+        cmd = ["sqlite3", "-cmd", ".headers on", "-cmd", ".mode column", db_path, q]
+        res = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        st.text(res.stdout or res.stderr or "No output")
+
+
+# === ANCHOR: CKW RECOMPUTE BUTTONS (end) ===
 
 # === INDEX CONSTANTS (canonical) ===
 EXPECTED_INDEXES = [
@@ -46,7 +119,6 @@ LEGACY_INDEXES = [
     "idx_vendors_phone_fmt",
     "idx_vendors_keywords",
 ]
-
 
 # --- ANCHOR: ADMIN BROWSE — AgGrid safe shim (start) ---
 # If AgGrid fails for any reason, render a plain dataframe instead so Browse never blanks.
@@ -92,7 +164,6 @@ NOUN_SINGULAR = "Provider"
 NOUN_PLURAL = "Providers"
 # === ANCHOR: NOUNS (end) ===
 
-
 # === ANCHOR: PAGE_CONFIG (start) ===
 # --- Page config MUST be the first Streamlit call ---------------------------
 if not globals().get("_PAGE_CFG_DONE"):
@@ -112,7 +183,6 @@ if not globals().get("_PAGE_CFG_DONE"):
 if "_browse_help_render" not in st.session_state:
     st.session_state["_browse_help_render"] = lambda: None
 # --- Session defaults (safe no-ops) --- END
-
 
 # ---------------------------------------------------------------------------
 
@@ -673,7 +743,6 @@ def _ckw_for_form_row(data: dict) -> tuple[str, str]:
 
 # ---------------------------------------------------------------------------#
 
-
 # --- CKW schema ensure -------------------------------------------------------
 
 
@@ -1216,7 +1285,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # -----------------------------
 # Admin sign-in gate (deterministic toggle)
 # -----------------------------
@@ -1246,7 +1314,6 @@ else:
             else:
                 st.error("Incorrect password.")
         st.stop()
-
 
 # -----------------------------
 # DB helpers
@@ -1750,7 +1817,6 @@ except Exception:
 
 # === ANCHOR: DEBUG PANEL (end) ===
 
-
 # (removed legacy inline browse block; canonical __HCR_browse_render() is used)
 
 
@@ -1834,7 +1900,6 @@ _tabs = st.tabs(
 )
 # (removed duplicate top-level Browse render; only _tabs[0] -> __HCR_browse_render() remains)
 
-
 # (removed unused _browse_help_block; help is handled by the HCR Help -- Browse section)
 
 # --- HCR: Help -- Browse (secrets-driven) -----------------------------------
@@ -1849,10 +1914,8 @@ with _tabs[0]:
     __HCR_browse_render()
 # === ANCHOR: TABS_BROWSE_ENTER (end) ===
 
-
 # Optional top-of-browse help (intentionally disabled here; canonical Browse already rendered)
 # (legacy fallback table block intentionally removed)
-
 
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
 # NOTE: Browse table is rendered only on the Browse tab via _render_browse_table().
@@ -2167,7 +2230,6 @@ with _tabs[1]:
                         st.rerun()
                 except Exception as e:
                     st.error(f"Delete failed: {e}")
-
 
 # ---------- Category Admin
 with _tabs[2]:
@@ -2880,7 +2942,6 @@ def render_browse_help_expander() -> None:
 
 # Expose a callable so main/Browse can invoke without re-import details.
 st.session_state["_browse_help_render"] = render_browse_help_expander
-
 
 # Initialize once at import time (safe, idempotent)
 _ensure_page_size_in_state()
