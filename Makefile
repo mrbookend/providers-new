@@ -7,7 +7,7 @@ SHELL := /bin/bash
 # Default: quick sync snapshot
 default: status
 
-help:
+help::
 	@echo "status     - git sync status (bbb)"
 	@echo "bc         - fast loop: sync + code checks (bbb+ccc)"
 	@echo "zzz        - full read-only health chain"
@@ -37,3 +37,11 @@ sqlite-integrity:
 .PHONY: zzz
 # If you redefine, ensure sqlite-integrity is included
 # zzz: bc guard-debug sqlite-sanity sqlite-integrity test-ckw
+.PHONY: db-backup
+db-backup:
+	@cp -p $${SQLITE_PATH:-providers.db} backups/providers.$(date +%Y%m%d-%H%M%S).db
+	@echo "Backup -> backups/"
+help::
+	@echo "test-ckw         - dry-run prod + 50-row smoke on TEST DB"
+	@echo "sqlite-integrity - PRAGMA integrity_check must be ok"
+	@echo "db-backup        - copy providers.db to backups/providers.YYYYMMDD-HHMMSS.db"
