@@ -25,6 +25,8 @@ from sqlalchemy.dialects import registry as _sa_registry  # type: ignore
 from sqlalchemy import create_engine, text as sql_text
 from sqlalchemy.engine import Engine
 import streamlit as st
+from pathlib import Path
+import sys
 
 # === ANCHOR: CKW RECOMPUTE BUTTONS (start) ===
 
@@ -46,6 +48,11 @@ def _ckw_buttons_panel() -> None:
 
     db_path = os.environ.get("SQLITE_PATH", "providers.db")
     st.caption(f"DB: {db_path}")
+    root = Path(__file__).resolve().parent
+    script = root / "scripts" / "ckw_recompute.py"
+    if not script.exists():
+        st.error(f"Missing recompute script: {script}")
+        return
 
     # Backup first
     if st.button("Backup DB now (.backup)", use_container_width=True):
@@ -65,7 +72,9 @@ def _ckw_buttons_panel() -> None:
             st.error(f"Backup failed: {res.stderr.strip()}")
 
     # Recompute
-    args = ["./scripts/ckw_recompute.py"]
+    root = Path(__file__).resolve().parent
+    script = root / "scripts" / "ckw_recompute.py"
+    args = [sys.executable, str(script)]
     if dry_run:
         args.append("--dry-run")
     if limit and int(limit) > 0:
