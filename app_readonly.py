@@ -14,14 +14,14 @@ from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
 from export_utils import ensure_phone_string, to_xlsx_bytes
 
 _HAS_AGGRID = True
+# Must be FIRST Streamlit call
+st.set_page_config(page_title="Providers - Read-Only", page_icon="[book]", layout="wide")
+
 
 # === ANCHOR: READONLY SEARCH INPUT (start) ===
 q = st.text_input("Search", value="", placeholder="name, category, service, phone, notes…")
 q = (q or "").strip()
 # === ANCHOR: READONLY SEARCH INPUT (end) ===
-# Must be FIRST Streamlit call
-st.set_page_config(page_title="Providers - Read-Only", page_icon="[book]", layout="wide")
-
 # === ANCHOR: CONSTANTS (start) ===
 DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
