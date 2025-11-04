@@ -1,41 +1,77 @@
-# === Providers Makefile (no-heredoc; canonicalized rowcount guard) ===
-# NOTE: Recipe lines (those starting with @) must begin with a literal TAB.
+# ===============================
+# providers-new — Makefile (full)
+# ===============================
 
-.PHONY: help rowcount-refresh rowcount-check rowcount-guard rowcount-show rowcount-accept
+PY ?= python3
+
+.PHONY: help status bbb ccc bc zzz \
+        rowcount-check rowcount-show rowcount-guard rowcount-refresh rowcount-accept \
+        guard-debug
 
 help:
-	@echo "Targets:"
-	@echo "  rowcount-refresh  - write current counts to .rowcounts.json (tolerant)"
-	@echo "  rowcount-check    - print current counts to stdout (tolerant)"
-	@echo "  rowcount-guard    - fail if current counts drift (canonical compare)"
-	@echo "  rowcount-show     - show baseline vs fresh (canonicalized)"
-	@echo "  rowcount-accept   - accept current counts as new baseline"
+	@echo "status         - git sync status (bbb)"
+	@echo "bbb            - fetch/prune + show HEAD vs origin/main"
+	@echo "ccc            - code checks (py_compile + ruff fix/format + debug guard)"
+	@echo "bc             - fast loop: bbb + ccc"
+	@echo "zzz            - full read-only health chain (bbb + ccc + rowcount-guard)"
+	@echo "rowcount-check - compute current rowcounts to /tmp/_row.json"
+	@echo "rowcount-show  - diff baseline vs current (canonicalized JSON)"
+	@echo "rowcount-guard - fail if baseline != current"
+	@echo "rowcount-refresh - recompute counts and stage temp canonical files"
+	@echo "rowcount-accept  - accept current counts as new baseline (.rowcounts.json)"
+	@echo "guard-debug    - run debug-panel guard script"
 
-# Write the current counts atomically to .rowcounts.json (tolerant of non-zero rc)
-rowcount-refresh:
-	@python3 scripts/rowcount_guard.py --write || true
-	@echo "Refreshed .rowcounts.json"
+status: bbb
 
-# Just run the script and print counts (tolerant of non-zero rc)
+bbb:
+	@echo "=== git sync (bbb) ==="
+	@git fetch --prune > /dev/null 2>&1 || true
+	@echo "HEAD:        $$(git rev-parse --short HEAD)"
+	@echo "origin/main: $$(git rev-parse --short origin/main)"
+
+ccc:
+	@echo "=== code checks (ccc) ==="
+	@$(PY) -m py_compile app_readonly.py app_admin.py
+	@ruff check --fix
+	@ruff format
+	@$(PY) scripts/check_debug_panel.py
+
+bc: bbb ccc
+
+# Full chain
+zzz: bbb ccc rowcount-guard
+
+# ---- Rowcount baseline / guard -----------------------------------------
+
 rowcount-check:
-	@python3 scripts/rowcount_guard.py || true
+	@echo "=== rowcount-check ==="
+	@$(PY) scripts/rowcount_guard.py > /tmp/_row.json
 
-# Fail if fresh counts differ from committed baseline (canonical compare)
-rowcount-guard:
-	@python3 scripts/rowcount_guard.py > /tmp/_row.json || true
-	@python3 -c 'import json;print(json.dumps(json.load(open(".rowcounts.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.base.canon.json
-	@python3 -c 'import json;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.curr.canon.json
-	@diff -u /tmp/_row.base.canon.json /tmp/_row.curr.canon.json >/dev/null && \
-	  echo "rowcounts: OK" || (echo "rowcounts: DRIFT (see /tmp/_row.json)"; exit 1)
+rowcount-show: rowcount-check
+	@echo "=== rowcount-show (diff baseline vs current) ==="
+	@$(PY) -c 'import json,sys;print(json.dumps(json.load(open(".rowcounts.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.base.canon.json
+	@$(PY) -c 'import json,sys;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.curr.canon.json
+	@diff -u /tmp/_row.base.canon.json /tmp/_row.curr.canon.json || true
 
-# Show baseline vs fresh counts (canonicalized; no failing)
-rowcount-show:
-	@echo "--- baseline (.rowcounts.json) canonical ---"
-	@python3 -c 'import json;print(json.dumps(json.load(open(".rowcounts.json")),sort_keys=True,indent=2))'
-	@echo "--- current (/tmp/_row.json) canonical ---"
-	@python3 -c 'import json;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,indent=2))'
+rowcount-guard: rowcount-check
+	@$(PY) -c 'import json,sys;print(json.dumps(json.load(open(".rowcounts.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.base.canon.json
+	@$(PY) -c 'import json,sys;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.curr.canon.json
+	@sh -c 'diff -u /tmp/_row.base.canon.json /tmp/_row.curr.canon.json >/dev/null && echo "rowcounts: OK" || (echo "rowcounts: DRIFT (see /tmp/_row.json)"; exit 1)'
 
-# Accept current counts as the new baseline (tolerant)
-rowcount-accept:
-	@python3 scripts/rowcount_guard.py --write || true
-	@echo "Baseline updated: .rowcounts.json"
+rowcount-refresh:
+	@echo "=== rowcount-refresh ==="
+	@$(PY) scripts/rowcount_guard.py > /tmp/_row.json
+	@$(PY) -c 'import json,sys;print(json.dumps(json.load(open("/tmp/_row.json")),sort_keys=True,separators=(",",":")))' > /tmp/_row.curr.canon.json
+	@echo "Current counts recomputed -> /tmp/_row.json (and canonical at /tmp/_row.curr.canon.json)"
+
+rowcount-accept: rowcount-refresh
+	@echo "=== rowcount-accept ==="
+	@cp /tmp/_row.json .rowcounts.json.NEW
+	@mv .rowcounts.json.NEW .rowcounts.json
+	@echo "Updated baseline: .rowcounts.json"
+	@echo "Tip: git add .rowcounts.json && git commit -m \"chore: update rowcount baseline\" && git push"
+
+# ---- Misc guards --------------------------------------------------------
+
+guard-debug:
+	@$(PY) scripts/check_debug_panel.py
