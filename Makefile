@@ -29,3 +29,11 @@ test-ckw:
 	@python3 scripts/ckw_recompute.py --dry-run
 	@echo "Smoke on TEST DB (50 rows)"
 	@SQLITE_PATH=providers.TEST.db python3 scripts/ckw_recompute.py --limit 50
+.PHONY: sqlite-integrity
+sqlite-integrity:
+	@echo "=== sqlite integrity_check ==="
+	@sqlite3 $${SQLITE_PATH:-providers.db} "PRAGMA integrity_check" | grep -qx "ok"
+
+.PHONY: zzz
+# If you redefine, ensure sqlite-integrity is included
+# zzz: bc guard-debug sqlite-sanity sqlite-integrity test-ckw
