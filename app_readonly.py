@@ -1,13 +1,16 @@
 """Read-only Providers app (minimal, failsafe)."""
 
-# === ANCHOR: IMPORTS (start) ===
 from __future__ import annotations
 
+# === ANCHOR: IMPORTS (start) ===
 # stdlib
 import os
-import time
+import os as _os
+import tempfile as _tempfile
 from contextlib import suppress
-from pathlib import Path
+
+# === HCR: WRITABLE DIR HELPERS (readonly) ===
+from pathlib import Path, Path as _Path
 
 # third-party
 import pandas as pd
@@ -17,6 +20,92 @@ from st_aggrid import GridOptionsBuilder, JsCode
 
 # local
 from export_utils import ensure_phone_string, to_xlsx_bytes
+
+# === FONT SIZE (from secrets) ===
+try:
+    FONT_PX = int(st.secrets.get("READONLY_FONT_SIZE_PX", 14))
+except Exception:
+    FONT_PX = 14  # failsafe
+st.markdown(
+    f"""
+    <style>
+      :root {{ --ro-font-size: {FONT_PX}px; }}
+      html, body,
+      [data-testid="stAppViewContainer"],
+      .block-container {{
+        font-size: var(--ro-font-size) !important;
+        line-height: 1.35 !important;
+      }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+def _pick_writable_dir(cands):
+    for base in cands:
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            prob = base / ".probe"
+            prob.write_text("ok", encoding="utf-8")
+            prob.unlink(missing_ok=True)
+            return base
+        except Exception:
+            pass
+    fb = _Path(_tempfile.gettempdir()) / "providers-new"
+    fb.mkdir(parents=True, exist_ok=True)
+    return fb
+
+
+def _cloud_persistent_dir():
+    return _Path("/mount/data/.providers-cache")
+
+
+def _local_cache_dir():
+    xdg = _os.environ.get("XDG_CACHE_HOME")
+    return (_Path(xdg) if xdg else _Path.home() / ".cache") / "providers-new"
+
+
+_env_cache = _os.environ.get("PROVIDERS_CACHE_DIR")
+_candidates = []
+if _env_cache:
+    _candidates.append(_Path(_env_cache))
+_candidates += [_cloud_persistent_dir(), _local_cache_dir()]
+CACHE_DIR = _pick_writable_dir(_candidates)
+
+EXPORT_DIR = CACHE_DIR / "exports"
+EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _preferred_db_paths():
+    env_db = _os.environ.get("PROVIDERS_DB")
+    if env_db:
+        return [_Path(env_db)]
+    return [
+        _Path("/mount/data/providers.db"),
+        _local_cache_dir() / "providers.db",
+        _Path.cwd() / "providers.db",
+    ]
+
+
+def _resolve_db_path():
+    for cand in _preferred_db_paths():
+        try:
+            if cand.exists() or cand.parent.exists():
+                return str(cand)
+        except Exception:
+            pass
+    return str(CACHE_DIR / "providers.db")
+
+
+# === HCR: WRITABLE DIR HELPERS (readonly) END ===
+
+
+# === ANCHOR: CONFIG — DB PATH (start) ===
+DB_PATH = _resolve_db_path()
+ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+# === ANCHOR: CONFIG — DB PATH (end) ===
+
 
 # === ANCHOR: IMPORTS (end) ===
 # === ANCHOR: PAGE CONFIG (start) ===
@@ -53,6 +142,7 @@ DEFAULT_WRAP_CSS = {
         "overflow-wrap": "anywhere !important",
         "hyphens": "auto !important",
         "line-height": "1.25 !important",
+        "font-size": f"{FONT_PX}px !important",
     },
     ".ag-theme-quartz .ag-cell": {
         "white-space": "normal !important",
@@ -60,8 +150,20 @@ DEFAULT_WRAP_CSS = {
         "overflow-wrap": "anywhere !important",
         "hyphens": "auto !important",
         "line-height": "1.25 !important",
+        "font-size": f"{FONT_PX}px !important",
     },
 }
+
+
+def _emit_css(css_map: dict) -> None:
+    css = "".join(
+        f"{sel}{{" + ";".join(f"{k}:{v}" for k, v in props.items()) + "}}"
+        for sel, props in css_map.items()
+    )
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+
+_emit_css(DEFAULT_WRAP_CSS)
 
 JS_RESET_ROW_HEIGHTS = JsCode(
     """
@@ -102,44 +204,6 @@ if _AgGrid is not None:
         return _AgGrid(df, **kwargs)
 # === ANCHOR: WHOLE-WORD WRAP (end) ===
 
-# (Optional) Live banner so you can verify the running file/time
-st.warning(f"READ-ONLY LIVE: {os.path.abspath(__file__)} @ {time.strftime('%H:%M:%S')}")
-
-
-# === ANCHOR: CONFIG — DB PATH (start) ===
-def _writable_dir(p: Path) -> bool:
-    try:
-        return p.exists() and os.access(p, os.W_OK)
-    except Exception:
-        return False
-
-
-def _resolve_db_path() -> str:
-    """
-    Resolve a writable SQLite path (Cloud + local):
-      1) PROVIDERS_DB (env or secrets) if parent is writable
-      2) /mount/data/providers.db if /mount/data is writable
-      3) ~/.cache/providers-new/providers.db (fallback)
-    """
-    cand = os.environ.get("PROVIDERS_DB") or st.secrets.get("PROVIDERS_DB", "")
-    if cand:
-        p = Path(cand).expanduser()
-        parent = p.parent if p.suffix else p
-        if _writable_dir(parent):
-            return str(p if p.suffix else parent / "providers.db")
-
-    data = Path("/mount/data")
-    if _writable_dir(data):
-        return str(data / "providers.db")
-
-    home_dir = Path.home() / ".cache" / "providers-new"
-    home_dir.mkdir(parents=True, exist_ok=True)
-    return str(home_dir / "providers.db")
-
-
-DB_PATH = _resolve_db_path()
-ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
-# === ANCHOR: CONFIG — DB PATH (end) ===
 
 # === SCHEMA (minimal, non-breaking) ===
 DDL = """
@@ -532,6 +596,11 @@ def _render_table(df: pd.DataFrame) -> None:
             height=grid_h,
             gridOptions=opts,
         )
+
+    st.markdown(
+        f"<style>.stDataFrame div[role='gridcell']{{font-size:{FONT_PX}px !important}}</style>",
+        unsafe_allow_html=True,
+    )
 
     # Downloads (from what we rendered)
     left, mid = st.columns([1, 1])
