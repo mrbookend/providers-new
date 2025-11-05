@@ -55,3 +55,9 @@ df
 app_readonly.py.BAK.*
 requirements-freeze.txt
 .backup/
+# Local editor/backup artifacts
+app_readonly.py.BROKEN.*
+app_readonly.py.BAK.*
+app_readonly.py.save
+*.BAK.*
+*.BROKEN.*
