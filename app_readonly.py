@@ -107,7 +107,10 @@ if _AgGrid is not None:
 st.warning(f"READ-ONLY LIVE: {os.path.abspath(__file__)} @ {time.strftime('%H:%M:%S')}")
 
 # === CONSTANTS / ENGINE ===
-DB_PATH = os.environ.get("PROVIDERS_DB", "providers.db")
+# Resolve a writable SQLite path (Cloud + local)
+DB_PATH = os.environ.get("PROVIDERS_DB") or st.secrets.get("PROVIDERS_DB", "providers.db")
+DB_PATH = str(Path(DB_PATH).expanduser())
+Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
 
 # === SCHEMA (minimal, non-breaking) ===
