@@ -68,20 +68,33 @@ st.markdown(
         line-height: 1.35 !important;
       }}
 
-      /* MINIMIZE TOP GAP ABOVE CONTENT */
       /* Remove Streamlit header chrome height */
       div[data-testid="stHeader"] {{
         height: 0px !important;
         min-height: 0px !important;
       }}
-      /* Slim the main block's top padding */
+      /* Slim the main block top padding */
       [data-testid="stAppViewContainer"] > .main .block-container {{
-        padding-top: 0.25rem !important;   /* tweak smaller if you want */
+        padding-top: 0.15rem !important;
       }}
-      /* Optional: hide the toolbar (⋮ menu) to reclaim a few pixels */
-      div[data-testid="stToolbar"] {{
-        display: none !important;
+      /* Optional: hide the toolbar (3-dot menu) */
+      div[data-testid="stToolbar"] {{ display: none !important; }}
+
+      /* Tighter spacing between search / help / header row */
+      div[data-testid="stTextInput"] {{ margin-bottom: 0.15rem !important; }}
+      div[data-testid="stExpander"] {{ margin-top: 0.15rem !important; margin-bottom: 0.15rem !important; }}
+      div[data-testid="stExpander"] summary {{ padding-top: 0.15rem !important; padding-bottom: 0.15rem !important; }}
+
+      /* Ag-Grid header: reduce vertical height/padding */
+      .ag-theme-streamlit .ag-header, .ag-theme-quartz .ag-header {{ min-height: 28px !important; }}
+      .ag-theme-streamlit .ag-header .ag-header-row, .ag-theme-quartz .ag-header .ag-header-row {{ height: 28px !important; }}
+      .ag-theme-streamlit .ag-header-cell, .ag-theme-streamlit .ag-header-group-cell,
+      .ag-theme-quartz .ag-header-cell, .ag-theme-quartz .ag-header-group-cell {{
+        padding-top: 2px !important; padding-bottom: 2px !important;
       }}
+
+      /* Slightly trim default section spacing */
+      .block-container > div {{ margin-top: 0.15rem !important; margin-bottom: 0.15rem !important; }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -679,9 +692,6 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
     gob.configure_grid_options(
         suppressAutoSize=True,
         multiSortKey="ctrl",  # NEW: hold Ctrl to add secondary/tertiary sorts
-    )
-    st.caption(
-        "Tip: Click a header to sort. Hold Ctrl while clicking another header for multi-sort (look for 1/2 badges)."
     )
 
     # JS phone formatter in-grid (if you later use valueFormatter)
