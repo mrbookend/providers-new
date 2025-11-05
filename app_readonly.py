@@ -21,44 +21,36 @@ from export_utils import ensure_phone_string, to_xlsx_bytes
 # === ANCHOR: IMPORTS (end) ===
 # === ANCHOR: PAGE CONFIG (start) ===
 st.set_page_config(page_title="Providers - Read-Only", page_icon="📘", layout="wide")
-
-
 # === ANCHOR: PAGE CONFIG (end) ===
+
 # === ANCHOR: PHONE UTIL (start) ===
 PHONE_NANP_LEN = 10  # digits: NPA-NXX-XXXX
 PHONE_NANP_WITH_COUNTRY = 11  # leading '1' + 10 digits
 PHONE_COUNTRY_PREFIX = "1"
 
 
-def _fmt_phone(value: object) -> str:
-    """Format to (xxx) xxx-xxxx when digits look like US/Canada NANP."""
-    s = str(value or "").strip()
-    digits = "".join(ch for ch in s if ch.isdigit())
-    if len(digits) == PHONE_NANP_WITH_COUNTRY and digits.startswith(PHONE_COUNTRY_PREFIX):
-        digits = digits[1:]
-    if len(digits) == PHONE_NANP_LEN:
-        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+def _strip_extension(s: str) -> str:
+    lower = s.lower()
+    for mark in (" ext.", " ext ", " ext:", " x", " x.", " ext", " extension "):
+        i = lower.find(mark)
+        if i != -1:
+            return s[:i]
     return s
 
 
 # === ANCHOR: PHONE UTIL (end) ===
 
 # === ANCHOR: WHOLE-WORD WRAP (start) ===
-# Import the real AgGrid under a private name; wrapper defined below.
 try:
     from st_aggrid import AgGrid as _AgGrid
 except Exception:
     _AgGrid = None
 
-# Ag-Grid-native approach:
-# - defaultColDef.wrapText/autoHeight
-# - custom_css to keep whole words (but allow ultra-long tokens to break)
-# - JS events to reset row heights when data renders / filters / columns resize
 DEFAULT_WRAP_CSS = {
     ".ag-theme-streamlit .ag-cell": {
         "white-space": "normal !important",
         "word-break": "keep-all !important",
-        "overflow-wrap": "anywhere !important",  # break long URLs/IDs when needed
+        "overflow-wrap": "anywhere !important",
         "hyphens": "auto !important",
         "line-height": "1.25 !important",
     },
@@ -71,14 +63,12 @@ DEFAULT_WRAP_CSS = {
     },
 }
 
-# Row-height recompute (initial + after user tweaks)
 JS_RESET_ROW_HEIGHTS = JsCode(
     """
 function(params) {
   const api = params.api;
   if (api && api.resetRowHeights) {
     api.resetRowHeights();
-    // run again after the browser paints, to catch late layout
     setTimeout(function(){ try { api.resetRowHeights(); } catch(e){} }, 0);
   }
 }
@@ -88,52 +78,35 @@ function(params) {
 if _AgGrid is not None:
 
     def AgGrid(df, **kwargs):
-        # Merge/seed gridOptions
         go = dict(kwargs.pop("gridOptions", {}) or {})
 
-        # Column defaults: wrap + autoHeight everywhere; callers can still override
         dcol = dict(go.get("defaultColDef", {}) or {})
         dcol.setdefault("wrapText", True)
         dcol.setdefault("autoHeight", True)
         go["defaultColDef"] = dcol
 
-        # Let the grid size vertically with content; caller can override if they really want
         go.setdefault("domLayout", "autoHeight")
-
-        # Make sure row heights recompute whenever it matters
         go.setdefault("onFirstDataRendered", JS_RESET_ROW_HEIGHTS)
         go.setdefault("onFilterChanged", JS_RESET_ROW_HEIGHTS)
         go.setdefault("onColumnResized", JS_RESET_ROW_HEIGHTS)
 
-        # Merge CSS so words wrap on spaces; long tokens still break
         user_css = dict(kwargs.pop("custom_css", {}) or {})
         merged_css = dict(DEFAULT_WRAP_CSS)
-        merged_css.update(user_css)  # user overrides win
+        merged_css.update(user_css)
         kwargs["custom_css"] = merged_css
 
-        # Defaults that help wrapping behave
-        kwargs.setdefault("fit_columns_on_grid_load", False)  # allow natural widths
-        kwargs.setdefault("allow_unsafe_jscode", True)  # enable our JS events
+        kwargs.setdefault("fit_columns_on_grid_load", False)
+        kwargs.setdefault("allow_unsafe_jscode", True)
 
         kwargs["gridOptions"] = go
         return _AgGrid(df, **kwargs)
 # === ANCHOR: WHOLE-WORD WRAP (end) ===
 
-
-# === PAGE CONFIG ===
-
 # (Optional) Live banner so you can verify the running file/time
-
 st.warning(f"READ-ONLY LIVE: {os.path.abspath(__file__)} @ {time.strftime('%H:%M:%S')}")
 
-# === CONSTANTS / ENGINE ===
-# Resolve a writable SQLite path (Cloud + local)
-DB_PATH = os.environ.get("PROVIDERS_DB") or st.secrets.get("PROVIDERS_DB", "providers.db")
-DB_PATH = str(Path(DB_PATH).expanduser())
-Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+
 # === ANCHOR: CONFIG — DB PATH (start) ===
-
-
 def _writable_dir(p: Path) -> bool:
     try:
         return p.exists() and os.access(p, os.W_OK)
@@ -223,7 +196,7 @@ def _bootstrap_from_csv_if_needed() -> str:
         return ""
 
     try:
-        df = pd.read_csv(seed_path)
+        df = pd.read_csv(seed_path, dtype=str)
     except Exception as e:
         return f"BOOTSTRAP: failed to read {seed_path}: {type(e).__name__}: {e}"
 
@@ -288,7 +261,6 @@ def _apply_readonly_prefs(df: pd.DataFrame):
     prefs = _readonly_prefs_from_secrets()
     hide_cols: set[str] = set(prefs["hide_cols"])
 
-    # Fail-safe hiding — ensure internal cols never show
     must_hide = {
         "id",
         "computed_keywords",
@@ -322,14 +294,14 @@ def _apply_readonly_prefs(df: pd.DataFrame):
     return df2, view_cols, hidden_cols, prefs
 
 
-# === SEARCH / CONTROLS ROW (single search; first search removed) ===
+# === SEARCH / CONTROLS ROW ===
 controls_left, controls_right_csv, controls_right_xlsx = st.columns([2, 1, 1])
 
 
 def __on_search_enter__():
     term = (st.session_state.get("__search_box__", "") or "").strip()
     st.session_state["__search_term__"] = term
-    st.session_state["__search_box__"] = ""  # auto-clear
+    st.session_state["__search_box__"] = ""
 
 
 with controls_left:
@@ -346,6 +318,42 @@ q = (st.session_state.pop("__search_term__", "") or "").strip()
 # Bootstrap if needed, then load
 _msg = _bootstrap_from_csv_if_needed()
 df = load_df(q)
+
+
+# --- safety shim so we never crash if _fmt_phone isn't present ---
+def __fmt_phone_safe(val: object) -> str:
+    try:
+        return _fmt_phone(val)  # use the canonical one if defined
+    except NameError:
+        # inline fallback formatter (NANP)
+        s = str(val or "").strip()
+        # strip common extension markers
+        lower = s.lower()
+        for mark in (" ext.", " ext ", " ext:", " x", " x.", " ext", " extension "):
+            i = lower.find(mark)
+            if i != -1:
+                s = s[:i]
+                break
+        # drop float-like tails (".0", ".000")
+        if "." in s:
+            head, tail = s.split(".", 1)
+            if head.strip().isdigit() and set(tail.strip()) <= {"0"}:
+                s = head.strip()
+        digits = "".join(ch for ch in s if ch.isdigit())
+        if len(digits) == PHONE_NANP_WITH_COUNTRY and digits.startswith("1"):
+            digits = digits[1:]
+        if len(digits) == PHONE_NANP_LEN:
+            return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+        return s
+
+
+# Normalize raw phones early for fallback display paths (and for export)
+with suppress(Exception):
+    if "phone" in df.columns and "phone_fmt" in df.columns:
+        mask = df["phone_fmt"].astype(str).str.len() > 0
+        df.loc[~mask, "phone"] = df.loc[~mask, "phone"].map(__fmt_phone_safe)
+    elif "phone" in df.columns:
+        df["phone"] = df["phone"].map(__fmt_phone_safe)
 
 # === DOWNLOADS (built from the filtered frame we render) ===
 _df_base = df.copy()
@@ -382,9 +390,8 @@ with suppress(Exception):
 # Help below the controls row
 with st.expander("Help — Browse", expanded=False):
     st.write(
-        "Read-only viewer for the Providers list. Database path is set by "
-        "`PROVIDERS_DB` (default `providers.db`). If empty and a seed CSV is "
-        "available, the app imports it once at startup."
+        "Read-only viewer for the Providers list. Database path is resolved to a writable "
+        "location. If empty and a seed CSV is available, the app imports it once at startup."
     )
 
 
@@ -396,9 +403,7 @@ def _render_table(df: pd.DataFrame) -> None:
     df_display = df[view_cols].copy()
 
     # === ANCHOR: PHONE PREP (start) ===
-    # Normalize the visible "phone" column to a formatted string.
     if "phone" in df_display.columns:
-        # Prefer the DB's phone_fmt when present; otherwise format raw digits.
         fmt_src = (
             df.get("phone_fmt", pd.Series("", index=df.index))
             .astype("string")
@@ -406,12 +411,8 @@ def _render_table(df: pd.DataFrame) -> None:
             .str.strip()
         )
         raw_src = df.get("phone", pd.Series("", index=df.index)).astype("string").fillna("")
-        # Fill blanks in fmt_src with formatted raw digits
-        fallback = raw_src.map(_fmt_phone)
+        fallback = raw_src.map(__fmt_phone_safe)
         df_display["phone"] = fmt_src.mask(fmt_src.eq(""), fallback).astype("string")
-
-        # TEMP DEBUG (remove after you confirm)
-        st.caption("DEBUG phone head: " + ", ".join(list(df_display["phone"].head(3).astype(str))))
     # === ANCHOR: PHONE PREP (end) ===
 
     # Keep keywords searchable, but never display them
@@ -428,25 +429,48 @@ def _render_table(df: pd.DataFrame) -> None:
     # GridOptions via builder
     gob = GridOptionsBuilder.from_dataframe(df_display)
 
-    # Hide CKW/keywords defensively (even if they slipped into df_display someday)
+    # Hide CKW/keywords defensively
     for _col in ("computed_keywords", "keywords"):
         with suppress(Exception):
             gob.configure_column(_col, hide=True, sortable=False, filter=False, suppressMenu=True)
 
-    # === ANCHOR: PHONE FORMATTER (start) ===
-    if "phone" in df_display.columns:
-        _phone_fmt_js = JsCode(
-            """function(params){
-              const raw = (params.value || "").toString();
-              const s = raw.replace(/\\D/g,"");
-              let t = s;
-              if (s.length === 11 && s.startsWith("1")) t = s.slice(1);
-              if (t.length === 10) return "(" + t.slice(0,3) + ") " + t.slice(3,6) + "-" + t.slice(6);
-              return raw;
-            }"""
-        )
-        gob.configure_column("phone", type=["textColumn"], valueFormatter=_phone_fmt_js)
-    # === ANCHOR: PHONE FORMATTER (end) ===
+    _phone_fmt_js = JsCode(
+        """function(params){
+      const raw = (params.value ?? "").toString();
+
+      // strip extension markers before parsing
+      const extMarks = [" ext.", " ext ", " ext:", " x", " x.", " ext", " extension "];
+      let base = raw;
+      for (const m of extMarks){
+        const idx = base.toLowerCase().indexOf(m);
+        if (idx !== -1){ base = base.slice(0, idx)
+                break; }
+      }
+
+      // If it looks like "##########.0" (or .000), drop the decimal part first
+      if (base.includes(".")) {
+        const parts = base.split(".");
+        const head = parts[0].trim(), tail = parts.slice(1).join(".").trim();
+        if (/^\\d+$/.test(head) && /^0*$/.test(tail)) base = head;
+      }
+
+      const s = (base.match(/\\d/g) || []).join("");
+
+      let core = "";
+      if (s.length === 11 && s.startsWith("1")) core = s.slice(1);
+      else if (s.length === 10) core = s;
+      else {
+        // If there's extra and it starts with 1, peel one leading '1'
+        const t = s.startsWith("1") ? s.slice(1) : s;
+        if (t.length === 10) core = t;
+      }
+
+      if (core.length === 10) {
+        return "(" + core.slice(0,3) + ") " + core.slice(3,6) + "-" + core.slice(6);
+      }
+      return raw;
+    }"""
+    )
 
     # Width mapping (optional) from secrets
     try:
@@ -464,7 +488,7 @@ def _render_table(df: pd.DataFrame) -> None:
             with suppress(Exception):
                 gob.configure_column(col, width=int(widths[lk]))
 
-    # Selective explicit wrap (we also have defaults in wrapper)
+    # Selective explicit wrap
     for _col in ("business_name", "address", "category", "service"):
         if _col in df_display.columns:
             gob.configure_column(_col, wrapText=True, autoHeight=True)
