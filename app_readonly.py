@@ -19,6 +19,9 @@ from st_aggrid import GridOptionsBuilder, JsCode
 from export_utils import ensure_phone_string, to_xlsx_bytes
 
 # === ANCHOR: IMPORTS (end) ===
+# === ANCHOR: PAGE CONFIG (start) ===
+st.set_page_config(page_title="Providers - Read-Only", page_icon="📘", layout="wide")
+# === ANCHOR: PAGE CONFIG (end) ===
 
 # === ANCHOR: WHOLE-WORD WRAP (start) ===
 # Import the real AgGrid under a private name; wrapper defined below.
@@ -27,39 +30,77 @@ try:
 except Exception:
     _AgGrid = None
 
-# Force whole-word wrapping in Ag-Grid cells; allow break only for truly long tokens (URLs/IDs).
-st.markdown(
-    """
-<style>
-.ag-theme-streamlit .ag-cell,
-.ag-theme-quartz .ag-cell {
-  white-space: normal !important;
-  word-break: keep-all !important;       /* don't split inside words */
-  overflow-wrap: break-word !important;  /* break a single ultra-long token if needed */
-  hyphens: auto;                         /* soft hyphenation if present */
+# Ag-Grid-native approach:
+# - defaultColDef.wrapText/autoHeight
+# - custom_css to keep whole words (but allow ultra-long tokens to break)
+# - JS events to reset row heights when data renders / filters / columns resize
+DEFAULT_WRAP_CSS = {
+    ".ag-theme-streamlit .ag-cell": {
+        "white-space": "normal !important",
+        "word-break": "keep-all !important",
+        "overflow-wrap": "anywhere !important",  # break long URLs/IDs when needed
+        "hyphens": "auto !important",
+        "line-height": "1.25 !important",
+    },
+    ".ag-theme-quartz .ag-cell": {
+        "white-space": "normal !important",
+        "word-break": "keep-all !important",
+        "overflow-wrap": "anywhere !important",
+        "hyphens": "auto !important",
+        "line-height": "1.25 !important",
+    },
 }
-</style>
-""",
-    unsafe_allow_html=True,
+
+# Row-height recompute (initial + after user tweaks)
+JS_RESET_ROW_HEIGHTS = JsCode(
+    """
+function(params) {
+  const api = params.api;
+  if (api && api.resetRowHeights) {
+    api.resetRowHeights();
+    // run again after the browser paints, to catch late layout
+    setTimeout(function(){ try { api.resetRowHeights(); } catch(e){} }, 0);
+  }
+}
+"""
 )
 
-# Wrap AgGrid to inject sane defaults for wrapping/row growth without touching call sites.
 if _AgGrid is not None:
 
     def AgGrid(df, **kwargs):
+        # Merge/seed gridOptions
         go = dict(kwargs.pop("gridOptions", {}) or {})
+
+        # Column defaults: wrap + autoHeight everywhere; callers can still override
         dcol = dict(go.get("defaultColDef", {}) or {})
         dcol.setdefault("wrapText", True)
         dcol.setdefault("autoHeight", True)
         go["defaultColDef"] = dcol
-        go.setdefault("domLayout", "autoHeight")  # let grid size to content vertically
+
+        # Let the grid size vertically with content; caller can override if they really want
+        go.setdefault("domLayout", "autoHeight")
+
+        # Make sure row heights recompute whenever it matters
+        go.setdefault("onFirstDataRendered", JS_RESET_ROW_HEIGHTS)
+        go.setdefault("onFilterChanged", JS_RESET_ROW_HEIGHTS)
+        go.setdefault("onColumnResized", JS_RESET_ROW_HEIGHTS)
+
+        # Merge CSS so words wrap on spaces; long tokens still break
+        user_css = dict(kwargs.pop("custom_css", {}) or {})
+        merged_css = dict(DEFAULT_WRAP_CSS)
+        merged_css.update(user_css)  # user overrides win
+        kwargs["custom_css"] = merged_css
+
+        # Defaults that help wrapping behave
+        kwargs.setdefault("fit_columns_on_grid_load", False)  # allow natural widths
+        kwargs.setdefault("allow_unsafe_jscode", True)  # enable our JS events
+
         kwargs["gridOptions"] = go
         return _AgGrid(df, **kwargs)
 # === ANCHOR: WHOLE-WORD WRAP (end) ===
 
 
 # === PAGE CONFIG ===
-st.set_page_config(page_title="Providers - Read-Only", page_icon="📘", layout="wide")
 
 # (Optional) Live banner so you can verify the running file/time
 
@@ -295,6 +336,10 @@ def _render_table(df: pd.DataFrame) -> None:
     df2, view_cols, _hidden_cols, prefs = _apply_readonly_prefs(df)
     df = df2
     df_display = df[view_cols].copy()
+    # Keep keywords searchable, but never display them
+    for _col in ("computed_keywords", "keywords"):
+        if _col in df_display.columns:
+            df_display.drop(columns=[_col], inplace=True)
     # DEBUG — remove after verification
     st.caption("DEBUG view_cols: " + ", ".join(view_cols))
     st.caption("DEBUG df_display cols: " + ", ".join(list(df_display.columns)))
@@ -315,11 +360,10 @@ def _render_table(df: pd.DataFrame) -> None:
     # Build grid options from the display frame
     gob = GridOptionsBuilder.from_dataframe(df_display)
 
-    # Hide CKW column if present
-    if "computed_keywords" in df_display.columns:
-        gob.configure_column(
-            "computed_keywords", hide=True, sortable=False, filter=False, suppressMenu=True
-        )
+    # Hide CKW/keywords defensively (even though we dropped them)
+    for _col in ("computed_keywords", "keywords"):
+        with suppress(Exception):
+            gob.configure_column(_col, hide=True, sortable=False, filter=False, suppressMenu=True)
 
     # Phone display formatter (JS fallback)
     _phone_fmt_js = JsCode("""function(params){
