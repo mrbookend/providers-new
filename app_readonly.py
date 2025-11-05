@@ -111,7 +111,42 @@ st.warning(f"READ-ONLY LIVE: {os.path.abspath(__file__)} @ {time.strftime('%H:%M
 DB_PATH = os.environ.get("PROVIDERS_DB") or st.secrets.get("PROVIDERS_DB", "providers.db")
 DB_PATH = str(Path(DB_PATH).expanduser())
 Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+# === ANCHOR: CONFIG — DB PATH (start) ===
+
+
+def _writable_dir(p: Path) -> bool:
+    try:
+        return p.exists() and os.access(p, os.W_OK)
+    except Exception:
+        return False
+
+
+def _resolve_db_path() -> str:
+    """
+    Resolve a writable SQLite path (Cloud + local):
+      1) PROVIDERS_DB (env or secrets) if parent is writable
+      2) /mount/data/providers.db if /mount/data is writable
+      3) ~/.cache/providers-new/providers.db (fallback)
+    """
+    cand = os.environ.get("PROVIDERS_DB") or st.secrets.get("PROVIDERS_DB", "")
+    if cand:
+        p = Path(cand).expanduser()
+        parent = p.parent if p.suffix else p
+        if _writable_dir(parent):
+            return str(p if p.suffix else parent / "providers.db")
+
+    data = Path("/mount/data")
+    if _writable_dir(data):
+        return str(data / "providers.db")
+
+    home_dir = Path.home() / ".cache" / "providers-new"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    return str(home_dir / "providers.db")
+
+
+DB_PATH = _resolve_db_path()
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
+# === ANCHOR: CONFIG — DB PATH (end) ===
 
 # === SCHEMA (minimal, non-breaking) ===
 DDL = """
