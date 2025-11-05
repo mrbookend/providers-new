@@ -145,10 +145,10 @@ def _resolve_db_path():
     return str(CACHE_DIR / "providers.db")
 
 
-# === ANCHOR: CONFIG — DB PATH (start) ===
+# === ANCHOR: CONFIG -- DB PATH (start) ===
 DB_PATH = _resolve_db_path()
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
-# === ANCHOR: CONFIG — DB PATH (end) ===
+# === ANCHOR: CONFIG -- DB PATH (end) ===
 
 
 # === ANCHOR: PHONE UTIL (start) ===
@@ -328,7 +328,7 @@ def load_df() -> pd.DataFrame:
     """Return providers (unfiltered; we filter after computing view cols)."""
     ensure_schema()
     with ENG.connect() as cx:
-        base_sql = "SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE ASC"
+        base_sql = "SELECT * FROM vendors"
         return pd.read_sql_query(sa.text(base_sql), cx)
 
 
@@ -339,7 +339,6 @@ def _readonly_prefs_from_secrets() -> dict:
         "browse_order": list(s.get("BROWSE_ORDER", [])),
         "hide_cols": set(s.get("HIDE_COLUMNS", [])),
         "use_aggrid": int(s.get("READONLY_USE_AGGRID", 1)),
-        "always_reset": int(s.get("READONLY_ALWAYS_RESET", 1)),
         "debug_widths": int(s.get("DEBUG_READONLY_WIDTHS", 0)),
         "grid_h": int(s.get("READONLY_GRID_HEIGHT_PX", 420)),
         "font_px": int(s.get("READONLY_FONT_SIZE_PX", 14)),
@@ -433,7 +432,7 @@ with suppress(Exception):
         df.loc[~mask, "phone"] = df.loc[~mask, "phone"].map(__fmt_phone_safe)
     elif "phone" in df.columns:
         df["phone"] = df["phone"].map(__fmt_phone_safe)
-# === SEARCH / CONTROLS ROW — 1/3 search, buttons right ===
+# === SEARCH / CONTROLS ROW -- 1/3 search, buttons right ===
 
 # Build export bytes for the full dataset
 _df_base = df.copy()
@@ -514,10 +513,87 @@ _df_for_xlsx = ensure_phone_string(_df_base.copy())
 _xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
 
 # Help below the controls row
-with st.expander("Help — Browse", expanded=False):
-    st.write(
-        "Read-only viewer for the Providers list. If empty and a seed CSV is available, "
-        "the app imports it once at startup. Use the Search box for quick filtering."
+with st.expander("Help Guide", expanded=False):
+    st.markdown(
+        """
+Only recommend providers who do excellent work. If a provider's data needs an edit or update: email: randy83442@gmail.com.
+
+This list stays useful only if we all keep it accurate.
+
+## How to Use This List
+
+## The Basics
+- **Search:** Type in the box at the top to filter the list. (Press Enter if you typed a lot.)
+- **Sort:** Use **Sort by** and **Order** to change how the rows are ordered.
+- **Download:** Click **Download CSV** or **Download XLSX** to save what you're seeing.
+  - If you don't type anything in search, the download includes the **entire list**.
+
+---
+
+## Search Tips
+- The search looks through **all columns** and doesn't care about capitals.
+- Try parts of words:
+  - `roof` finds "Roofer" and "Roofing"
+  - `inverness` finds addresses/notes with Inverness
+  - `773` (or any digits) matches phone numbers with those digits
+  - `medicare` finds mentions in Notes/Keywords
+- See "**No matching providers.**"? Clear the search or try a shorter word.
+
+---
+
+## Sorting
+- **Sort by:** pick the column (Provider, Category, Service, etc.).
+- **Order:** **Ascending** (A→Z) or **Descending** (Z→A).
+- Text sorting ignores upper/lower case.
+
+---
+
+## Downloads
+- **CSV:** good for simple lists or sharing.
+- **XLSX (Excel):** good for spreadsheets.
+- Downloads reflect your **current view** (after search and sort).
+- If there's nothing showing, the download buttons are disabled.
+
+---
+
+## What You're Looking At
+- Common columns:
+  - **Provider** (business name)
+  - **Category** (main type of work)
+  - **Service** (sub-type, if used)
+  - **Contact Name**
+  - **Phone**
+  - **Address**
+  - **Website**
+  - **Notes**
+- Some columns are hidden but still searchable (e.g., internal IDs, timestamps).
+
+---
+
+## Scrolling & Layout
+- If your screen is narrow, you can scroll sideways to see more columns.
+- The table area scrolls vertically; use your mouse wheel or trackpad.
+- Long **Notes** and **Address** fields will wrap to new lines.
+
+---
+
+## If You're Not Finding What You Need
+1. Clear the search box and press Enter.
+2. Check spelling.
+3. Try a shorter part of the word (e.g., `plumb`, `medic`).
+
+---
+
+## What You Can't Do Here
+- This page is **read-only**. You can't add, edit, or delete providers here.
+- To suggest a change, email **randy83442@gmail.com**.
+
+---
+
+## Quick Keyboard Tips
+- **Tab / Shift+Tab** moves between controls.
+- **Enter** applies the search.
+        """,
     )
 
 
@@ -595,6 +671,19 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
         with suppress(Exception):
             gob.configure_column(_col, hide=True, sortable=False, filter=False, suppressMenu=True)
 
+    # Enable sorting + multi-sort
+    gob.configure_default_column(
+        suppressSizeToFit=True,
+        sortable=True,  # NEW: show sort icons on headers
+    )
+    gob.configure_grid_options(
+        suppressAutoSize=True,
+        multiSortKey="ctrl",  # NEW: hold Ctrl to add secondary/tertiary sorts
+    )
+    st.caption(
+        "Tip: Click a header to sort. Hold Ctrl while clicking another header for multi-sort (look for 1/2 badges)."
+    )
+
     # JS phone formatter in-grid (if you later use valueFormatter)
     _phone_fmt_js = JsCode(
         """function(params){
@@ -646,16 +735,17 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
             gob.configure_column(col, wrapText=True, autoHeight=True)
 
     # Layout & pagination
-    grid_opts: dict = {}
+    grid_opts = {}
     page_size = int(prefs.get("page_size", 0))
     single_page = int(prefs.get("single_page", 0))
     grid_h = int(prefs.get("grid_h", 420))
-    # If caller asked for a specific number of visible rows, compute height
+
+    # If a target number of visible rows is set, convert to pixels
     vis_rows = int(prefs.get("visible_rows", 0))
     if vis_rows > 0:
         header_px = int(prefs.get("header_px", 28))
         row_px = int(prefs.get("row_px", 28))
-        grid_h = header_px + vis_rows * row_px + 12  # padding fudge
+        grid_h = header_px + vis_rows * row_px + 12
 
     if single_page:
         grid_opts["domLayout"] = "autoHeight"
@@ -664,35 +754,19 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
         grid_opts["pagination"] = True
         grid_opts["paginationPageSize"] = page_size
 
-    # Force re-instantiation when widths change / when always_reset=1
-    always_reset = int(prefs.get("always_reset", 1))
-    _nonce = st.session_state.get("__readonly_grid_nonce__", 0)
-    if always_reset:
-        _nonce += 1
-        st.session_state["__readonly_grid_nonce__"] = _nonce
-
     opts = gob.build()
     opts.update(grid_opts)
     opts["includeHiddenColumnsInQuickFilter"] = True
 
-    # <<< KEY: hook up the quick filter to the search box >>>
+    # Hook the search box into Ag-Grid's quick filter
     if quick_term:
         opts["quickFilterText"] = quick_term
 
+    # Stable key so client-side sort persists
     if single_page or page_size > 0:
-        AgGrid(
-            df_display,
-            key=f"ro-grid-{_nonce}",
-            gridOptions=opts,
-            fit_columns_on_grid_load=False,
-        )
+        AgGrid(df_display, key="ro-grid", gridOptions=opts, fit_columns_on_grid_load=False)
     else:
-        AgGrid(
-            df_display,
-            key=f"ro-grid-{_nonce}",
-            height=grid_h,
-            gridOptions=opts,
-        )
+        AgGrid(df_display, key="ro-grid", height=grid_h, gridOptions=opts)
 
     st.markdown(
         f"<style>.stDataFrame div[role='gridcell']{{font-size:{FONT_PX}px !important}}</style>",
