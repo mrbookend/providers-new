@@ -21,7 +21,27 @@ from export_utils import ensure_phone_string, to_xlsx_bytes
 # === ANCHOR: IMPORTS (end) ===
 # === ANCHOR: PAGE CONFIG (start) ===
 st.set_page_config(page_title="Providers - Read-Only", page_icon="📘", layout="wide")
+
+
 # === ANCHOR: PAGE CONFIG (end) ===
+# === ANCHOR: PHONE UTIL (start) ===
+PHONE_NANP_LEN = 10  # digits: NPA-NXX-XXXX
+PHONE_NANP_WITH_COUNTRY = 11  # leading '1' + 10 digits
+PHONE_COUNTRY_PREFIX = "1"
+
+
+def _fmt_phone(value: object) -> str:
+    """Format to (xxx) xxx-xxxx when digits look like US/Canada NANP."""
+    s = str(value or "").strip()
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) == PHONE_NANP_WITH_COUNTRY and digits.startswith(PHONE_COUNTRY_PREFIX):
+        digits = digits[1:]
+    if len(digits) == PHONE_NANP_LEN:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    return s
+
+
+# === ANCHOR: PHONE UTIL (end) ===
 
 # === ANCHOR: WHOLE-WORD WRAP (start) ===
 # Import the real AgGrid under a private name; wrapper defined below.
@@ -374,62 +394,77 @@ def _render_table(df: pd.DataFrame) -> None:
     df2, view_cols, _hidden_cols, prefs = _apply_readonly_prefs(df)
     df = df2
     df_display = df[view_cols].copy()
+
+    # === ANCHOR: PHONE PREP (start) ===
+    # Normalize the visible "phone" column to a formatted string.
+    if "phone" in df_display.columns:
+        # Prefer the DB's phone_fmt when present; otherwise format raw digits.
+        fmt_src = (
+            df.get("phone_fmt", pd.Series("", index=df.index))
+            .astype("string")
+            .fillna("")
+            .str.strip()
+        )
+        raw_src = df.get("phone", pd.Series("", index=df.index)).astype("string").fillna("")
+        # Fill blanks in fmt_src with formatted raw digits
+        fallback = raw_src.map(_fmt_phone)
+        df_display["phone"] = fmt_src.mask(fmt_src.eq(""), fallback).astype("string")
+
+        # TEMP DEBUG (remove after you confirm)
+        st.caption("DEBUG phone head: " + ", ".join(list(df_display["phone"].head(3).astype(str))))
+    # === ANCHOR: PHONE PREP (end) ===
+
     # Keep keywords searchable, but never display them
     for _col in ("computed_keywords", "keywords"):
         if _col in df_display.columns:
             df_display.drop(columns=[_col], inplace=True)
-    # DEBUG — remove after verification
-    st.caption("DEBUG view_cols: " + ", ".join(view_cols))
-    st.caption("DEBUG df_display cols: " + ", ".join(list(df_display.columns)))
 
     # Detect AgGrid availability
-    has_aggrid = True
-    try:
-        _ = GridOptionsBuilder  # type: ignore[name-defined]
-        _ = AgGrid  # type: ignore[name-defined]
-    except NameError:
-        has_aggrid = False
-
-    # Fallback: no Ag-Grid or disabled via secrets
+    has_aggrid = _AgGrid is not None
     if not has_aggrid or not int(prefs.get("use_aggrid", 1)):
         st.dataframe(df_display, use_container_width=False, hide_index=True)
         return
 
-    # Build grid options from the display frame
+    # GridOptions via builder
     gob = GridOptionsBuilder.from_dataframe(df_display)
 
-    # Hide CKW/keywords defensively (even though we dropped them)
+    # Hide CKW/keywords defensively (even if they slipped into df_display someday)
     for _col in ("computed_keywords", "keywords"):
         with suppress(Exception):
             gob.configure_column(_col, hide=True, sortable=False, filter=False, suppressMenu=True)
 
-    # Phone display formatter (JS fallback)
-    _phone_fmt_js = JsCode("""function(params){
-      const raw=(params.value||"").toString();
-      const s=raw.replace(/\\D/g,"");
-      let t=s; if(s.length===11&&s.startsWith("1")){t=s.slice(1);}
-      if(t.length===10){return "(" + t.slice(0,3) + ") " + t.slice(3,6) + "-" + t.slice(6);}
-      return raw;
-    }""")
+    # === ANCHOR: PHONE FORMATTER (start) ===
     if "phone" in df_display.columns:
-        gob.configure_column("phone", valueFormatter=_phone_fmt_js)
+        _phone_fmt_js = JsCode(
+            """function(params){
+              const raw = (params.value || "").toString();
+              const s = raw.replace(/\\D/g,"");
+              let t = s;
+              if (s.length === 11 && s.startsWith("1")) t = s.slice(1);
+              if (t.length === 10) return "(" + t.slice(0,3) + ") " + t.slice(3,6) + "-" + t.slice(6);
+              return raw;
+            }"""
+        )
+        gob.configure_column("phone", type=["textColumn"], valueFormatter=_phone_fmt_js)
+    # === ANCHOR: PHONE FORMATTER (end) ===
 
-    # Fixed widths from secrets
-    widths = {}
+    # Width mapping (optional) from secrets
     try:
         widths = {
             str(k).strip().lower(): int(v) for k, v in dict(prefs.get("col_widths", {})).items()
         }
     except Exception:
         widths = {}
+
     gob.configure_default_column(suppressSizeToFit=True)
     gob.configure_grid_options(suppressAutoSize=True)
     for col in df_display.columns:
         lk = str(col).strip().lower()
         if lk in widths:
-            gob.configure_column(col, width=widths[lk], flex=0)
+            with suppress(Exception):
+                gob.configure_column(col, width=int(widths[lk]))
 
-    # Selective wrap for a few long text columns
+    # Selective explicit wrap (we also have defaults in wrapper)
     for _col in ("business_name", "address", "category", "service"):
         if _col in df_display.columns:
             gob.configure_column(_col, wrapText=True, autoHeight=True)
@@ -438,41 +473,16 @@ def _render_table(df: pd.DataFrame) -> None:
     grid_opts: dict = {}
     page_size = int(prefs.get("page_size", 0))
     single_page = int(prefs.get("single_page", 0))
-    header_px = int(prefs.get("header_px", 0))
+    _header_px = int(prefs.get("header_px", 0))
     grid_h = int(prefs.get("grid_h", 420))
-    font_px = int(prefs.get("font_px", 14))
+    _font_px = int(prefs.get("font_px", 14))
 
     if single_page:
         grid_opts["domLayout"] = "autoHeight"
         page_size = 0
     elif page_size > 0:
-        grid_opts["domLayout"] = "normal"
         grid_opts["pagination"] = True
         grid_opts["paginationPageSize"] = page_size
-    else:
-        grid_opts["domLayout"] = "normal"
-
-    if header_px > 0:
-        grid_opts["headerHeight"] = header_px
-
-    gob.configure_grid_options(**grid_opts)
-
-    # Quick filter (if the page defined q)
-    try:
-        quick = q  # type: ignore[name-defined]
-    except NameError:
-        quick = ""
-    opts = gob.build()
-    if quick:
-        opts["quickFilterText"] = quick
-
-    # CSS for font sizing
-    custom_css = {}
-    if font_px > 0:
-        custom_css = {
-            ".ag-root-wrapper": {"font-size": f"{font_px}px"},
-            ".ag-header-cell-label": {"font-size": f"{max(font_px - 1, 10)}px"},
-        }
 
     # Force re-instantiation when widths change / when always_reset=1
     always_reset = int(prefs.get("always_reset", 1))
@@ -480,28 +490,39 @@ def _render_table(df: pd.DataFrame) -> None:
     if always_reset:
         _nonce += 1
         st.session_state["__readonly_grid_nonce__"] = _nonce
-    _wsig = "none" if not widths else "|".join(f"{k}:{widths[k]}" for k in sorted(widths))
-    _grid_key = f"readonly-grid|w={_wsig}|n={_nonce}"
 
-    # Render
+    opts = gob.build()
+    opts.update(grid_opts)
+
     if single_page or page_size > 0:
         AgGrid(
             df_display,
+            key=f"ro-grid-{_nonce}",
             gridOptions=opts,
             fit_columns_on_grid_load=False,
-            allow_unsafe_jscode=True,
-            custom_css=custom_css,
-            key=_grid_key,
         )
     else:
         AgGrid(
             df_display,
+            key=f"ro-grid-{_nonce}",
             height=grid_h,
             gridOptions=opts,
-            fit_columns_on_grid_load=False,
-            allow_unsafe_jscode=True,
-            custom_css=custom_css,
-            key=_grid_key,
+        )
+
+    # Downloads (from what we rendered)
+    left, mid = st.columns([1, 1])
+    with left:
+        csv_bytes = df_display.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download CSV", data=csv_bytes, file_name="providers.csv", mime="text/csv"
+        )
+    with mid:
+        xlsx_bytes = to_xlsx_bytes(df_display)
+        st.download_button(
+            "Download XLSX",
+            data=xlsx_bytes,
+            file_name="providers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
