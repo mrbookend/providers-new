@@ -59,11 +59,28 @@ st.markdown(
     f"""
     <style>
       :root {{ --ro-font-size: {FONT_PX}px; }}
+
+      /* Base font sizing */
       html, body,
       [data-testid="stAppViewContainer"],
       .block-container {{
         font-size: var(--ro-font-size) !important;
         line-height: 1.35 !important;
+      }}
+
+      /* MINIMIZE TOP GAP ABOVE CONTENT */
+      /* Remove Streamlit header chrome height */
+      div[data-testid="stHeader"] {{
+        height: 0px !important;
+        min-height: 0px !important;
+      }}
+      /* Slim the main block's top padding */
+      [data-testid="stAppViewContainer"] > .main .block-container {{
+        padding-top: 0.25rem !important;   /* tweak smaller if you want */
+      }}
+      /* Optional: hide the toolbar (⋮ menu) to reclaim a few pixels */
+      div[data-testid="stToolbar"] {{
+        display: none !important;
       }}
     </style>
     """,
@@ -210,11 +227,6 @@ if _AgGrid is not None:
         dcol.setdefault("autoHeight", True)
         go["defaultColDef"] = dcol
 
-        go.setdefault("domLayout", "autoHeight")
-        go.setdefault("onFirstDataRendered", JS_RESET_ROW_HEIGHTS)
-        go.setdefault("onFilterChanged", JS_RESET_ROW_HEIGHTS)
-        go.setdefault("onColumnResized", JS_RESET_ROW_HEIGHTS)
-
         user_css = dict(kwargs.pop("custom_css", {}) or {})
         merged_css = dict(DEFAULT_WRAP_CSS)
         merged_css.update(user_css)
@@ -335,6 +347,9 @@ def _readonly_prefs_from_secrets() -> dict:
         "header_px": int(s.get("READONLY_HEADER_HEIGHT_PX", 28)),
         "single_page": int(s.get("READONLY_SINGLE_PAGE", 0)),
         "col_widths": dict(s.get("COLUMN_WIDTHS_PX_READONLY", {})),
+        # NEW:
+        "visible_rows": int(s.get("READONLY_VISIBLE_ROWS", 0)),
+        "row_px": int(s.get("READONLY_ROW_PX", 28)),
     }
 
 
@@ -381,27 +396,6 @@ def _apply_readonly_prefs(df: pd.DataFrame):
     return df2, view_cols, hidden_cols, prefs
 
 
-# === SEARCH / CONTROLS ROW ===
-controls_left, controls_right_csv, controls_right_xlsx = st.columns([2, 1, 1])
-
-
-def __on_search_enter__():
-    term = (st.session_state.get("__search_box__", "") or "").strip()
-    st.session_state["__search_term__"] = term
-    st.session_state["__search_box__"] = ""
-
-
-with controls_left:
-    st.text_input(
-        label="Search",
-        key="__search_box__",
-        placeholder="Search by name, category, service, etc.",
-        label_visibility="visible",  # make it obvious
-        on_change=__on_search_enter__,
-    )
-
-q = (st.session_state.pop("__search_term__", "") or "").strip()
-
 # Bootstrap if needed, then load
 _msg = _bootstrap_from_csv_if_needed()
 df = load_df()
@@ -439,11 +433,75 @@ with suppress(Exception):
         df.loc[~mask, "phone"] = df.loc[~mask, "phone"].map(__fmt_phone_safe)
     elif "phone" in df.columns:
         df["phone"] = df["phone"].map(__fmt_phone_safe)
+# === SEARCH / CONTROLS ROW — 1/3 search, buttons right ===
+
+# Build export bytes for the full dataset
+_df_base = df.copy()
+_df_for_csv = _df_base.copy()
+if "phone" in _df_for_csv.columns and "phone_fmt" in _df_for_csv.columns:
+    _df_for_csv["phone"] = _df_for_csv["phone_fmt"].where(
+        _df_for_csv["phone_fmt"].astype(str).str.len() > 0, _df_for_csv["phone"]
+    )
+_csv_bytes = _df_for_csv.to_csv(index=False).encode("utf-8")
+_df_for_xlsx = ensure_phone_string(_df_base.copy())
+_xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
+
+# Layout: [left=1/3 search] [middle=1/3 spacer] [right=1/3 buttons]
+col_search, col_spacer, col_right = st.columns([4, 4, 4])
+
+
+def __on_search_enter__():
+    term = (st.session_state.get("__search_box__", "") or "").strip()
+    st.session_state["__search_term__"] = term
+    st.session_state["__search_box__"] = ""
+
+
+with col_search:
+    st.text_input(
+        label="Search",
+        key="__search_box__",
+        placeholder="Search by name, category, service, etc.",
+        label_visibility="collapsed",
+        on_change=__on_search_enter__,
+    )
+
+# Right-justify the two small buttons by nesting two columns inside the rightmost third
+with col_right:
+    btn_l, btn_r = st.columns([1, 1])
+    with btn_l:
+        st.download_button(
+            label="CSV",
+            data=_csv_bytes,
+            file_name="providers.csv",
+            mime="text/csv",
+            key="dl_csv_top",
+            use_container_width=True,
+        )
+    with btn_r:
+        st.download_button(
+            label="XLSX",
+            data=_xlsx_bytes,
+            file_name="providers.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_xlsx_top",
+            use_container_width=True,
+        )
+
+# Make the buttons visually small (scoped CSS)
+st.markdown(
+    "<style>.stDownloadButton button{padding:0.25rem 0.5rem;font-size:0.85rem;}</style>",
+    unsafe_allow_html=True,
+)
+
+# Pull the search term (if Enter was pressed)
+q = (st.session_state.pop("__search_term__", "") or "").strip()
 
 # === DOWNLOADS (built from the CURRENT frame we will render; no silent suppression) ===
 _df_base = df.copy()
+# --- Build export bytes for the full dataset (not just current view) ---
+if "_df_base" not in locals():
+    _df_base = df.copy()
 
-# CSV
 _df_for_csv = _df_base.copy()
 if "phone" in _df_for_csv.columns and "phone_fmt" in _df_for_csv.columns:
     _df_for_csv["phone"] = _df_for_csv["phone_fmt"].where(
@@ -451,26 +509,9 @@ if "phone" in _df_for_csv.columns and "phone_fmt" in _df_for_csv.columns:
         _df_for_csv["phone"],
     )
 _csv_bytes = _df_for_csv.to_csv(index=False).encode("utf-8")
-controls_right_csv.download_button(
-    label="Download CSV",
-    data=_csv_bytes,
-    file_name="providers.csv",
-    mime="text/csv",
-    key="browse_dl_csv",
-    use_container_width=False,
-)
 
-# XLSX
 _df_for_xlsx = ensure_phone_string(_df_base.copy())
 _xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
-controls_right_xlsx.download_button(
-    label="Download Excel",
-    data=_xlsx_bytes,
-    file_name="providers.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    key="browse_dl_xlsx",
-    use_container_width=False,
-)
 
 # Help below the controls row
 with st.expander("Help — Browse", expanded=False):
@@ -496,6 +537,8 @@ def _filter_for_dataframe(df_display: pd.DataFrame, term: str) -> pd.DataFrame:
             "address",
             "email",
             "notes",
+            "computed_keywords",
+            "keywords",
         ]
         if c in df_display.columns
     ]
@@ -514,6 +557,10 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
     df2, view_cols, _hidden_cols, prefs = _apply_readonly_prefs(df)
     df = df2
     df_display = df[view_cols].copy()
+    # Include hidden search-only columns so quick filter can see them
+    for _c in ("computed_keywords", "keywords"):
+        if _c in df.columns and _c not in df_display.columns:
+            df_display[_c] = df[_c]
 
     # === ANCHOR: PHONE PREP (start) ===
     if "phone" in df_display.columns:
@@ -527,18 +574,17 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
         fallback = raw_src.map(__fmt_phone_safe)
         df_display["phone"] = fmt_src.mask(fmt_src.eq(""), fallback).astype("string")
     # === ANCHOR: PHONE PREP (end) ===
-
-    # Keep keywords searchable, but never display them
-    for _col in ("computed_keywords", "keywords"):
-        if _col in df_display.columns:
-            df_display.drop(columns=[_col], inplace=True)
-
     has_aggrid = _AgGrid is not None and int(prefs.get("use_aggrid", 1)) == 1
 
     if not has_aggrid:
-        # Fallback dataframe with manual filtering
+        grid_h = int(prefs.get("grid_h", 420))
+        vis_rows = int(prefs.get("visible_rows", 0))
+        if vis_rows > 0:
+            header_px = int(prefs.get("header_px", 28))
+            row_px = int(prefs.get("row_px", 28))
+            grid_h = header_px + vis_rows * row_px + 12
         df_filtered = _filter_for_dataframe(df_display, quick_term)
-        st.dataframe(df_filtered, use_container_width=False, hide_index=True)
+        st.dataframe(df_filtered, height=grid_h, use_container_width=False, hide_index=True)
         return
 
     # GridOptions via builder
@@ -604,6 +650,12 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
     page_size = int(prefs.get("page_size", 0))
     single_page = int(prefs.get("single_page", 0))
     grid_h = int(prefs.get("grid_h", 420))
+    # If caller asked for a specific number of visible rows, compute height
+    vis_rows = int(prefs.get("visible_rows", 0))
+    if vis_rows > 0:
+        header_px = int(prefs.get("header_px", 28))
+        row_px = int(prefs.get("row_px", 28))
+        grid_h = header_px + vis_rows * row_px + 12  # padding fudge
 
     if single_page:
         grid_opts["domLayout"] = "autoHeight"
@@ -621,6 +673,7 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
 
     opts = gob.build()
     opts.update(grid_opts)
+    opts["includeHiddenColumnsInQuickFilter"] = True
 
     # <<< KEY: hook up the quick filter to the search box >>>
     if quick_term:
@@ -645,25 +698,6 @@ def _render_table(df: pd.DataFrame, quick_term: str) -> None:
         f"<style>.stDataFrame div[role='gridcell']{{font-size:{FONT_PX}px !important}}</style>",
         unsafe_allow_html=True,
     )
-
-    # Optional secondary downloads from the currently shown columns
-    left, mid = st.columns([1, 1])
-    with left:
-        csv_bytes = df_display.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download CSV (view)",
-            data=csv_bytes,
-            file_name="providers_view.csv",
-            mime="text/csv",
-        )
-    with mid:
-        xlsx_bytes = to_xlsx_bytes(df_display)
-        st.download_button(
-            "Download XLSX (view)",
-            data=xlsx_bytes,
-            file_name="providers_view.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
 
 
 # === MAIN ===
