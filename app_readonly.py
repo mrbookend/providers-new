@@ -4,12 +4,11 @@ from __future__ import annotations
 
 # === ANCHOR: IMPORTS (start) ===
 # stdlib
+import io
 import os
 import os as _os
 import tempfile as _tempfile
 from contextlib import suppress
-
-# === HCR: WRITABLE DIR HELPERS (readonly) ===
 from pathlib import Path, Path as _Path
 
 # third-party
@@ -18,8 +17,38 @@ import sqlalchemy as sa
 import streamlit as st
 from st_aggrid import GridOptionsBuilder, JsCode
 
-# local
-from export_utils import ensure_phone_string, to_xlsx_bytes
+# --- Export helpers (with failsafes) ---
+try:
+    from export_utils import ensure_phone_string, to_xlsx_bytes  # type: ignore
+except Exception:
+
+    def ensure_phone_string(df: pd.DataFrame) -> pd.DataFrame:
+        out = df.copy()
+        if "phone" in out.columns:
+            out["phone"] = out["phone"].astype(str)
+        return out
+
+    def to_xlsx_bytes(df: pd.DataFrame, text_cols: tuple[str, ...] = ()) -> bytes:
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as xw:
+            # Force text for specified columns
+            if text_cols:
+                df2 = df.copy()
+                for c in text_cols:
+                    if c in df2.columns:
+                        df2[c] = df2[c].astype(str)
+                df2.to_excel(xw, sheet_name="providers", index=False)
+            else:
+                df.to_excel(xw, sheet_name="providers", index=False)
+        buf.seek(0)
+        return buf.read()
+# === ANCHOR: IMPORTS (end) ===
+
+
+# === ANCHOR: PAGE CONFIG (start) ===
+st.set_page_config(page_title="Providers - Read-Only", page_icon="📘", layout="wide")
+# === ANCHOR: PAGE CONFIG (end) ===
+
 
 # === FONT SIZE (from secrets) ===
 try:
@@ -42,6 +71,7 @@ st.markdown(
 )
 
 
+# === HCR: WRITABLE DIR HELPERS (readonly) ===
 def _pick_writable_dir(cands):
     for base in cands:
         try:
@@ -98,19 +128,11 @@ def _resolve_db_path():
     return str(CACHE_DIR / "providers.db")
 
 
-# === HCR: WRITABLE DIR HELPERS (readonly) END ===
-
-
 # === ANCHOR: CONFIG — DB PATH (start) ===
 DB_PATH = _resolve_db_path()
 ENG = sa.create_engine(f"sqlite:///{DB_PATH}", pool_pre_ping=True)
 # === ANCHOR: CONFIG — DB PATH (end) ===
 
-
-# === ANCHOR: IMPORTS (end) ===
-# === ANCHOR: PAGE CONFIG (start) ===
-st.set_page_config(page_title="Providers - Read-Only", page_icon="📘", layout="wide")
-# === ANCHOR: PAGE CONFIG (end) ===
 
 # === ANCHOR: PHONE UTIL (start) ===
 PHONE_NANP_LEN = 10  # digits: NPA-NXX-XXXX
@@ -128,6 +150,7 @@ def _strip_extension(s: str) -> str:
 
 
 # === ANCHOR: PHONE UTIL (end) ===
+
 
 # === ANCHOR: WHOLE-WORD WRAP (start) ===
 try:
@@ -289,8 +312,8 @@ def _bootstrap_from_csv_if_needed() -> str:
 
 # === DATA LOAD ===
 @st.cache_data(show_spinner=False)
-def load_df(q: str) -> pd.DataFrame:
-    """Return providers (optionally filtered later in-grid)."""
+def load_df() -> pd.DataFrame:
+    """Return providers (unfiltered; we filter after computing view cols)."""
     ensure_schema()
     with ENG.connect() as cx:
         base_sql = "SELECT * FROM vendors ORDER BY business_name COLLATE NOCASE ASC"
@@ -373,7 +396,7 @@ with controls_left:
         label="Search",
         key="__search_box__",
         placeholder="Search by name, category, service, etc.",
-        label_visibility="collapsed",
+        label_visibility="visible",  # make it obvious
         on_change=__on_search_enter__,
     )
 
@@ -381,7 +404,7 @@ q = (st.session_state.pop("__search_term__", "") or "").strip()
 
 # Bootstrap if needed, then load
 _msg = _bootstrap_from_csv_if_needed()
-df = load_df(q)
+df = load_df()
 
 
 # --- safety shim so we never crash if _fmt_phone isn't present ---
@@ -391,14 +414,12 @@ def __fmt_phone_safe(val: object) -> str:
     except NameError:
         # inline fallback formatter (NANP)
         s = str(val or "").strip()
-        # strip common extension markers
         lower = s.lower()
         for mark in (" ext.", " ext ", " ext:", " x", " x.", " ext", " extension "):
             i = lower.find(mark)
             if i != -1:
                 s = s[:i]
                 break
-        # drop float-like tails (".0", ".000")
         if "." in s:
             head, tail = s.split(".", 1)
             if head.strip().isdigit() and set(tail.strip()) <= {"0"}:
@@ -419,47 +440,75 @@ with suppress(Exception):
     elif "phone" in df.columns:
         df["phone"] = df["phone"].map(__fmt_phone_safe)
 
-# === DOWNLOADS (built from the filtered frame we render) ===
+# === DOWNLOADS (built from the CURRENT frame we will render; no silent suppression) ===
 _df_base = df.copy()
-with suppress(Exception):
-    # CSV
-    _df_for_csv = _df_base.copy()
-    if "phone" in _df_for_csv.columns and "phone_fmt" in _df_for_csv.columns:
-        _df_for_csv["phone"] = _df_for_csv["phone_fmt"].where(
-            _df_for_csv["phone_fmt"].astype(str).str.len() > 0,
-            _df_for_csv["phone"],
-        )
-    _csv_bytes = _df_for_csv.to_csv(index=False).encode("utf-8")
-    controls_right_csv.download_button(
-        label="Download CSV",
-        data=_csv_bytes,
-        file_name="providers.csv",
-        mime="text/csv",
-        key="browse_dl_csv",
-        use_container_width=False,
-    )
 
-    # XLSX
-    _df_for_xlsx = ensure_phone_string(_df_base.copy())
-    _xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
-    controls_right_xlsx.download_button(
-        label="Download Excel",
-        data=_xlsx_bytes,
-        file_name="providers.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="browse_dl_xlsx",
-        use_container_width=False,
+# CSV
+_df_for_csv = _df_base.copy()
+if "phone" in _df_for_csv.columns and "phone_fmt" in _df_for_csv.columns:
+    _df_for_csv["phone"] = _df_for_csv["phone_fmt"].where(
+        _df_for_csv["phone_fmt"].astype(str).str.len() > 0,
+        _df_for_csv["phone"],
     )
+_csv_bytes = _df_for_csv.to_csv(index=False).encode("utf-8")
+controls_right_csv.download_button(
+    label="Download CSV",
+    data=_csv_bytes,
+    file_name="providers.csv",
+    mime="text/csv",
+    key="browse_dl_csv",
+    use_container_width=False,
+)
+
+# XLSX
+_df_for_xlsx = ensure_phone_string(_df_base.copy())
+_xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
+controls_right_xlsx.download_button(
+    label="Download Excel",
+    data=_xlsx_bytes,
+    file_name="providers.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    key="browse_dl_xlsx",
+    use_container_width=False,
+)
 
 # Help below the controls row
 with st.expander("Help — Browse", expanded=False):
     st.write(
-        "Read-only viewer for the Providers list. Database path is resolved to a writable "
-        "location. If empty and a seed CSV is available, the app imports it once at startup."
+        "Read-only viewer for the Providers list. If empty and a seed CSV is available, "
+        "the app imports it once at startup. Use the Search box for quick filtering."
     )
 
 
-def _render_table(df: pd.DataFrame) -> None:
+def _filter_for_dataframe(df_display: pd.DataFrame, term: str) -> pd.DataFrame:
+    """Case-insensitive contains across common text columns (fallback mode)."""
+    if not term:
+        return df_display
+    hay_cols = [
+        c
+        for c in [
+            "business_name",
+            "category",
+            "service",
+            "contact_name",
+            "phone",
+            "website",
+            "address",
+            "email",
+            "notes",
+        ]
+        if c in df_display.columns
+    ]
+    if not hay_cols:
+        return df_display
+    t = term.lower()
+    mask = False
+    for c in hay_cols:
+        mask = mask | df_display[c].astype(str).str.lower().str.contains(t, na=False)
+    return df_display[mask]
+
+
+def _render_table(df: pd.DataFrame, quick_term: str) -> None:
     """Render read-only table using Ag-Grid when available; fallback to st.dataframe."""
     # Apply prefs and compute display frame (also remaps phone <- phone_fmt, hides must-hide)
     df2, view_cols, _hidden_cols, prefs = _apply_readonly_prefs(df)
@@ -484,51 +533,45 @@ def _render_table(df: pd.DataFrame) -> None:
         if _col in df_display.columns:
             df_display.drop(columns=[_col], inplace=True)
 
-    # Detect AgGrid availability
-    has_aggrid = _AgGrid is not None
-    if not has_aggrid or not int(prefs.get("use_aggrid", 1)):
-        st.dataframe(df_display, use_container_width=False, hide_index=True)
+    has_aggrid = _AgGrid is not None and int(prefs.get("use_aggrid", 1)) == 1
+
+    if not has_aggrid:
+        # Fallback dataframe with manual filtering
+        df_filtered = _filter_for_dataframe(df_display, quick_term)
+        st.dataframe(df_filtered, use_container_width=False, hide_index=True)
         return
 
     # GridOptions via builder
     gob = GridOptionsBuilder.from_dataframe(df_display)
 
-    # Hide CKW/keywords defensively
+    # Hide CKW/keywords defensively (even though we already dropped them)
     for _col in ("computed_keywords", "keywords"):
         with suppress(Exception):
             gob.configure_column(_col, hide=True, sortable=False, filter=False, suppressMenu=True)
 
+    # JS phone formatter in-grid (if you later use valueFormatter)
     _phone_fmt_js = JsCode(
         """function(params){
       const raw = (params.value ?? "").toString();
-
-      // strip extension markers before parsing
       const extMarks = [" ext.", " ext ", " ext:", " x", " x.", " ext", " extension "];
       let base = raw;
       for (const m of extMarks){
         const idx = base.toLowerCase().indexOf(m);
-        if (idx !== -1){ base = base.slice(0, idx)
-                break; }
+        if (idx !== -1){ base = base.slice(0, idx); break; }
       }
-
-      // If it looks like "##########.0" (or .000), drop the decimal part first
       if (base.includes(".")) {
         const parts = base.split(".");
         const head = parts[0].trim(), tail = parts.slice(1).join(".").trim();
         if (/^\\d+$/.test(head) && /^0*$/.test(tail)) base = head;
       }
-
       const s = (base.match(/\\d/g) || []).join("");
-
       let core = "";
       if (s.length === 11 && s.startsWith("1")) core = s.slice(1);
       else if (s.length === 10) core = s;
       else {
-        // If there's extra and it starts with 1, peel one leading '1'
         const t = s.startsWith("1") ? s.slice(1) : s;
         if (t.length === 10) core = t;
       }
-
       if (core.length === 10) {
         return "(" + core.slice(0,3) + ") " + core.slice(3,6) + "-" + core.slice(6);
       }
@@ -546,24 +589,21 @@ def _render_table(df: pd.DataFrame) -> None:
 
     gob.configure_default_column(suppressSizeToFit=True)
     gob.configure_grid_options(suppressAutoSize=True)
+
     for col in df_display.columns:
         lk = str(col).strip().lower()
         if lk in widths:
             with suppress(Exception):
                 gob.configure_column(col, width=int(widths[lk]))
-
-    # Selective explicit wrap
-    for _col in ("business_name", "address", "category", "service"):
-        if _col in df_display.columns:
-            gob.configure_column(_col, wrapText=True, autoHeight=True)
+        # reasoned defaults for wrapping
+        if col in ("business_name", "address", "category", "service"):
+            gob.configure_column(col, wrapText=True, autoHeight=True)
 
     # Layout & pagination
     grid_opts: dict = {}
     page_size = int(prefs.get("page_size", 0))
     single_page = int(prefs.get("single_page", 0))
-    _header_px = int(prefs.get("header_px", 0))
     grid_h = int(prefs.get("grid_h", 420))
-    _font_px = int(prefs.get("font_px", 14))
 
     if single_page:
         grid_opts["domLayout"] = "autoHeight"
@@ -581,6 +621,10 @@ def _render_table(df: pd.DataFrame) -> None:
 
     opts = gob.build()
     opts.update(grid_opts)
+
+    # <<< KEY: hook up the quick filter to the search box >>>
+    if quick_term:
+        opts["quickFilterText"] = quick_term
 
     if single_page or page_size > 0:
         AgGrid(
@@ -602,22 +646,25 @@ def _render_table(df: pd.DataFrame) -> None:
         unsafe_allow_html=True,
     )
 
-    # Downloads (from what we rendered)
+    # Optional secondary downloads from the currently shown columns
     left, mid = st.columns([1, 1])
     with left:
         csv_bytes = df_display.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "Download CSV", data=csv_bytes, file_name="providers.csv", mime="text/csv"
+            "Download CSV (view)",
+            data=csv_bytes,
+            file_name="providers_view.csv",
+            mime="text/csv",
         )
     with mid:
         xlsx_bytes = to_xlsx_bytes(df_display)
         st.download_button(
-            "Download XLSX",
+            "Download XLSX (view)",
             data=xlsx_bytes,
-            file_name="providers.xlsx",
+            file_name="providers_view.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
 # === MAIN ===
-_render_table(df)
+_render_table(df, q)
