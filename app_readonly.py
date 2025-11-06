@@ -533,12 +533,11 @@ Only recommend providers who do excellent work. If a provider's data needs an ed
 
 This list stays useful only if we all keep it accurate.
 
-## How to Use This List
 
 ## The Basics
-- **Search:** Type in the box at the top to filter the list. (Press Enter if you typed a lot.)
-- **Sort:** Use **Sort by** and **Order** to change how the rows are ordered.
-- **Download:** Click **Download CSV** or **Download XLSX** to save what you're seeing.
+- **Search:** Type in the box at the top to filter the list. Partial words allowed.  Not case sensitive.
+- **Sort:** Click on column headings to change sort order ascending or descending.
+- **Download:** Click **CSV** or **XLSX** to save what you're seeing.
   - If you don't type anything in search, the download includes the **entire list**.
 
 ---
@@ -549,15 +548,8 @@ This list stays useful only if we all keep it accurate.
   - `roof` finds "Roofer" and "Roofing"
   - `inverness` finds addresses/notes with Inverness
   - `773` (or any digits) matches phone numbers with those digits
-  - `medicare` finds mentions in Notes/Keywords
+
 - See "**No matching providers.**"? Clear the search or try a shorter word.
-
----
-
-## Sorting
-- **Sort by:** pick the column (Provider, Category, Service, etc.).
-- **Order:** **Ascending** (A→Z) or **Descending** (Z→A).
-- Text sorting ignores upper/lower case.
 
 ---
 
@@ -579,7 +571,7 @@ This list stays useful only if we all keep it accurate.
   - **Address**
   - **Website**
   - **Notes**
-- Some columns are hidden but still searchable (e.g., internal IDs, timestamps).
+- Some columns are hidden but still searchable (e.g., internal IDs, timestamps, computer generated keywords).
 
 ---
 
