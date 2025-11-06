@@ -526,7 +526,7 @@ _df_for_xlsx = ensure_phone_string(_df_base.copy())
 _xlsx_bytes = to_xlsx_bytes(_df_for_xlsx, text_cols=("phone", "zip"))
 
 # Help below the controls row
-with st.expander("Help Guide", expanded=False):
+with st.expander("Help Guide — Total of 9 columns scroll to right to see all", expanded=False):
     st.markdown(
         """
 Only recommend providers who do excellent work. If a provider's data needs an edit or update: email: randy83442@gmail.com.
